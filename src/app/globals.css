@@ -2157,33 +2157,32 @@ label.auth-row-label { cursor: pointer; }
   .fin-section-title { display: none; }
 }
 
-/* ─── Виды реестра у заголовка: «Реестр · Таблица · Разовые» ───
-   Выбранный вид — заголовок раздела, соседние — рядом, мельче и плотнее.
-   Состояние — размер и вес, не цвет и не плашка (правило индикаторов).
+/* ─── Реестр и его виды: «Реестр   Карточки · Таблица» ───
+   Заголовок — реестр («Реестр», «Разовые ЮО»), рядом — виды. Выбранный вид —
+   весом и чертой под словом, не цветом и не плашкой (правило индикаторов).
    Порядок постоянный: переключение не переставляет слова местами. */
-.fin-title-row { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 1.25rem; row-gap: 0.25rem; }
-.fin-title-alt {
-  padding: 0;
+.fin-reg-title { justify-content: flex-start; align-items: baseline; column-gap: 2rem; }
+.fin-views { display: flex; align-items: baseline; gap: 1.25rem; }
+.fin-view {
+  padding: 0.2rem 0;
   border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
   background: none;
   font: inherit;
-  font-size: 1.25rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.05;
+  font-size: 0.9375rem;
+  font-weight: 450;
+  letter-spacing: -0.01em;
   color: var(--fin-text-soft);
   cursor: pointer;
-  text-decoration: underline;
-  text-decoration-color: transparent;
-  text-underline-offset: 0.25em;
-  transition: color var(--dur-fast) var(--ease-out), text-decoration-color var(--dur-fast) var(--ease-out);
+  transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
-.fin-title-alt:hover { color: var(--fin-text); text-decoration-color: currentColor; }
-.fin-title-alt:focus-visible { outline: 2px solid var(--fin-text); outline-offset: 3px; border-radius: 4px; }
+.fin-view:hover { color: var(--fin-text); }
+.fin-view[aria-current="page"] { font-weight: 650; color: var(--fin-text); border-bottom-color: currentColor; }
+.fin-view:focus-visible { outline: 2px solid var(--fin-text); outline-offset: 3px; }
 /* Узкое окно: заголовков нет — виды встают своим рядом под лентой разделов. */
 .fin-modes { display: none; }
 @media (max-width: 767.98px) {
-  .fin-title-row { display: none; }
   .fin-modes { display: flex; gap: 1rem; padding: 0.5rem 0 0.75rem; }
   .fin-mode {
     padding: 0.25rem 0;
@@ -2591,6 +2590,11 @@ html:has(.usheet) { overscroll-behavior-x: none; }
   --fin-flash-hex:     #eceade;
   --fin-fail-hex:      #c2331f;
   --fin-fail-bg-hex:   #f7e3dc;
+  /* Строка «исполнен» в листе «Разовых» — как условное форматирование книги
+     юротдела (там #93C47D), тоном тише под бумагу листа. */
+  --fin-done-hex:      #c3dcb2;
+  /* Уголок заметки ячейки (флажок «учтено») — тушью, не жёлтым Univer. */
+  --fin-mark-hex:      #6b6a60;
   --z-fin-card:        90;
   --z-fin-pop:         100;
   --z-fin-confirm:     110;
@@ -2606,6 +2610,8 @@ html:has(.usheet) { overscroll-behavior-x: none; }
   --fin-flash-hex:     #232521;
   --fin-fail-hex:      #ff6f5e;
   --fin-fail-bg-hex:   #2a1a17;
+  --fin-done-hex:      #26361f;
+  --fin-mark-hex:      #9d9a86;
 }
 
 .fin-mono {
@@ -3179,14 +3185,20 @@ textarea.ifield-input { resize: vertical; field-sizing: content; min-height: 4.5
 .creg-look-reset { flex: none; margin-top: 0.25rem; font-size: 0.8125rem; }
 /* Подсказка ячейки листа реестра — вместо заметки Univer: текст замечания,
    «Учтено» и «Открыть договор». Встаёт под ячейкой (у низа окна — над ней). */
+/* Слой встаёт вплотную к ячейке, а видимая плашка — с отступом внутри слоя:
+   прозрачная полоса сверху — мостик, по которому мышь идёт от ячейки к
+   «Учтено», не задевая соседних ячеек (подсказка раньше гасла на полпути). */
 .creg-hint {
   position: fixed;
   z-index: 60;
+  padding: 6px 0;
+  max-width: min(400px, calc(100vw - 24px));
+}
+.creg-hint-body {
   display: grid;
-  gap: 0.4rem;
-  max-width: min(380px, calc(100vw - 24px));
+  gap: 0.45rem;
   padding: 0.6rem 0.75rem;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid var(--fin-line);
   background: var(--fin-plate);
   color: var(--fin-text);
@@ -3194,6 +3206,17 @@ textarea.ifield-input { resize: vertical; field-sizing: content; min-height: 4.5
   font-size: 0.8125rem;
   line-height: 1.4;
 }
+.creg-hint-text { margin: 0; color: var(--fin-text-soft); }
+.creg-hint-issue { display: grid; gap: 0.2rem; }
+.creg-hint-issue:not([data-ack="true"]) > .creg-hint-line > span { color: var(--fin-fail); }
+.creg-hint-flag {
+  margin-right: 0.45rem;
+  font-family: var(--font-martian), ui-monospace, monospace;
+  font-variation-settings: "wdth" 87.5;
+  font-size: 0.6875rem;
+  color: var(--fin-text-soft);
+}
+.creg-hint .issue-others { margin: 0; }
 .creg-hint-line { display: flex; align-items: baseline; gap: 0.75rem; justify-content: space-between; }
 .creg-hint-ack {
   flex: none;
@@ -3303,6 +3326,21 @@ textarea.ifield-input { resize: vertical; field-sizing: content; min-height: 4.5
 .fin-head-person-icon:hover { background: var(--fin-neutral-soft); }
 
 .fin-denied { padding: 1.5rem 0.25rem; font-size: 0.9375rem; color: var(--fin-text-soft); }
+
+/* Сотрудник без единого раздела: главный экран, колонка пустая, на месте
+   раздела — отказ словами. Тушью, без цвета: это не авария, а ожидание права. */
+.fin-nosections { display: grid; gap: 0.5rem; justify-items: start; max-width: 36rem; padding: 0.5rem 0.25rem 2rem; }
+.fin-nosections-line { margin: 0; font-size: 1.125rem; color: var(--fin-text); }
+.fin-nosections-sub { margin: 0 0 0.5rem; font-size: 0.875rem; color: var(--fin-text-soft); }
+.fin-nosections .fin-link-btn { font-size: 0.875rem; }
+.fin-nav-empty { display: flex; align-items: center; min-height: 2.25rem; padding: 0 0.5rem; font-size: 0.8125rem; color: var(--text-muted); overflow: hidden; }
+
+/* Карточка договора другого отдела — строка под сторонами. */
+.card-readonly { margin: 0.75rem 0 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
+/* Договоры, о которых замечание («номер уже есть у …»): ссылки под текстом. */
+.issue-others { display: grid; gap: 0.15rem; margin-top: 0.25rem; }
+.issue-other { font-size: 0.8125rem; color: var(--fin-text); }
+.card-issue .issue-others { color: var(--fin-text); }
 
 /* Кабинет отдаёт себе плиту целиком: колонки разделов нет. */
 .fin-plate[data-cabinet="true"] { display: block; }
