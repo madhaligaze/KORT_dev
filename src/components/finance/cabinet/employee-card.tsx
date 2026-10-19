@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 
-import { can, isOwner } from "@/components/finance/access";
+import { can, headOnly, isOwner } from "@/components/finance/access";
 import { type Department, type EmployeeRow, type Me, type SubjectAccess, peopleApi } from "@/components/finance/api";
 import { ActionFeed } from "@/components/finance/cabinet/action-feed";
 import { EditLine } from "@/components/finance/cabinet/edit-line";
 import { RightsMatrix } from "@/components/finance/cabinet/rights";
 import { SessionsList } from "@/components/finance/cabinet/sessions-list";
 import { ROLE_TITLES, employeeStatus, stamp } from "@/components/finance/cabinet/status";
-import { shortName } from "@/components/finance/format";
+import { departmentLabel, shortName } from "@/components/finance/format";
 import { CardLayer } from "@/components/finance/ui/card-layer";
 import { ConfirmDialog } from "@/components/finance/ui/confirm-dialog";
 import { PhoneInput, formatPhone, phoneValue } from "@/components/finance/ui/phone-input";
@@ -18,17 +18,17 @@ import { ArrowDownIcon, ArrowUpIcon, CloseIcon } from "@/components/icons";
 import { useSessionState } from "@/components/session-state";
 
 /**
- * Карточка сотрудника — по центру, как карточка договора (фронт-план, 6.9).
+ * Карточка сотрудника - по центру, как карточка договора (фронт-план, 6.9).
  *
- * Статус — одна строка словами. Главной кнопкой становится то, что нужно
+ * Статус - одна строка словами. Главной кнопкой становится то, что нужно
  * сейчас: «Сбросить пароль» при запросе, «Открыть доступ снова» при
- * истёкшем окне, «Открыть вход» у человека без доступа. Опасное — через
+ * истёкшем окне, «Открыть вход» у человека без доступа. Опасное - через
  * подтверждение, текст которого говорит последствие заранее.
  *
  * Администратор не видит «Сбросить пароль» у владельца и других
  * администраторов; пароль владельца сбрасывается только на сервере.
  *
- * Учётка ждёт пароль — главной становится «Скопировать приглашение»: вход
+ * Учётка ждёт пароль - главной становится «Скопировать приглашение»: вход
  * открыт, но человек об этом не знает, и спрашивать ему было не с чего
  * («откуда я знаю какой пароль», 26.09). Ссылка открывает вход сразу на
  * «Придумайте пароль» с номером.
@@ -38,7 +38,7 @@ type Confirm = "reset" | "block" | "end" | "close-access" | "archive" | null;
 
 const WINDOW_HOURS = 72;
 
-/** Открытых разделов у человека — без полей договора: они не раздел. */
+/** Открытых разделов у человека - без полей договора: они не раздел. */
 function openSections(data: SubjectAccess): number {
   return Object.entries(data.effective).filter(([key, level]) => !key.startsWith("contracts.field.") && level !== "none")
     .length;
@@ -52,7 +52,7 @@ function inviteText(employee: EmployeeRow, company: string): string {
     `Вам открыт вход в учёт${company ? ` «${company}»` : ""}.`,
     `Откройте ссылку и придумайте пароль${until}:`,
     link,
-    `Логин — ваш номер ${formatPhone(employee.phone)}.`,
+    `Логин - ваш номер ${formatPhone(employee.phone)}.`,
   ].join("\n");
 }
 
@@ -76,8 +76,8 @@ export function EmployeeCard({
   onChanged: (row: EmployeeRow) => void;
 }) {
   // Вкладка карточки и начатое «Открыть вход» переживают перезагрузку
-  // (`session-state.tsx`). Форма входа — своя у каждого сотрудника: ключ
-  // сменился — значение перечитано, сбрасывать её эффектом не нужно (эффект
+  // (`session-state.tsx`). Форма входа - своя у каждого сотрудника: ключ
+  // сменился - значение перечитано, сбрасывать её эффектом не нужно (эффект
   // стёр бы и восстановленное).
   const [tab, setTab] = useSessionState<Tab>("emp.tab", "profile");
   const [confirm, setConfirm] = useState<Confirm>(null);
@@ -86,7 +86,14 @@ export function EmployeeCard({
   const [opening, setOpening] = useSessionState(`emp.${employee?.id ?? "none"}.opening`, false);
   const [digits, setDigits] = useSessionState(`emp.${employee?.id ?? "none"}.phone`, "");
   const [note, setNote] = useState("");
-  /** Сколько разделов открыто; `null` — не спрашивали (нет учётки, админ). */
+  /**
+   * Временный пароль учётки, входящей по почте, - после сброса (01.10.2026).
+   * Показывается один раз, пока карточка открыта: его передают человеку
+   * лично, при входе он задаёт свой. Не запоминается - это пароль.
+   */
+  const [temporary, setTemporary] = useState<{ id: string; password: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  /** Сколько разделов открыто; `null` - не спрашивали (нет учётки, админ). */
   const [sections, setSections] = useState<number | null>(null);
 
   useEffect(() => {
@@ -94,7 +101,12 @@ export function EmployeeCard({
     setNote("");
     setConfirm(null);
     setSections(null);
+    setCopied(false);
   }, [employee?.id]);
+  // Карточку закрыли - временный пароль больше не показывается нигде.
+  useEffect(() => {
+    if (!open) setTemporary(null);
+  }, [open]);
 
   const accountRole = employee?.account?.role ?? null;
   const employeeId = employee?.id ?? null;
@@ -116,7 +128,7 @@ export function EmployeeCard({
   const owner = isOwner(me);
   const self = employee.account?.user_id === me.user?.id;
   const role = employee.account?.role ?? "employee";
-  // Администратор не трогает владельца и других администраторов; себя —
+  // Администратор не трогает владельца и других администраторов; себя -
   // через «Моё», а не через карточку.
   const touchable = manage && !self && (role === "employee" || (owner && role === "admin"));
   const status = employeeStatus(employee);
@@ -124,6 +136,9 @@ export function EmployeeCard({
   const department = departments.find((item) => item.id === employee.department_id);
   const hasRequest = employee.requests.some((item) => item.kind === "password_reset_requested");
   const hasAccount = employee.account !== null;
+  // Входит по почте, телефона нет: сброс выдаёт временный пароль (01.10.2026),
+  // раньше сервер отвечал «сначала впишите телефон».
+  const byEmail = hasAccount && !employee.account?.phone && Boolean(employee.account?.email);
 
   /** Строка итога берётся из ответа сервера, а не из того, что ожидали. */
   const act = async (
@@ -161,7 +176,7 @@ export function EmployeeCard({
       await navigator.clipboard.writeText(text);
       setNote("приглашение скопировано");
     } catch {
-      setError("Скопировать не получилось — браузер не дал доступ к буферу");
+      setError("Скопировать не получилось - браузер не дал доступ к буферу");
     }
   };
   const whatsapp = () => {
@@ -196,7 +211,7 @@ export function EmployeeCard({
     }
     actions.push({ key: "archive", label: "Удалить", run: () => setConfirm("archive") });
   }
-  /** Почему кнопок нет — иначе пустая карточка выглядит сломанной. */
+  /** Почему кнопок нет - иначе пустая карточка выглядит сломанной. */
   const untouchable =
     manage && !self && hasAccount && !touchable
       ? role === "owner"
@@ -207,13 +222,24 @@ export function EmployeeCard({
   const dialogs: Record<Exclude<Confirm, null>, { title: string; text: string; confirm: string; run: () => void }> = {
     reset: {
       title: `Сбросить пароль · ${short}`,
-      text: `Старый пароль перестанет действовать, открытые сеансы закроются. Задать новый можно до ${windowEnd}.`,
+      text: byEmail
+        ? "Старый пароль перестанет действовать, открытые сеансы закроются. Появится временный пароль - передайте его человеку лично; при входе он задаст свой."
+        : `Старый пароль перестанет действовать, открытые сеансы закроются. Задать новый можно до ${windowEnd}.`,
       confirm: "Сбросить",
-      run: () => void act(() => peopleApi.employees.reset(employee.id), (row) => `пароль сброшен · ${waitingNote(row)}`),
+      run: () =>
+        void act(
+          async () => {
+            const row = await peopleApi.employees.reset(employee.id);
+            setCopied(false);
+            setTemporary(row.temporary_password ? { id: employee.id, password: row.temporary_password } : null);
+            return row;
+          },
+          (row) => (row.status === "active" && byEmail ? "пароль сброшен · выдан временный" : `пароль сброшен · ${waitingNote(row)}`),
+        ),
     },
     archive: {
       title: `Удалить · ${short}`,
-      text: "Человек уйдёт из списка в корзину, вход закроется. В договорах имя останется. Вернуть — из корзины в личном кабинете.",
+      text: "Человек уйдёт из списка в корзину, вход закроется. В договорах имя останется. Вернуть - из корзины в личном кабинете.",
       confirm: "Удалить",
       run: () =>
         void act(() => peopleApi.employees.archive(employee.id)).then((ok) => {
@@ -234,7 +260,7 @@ export function EmployeeCard({
     },
     "close-access": {
       title: `Закрыть доступ · ${short}`,
-      text: "Учётка перестанет открываться, сеансы закроются. В справочнике человек останется — например, ответственным в договорах.",
+      text: "Учётка перестанет открываться, сеансы закроются. В справочнике человек останется - например, ответственным в договорах.",
       confirm: "Закрыть доступ",
       run: () => void act(() => peopleApi.employees.update(employee.id, { access: false })),
     },
@@ -245,10 +271,14 @@ export function EmployeeCard({
     onChanged(row);
   };
 
+  // Сеансы владельца не видит никто, администратора - только владелец (сервер,
+  // `people.employee_sessions`). Раньше вкладка стояла и отвечала «Сотрудник
+  // не найден» о человеке, чья карточка открыта.
+  const seesSessions = hasAccount && (self || (role !== "owner" && (role !== "admin" || owner)));
   const tabs: { key: Tab; label: string }[] = [
     { key: "profile", label: "Профиль" },
     ...(hasAccount ? [{ key: "access" as Tab, label: "Доступ" }] : []),
-    ...(hasAccount ? [{ key: "sessions" as Tab, label: "Сеансы" }] : []),
+    ...(seesSessions ? [{ key: "sessions" as Tab, label: "Сеансы" }] : []),
     { key: "actions", label: "Действия" },
   ];
   const shownTab = tabs.some((item) => item.key === tab) ? tab : "profile";
@@ -256,16 +286,16 @@ export function EmployeeCard({
   return (
     <CardLayer open={open} onClose={onClose} label={`Сотрудник ${employee.full_name}`}>
       <div className="card-top">
-        <button type="button" className="fin-icon-btn" aria-label="Закрыть" onClick={onClose}>
-          <CloseIcon size={16} />
-        </button>
-        <span className="card-top-num">Сотрудник</span>
-        <span className="card-top-state" />
         <button type="button" className="fin-icon-btn" aria-label="Предыдущий сотрудник" disabled={!onPrev} onClick={onPrev}>
           <ArrowUpIcon size={16} />
         </button>
         <button type="button" className="fin-icon-btn" aria-label="Следующий сотрудник" disabled={!onNext} onClick={onNext}>
           <ArrowDownIcon size={16} />
+        </button>
+        <span className="card-top-num">Сотрудник</span>
+        <span className="card-top-state" />
+        <button type="button" className="fin-icon-btn" aria-label="Закрыть" onClick={onClose}>
+          <CloseIcon size={16} />
         </button>
       </div>
 
@@ -274,13 +304,34 @@ export function EmployeeCard({
         <p className="cab-card-line fin-soft">
           {[employee.job_title, department?.code, employee.phone ? formatPhone(employee.phone) : ""]
             .filter(Boolean)
-            .join(" · ") || "—"}
+            .join(" · ") || "-"}
           {hasAccount && role !== "employee" ? <span className="annot cab-card-role">{ROLE_TITLES[role]}</span> : null}
         </p>
 
         <p className={`cab-card-status ${status.tone === "fail" ? "fin-fail" : status.tone === "wait" ? "fin-wait" : ""}`} data-tone={status.tone || undefined}>
           {note || status.text}
         </p>
+        {temporary && temporary.id === employee.id ? (
+          <p className="cab-card-note">
+            Временный пароль: <b className="fin-mono">{temporary.password}</b> ·{" "}
+            <button
+              type="button"
+              className="fin-link-btn"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(temporary.password);
+                  setCopied(true);
+                } catch {
+                  setError("Скопировать не получилось - браузер не дал доступ к буферу");
+                }
+              }}
+            >
+              {copied ? "Скопирован" : "Скопировать"}
+            </button>{" "}
+            - передайте человеку лично; при входе по почте {employee.account?.email} он задаст свой. Больше он
+            нигде не показывается.
+          </p>
+        ) : null}
 
         {actions.length > 0 ? (
           <div className="cab-card-actions">
@@ -300,7 +351,7 @@ export function EmployeeCard({
         {untouchable ? <p className="cab-card-note fin-soft">{untouchable}</p> : null}
         {sections === 0 && hasAccount && employee.status !== "blocked" ? (
           <p className="cab-card-note fin-wait">
-            Разделов не открыто — войдёт в пустой кабинет ·{" "}
+            Разделов не открыто - войдёт в пустой кабинет ·{" "}
             <button type="button" className="fin-link-btn" onClick={() => setTab("access")}>
               Доступ
             </button>
@@ -358,9 +409,10 @@ export function EmployeeCard({
                 label="Отдел"
                 value={employee.department_id ?? ""}
                 kind="select"
-                options={[{ value: "", label: "Без отдела" }, ...departments.map((d) => ({ value: d.id, label: `${d.code} · ${d.title}` }))]}
-                shown={department ? `${department.code} · ${department.title}` : undefined}
-                editable={manage}
+                options={[{ value: "", label: "Без отдела" }, ...departments.map((d) => ({ value: d.id, label: departmentLabel(d) }))]}
+                shown={department ? departmentLabel(department) : undefined}
+                // Начальник отдела переводит людей только администратором.
+                editable={manage && !headOnly(me)}
                 onSave={(v) => save({ department_id: v || null })()}
               />
               <EditLine label="Должность" value={employee.job_title} editable={manage} onSave={(v) => save({ job_title: v })()} />
@@ -414,11 +466,12 @@ export function EmployeeCard({
             <RightsMatrix
               kind="employee"
               id={employee.id}
+              me={me}
               readOnly={!touchable}
               onChanged={(data) => setSections(openSections(data))}
             />
           ) : null}
-          {shownTab === "sessions" ? <SessionsList employeeId={employee.id} /> : null}
+          {shownTab === "sessions" ? <SessionsList employeeId={employee.id} canEnd={touchable || self} /> : null}
           {shownTab === "actions" ? <ActionFeed fixed={{ employee_id: employee.id }} /> : null}
         </div>
       </div>

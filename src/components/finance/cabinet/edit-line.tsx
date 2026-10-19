@@ -6,19 +6,19 @@ import { ChoiceSelect } from "@/components/choice-select";
 import { PhoneInput, formatPhone, phoneDigits, phoneValue } from "@/components/finance/ui/phone-input";
 
 /**
- * Строка «подпись · значение», которая в покое — текст (фронт-план, 6.9).
+ * Строка «подпись · значение», которая в покое - текст (фронт-план, 6.9).
  *
- * Правится там, где человеку это можно: нажал — поле на месте текста,
- * Enter или уход из поля — сохранено, Esc — отмена. Кнопки «Сохранить» нет:
+ * Правится там, где человеку это можно: нажал - поле на месте текста,
+ * Enter или уход из поля - сохранено, Esc - отмена. Кнопки «Сохранить» нет:
  * пока запрос в полёте, под значением прочерчивается волосяная линия;
- * отказ — текстом сервера под полем, розой.
+ * отказ - текстом сервера под полем, розой.
  */
 type Option = { value: string; label: string };
 
 type Props = {
   label: string;
   value: string;
-  /** Как показать значение в покое; по умолчанию — само значение. */
+  /** Как показать значение в покое; по умолчанию - само значение. */
   shown?: ReactNode;
   editable?: boolean;
   kind?: "text" | "phone" | "select";
@@ -26,6 +26,8 @@ type Props = {
   placeholder?: string;
   onSave: (next: string) => Promise<unknown>;
   mono?: boolean;
+  /** Во всю ширину листа профиля (`.cab-fields`), а не в одну из двух колонок. */
+  wide?: boolean;
 };
 
 export function EditLine({
@@ -35,9 +37,10 @@ export function EditLine({
   editable = false,
   kind = "text",
   options = [],
-  placeholder = "—",
+  placeholder = "-",
   onSave,
   mono,
+  wide,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -76,8 +79,8 @@ export function EditLine({
 
   const rest =
     shown ?? (value ? (kind === "phone" ? formatPhone(value) : (options.find((o) => o.value === value)?.label ?? value)) : "");
-  // Пункт со значением "" — «пустое разрешено», его подпись — подсказка
-  // («Без отдела»). В список он не идёт, в покое — приглушён, как любое
+  // Пункт со значением "" - «пустое разрешено», его подпись - подсказка
+  // («Без отдела»). В список он не идёт, в покое - приглушён, как любое
   // пустое (стандарт `ChoiceSelect`).
   const blank = kind === "select" ? options.find((o) => o.value === "") : undefined;
   const emptyText = blank?.label ?? placeholder;
@@ -151,8 +154,22 @@ export function EditLine({
   }
 
   return (
-    <div className="cab-line">
+    <div
+      className="cab-line"
+      data-wide={wide ? "true" : undefined}
+      data-editable={editable ? "true" : undefined}
+      data-empty={rest ? undefined : "true"}
+      data-editing={editing ? "true" : undefined}
+    >
       <span className="cab-line-label">{label}</span>
+      {/* Подсказка действия - только в листе профиля (`.cab-fields`): там
+          поле - ячейка, и пустая ячейка без «Добавить» выглядела прочерком,
+          а не полем. В строках карточки сотрудника её не видно. */}
+      {editable && !editing ? (
+        <span className="cab-line-act" aria-hidden="true">
+          {rest ? "Изменить" : "Добавить"}
+        </span>
+      ) : null}
       <span className="cab-line-value" data-sending={sending ? "true" : undefined}>
         {editing ? (
           control
@@ -167,7 +184,7 @@ export function EditLine({
           </button>
         ) : (
           <span className={`cab-line-static ${mono ? "fin-mono" : ""}`} data-empty={rest ? undefined : "true"}>
-            {rest || (blank ? emptyText : "—")}
+            {rest || emptyText}
           </span>
         )}
         <span className="cab-trace" aria-hidden="true" />

@@ -2,40 +2,109 @@
 
 import { useEffect, useState } from "react";
 
-import { RESOURCE_TITLES, isAdmin, levelOf } from "@/components/finance/access";
-import { type Me, financeApi, peopleApi } from "@/components/finance/api";
+import { RESOURCE_TITLES, can, isAdmin, isOwner, levelOf } from "@/components/finance/access";
+import { type Department, type EmployeeRow, type Me, financeApi, peopleApi } from "@/components/finance/api";
+import { ROLE_TITLES } from "@/components/finance/cabinet/status";
+import { ChoiceSelect } from "@/components/choice-select";
+import { SelectLine } from "@/components/finance/ui/select-line";
 import { EditLine } from "@/components/finance/cabinet/edit-line";
-import { plural } from "@/components/finance/format";
+import { departmentLabel, plural } from "@/components/finance/format";
 
 /**
  * «Моё · Профиль» (фронт-план, 6.9).
  *
- * Страница про себя, а не форма: «подпись · значение», строки 44px. ФИО,
- * телефон, отдел и должность сотруднику задаёт администратор — у него это
- * текст без рамки наведения; владелец и администратор правят свои на месте.
+ * Лист формы в две колонки (28.09.2026): у каждого поля - ячейка, подпись
+ * над значением. До того были строки «подпись · значение», и у владельца без
+ * ФИО и телефона висели прочерки - незаполненное выглядело не полем, а
+ * пропуском. Теперь пустое поле говорит, что в него вписать и кто это делает:
+ * своё - «Добавить» и образец («+7 ___ ___ __ __»), чужое - «задаёт
+ * администратор».
  *
- * «Сменить пароль» раскрывает три поля на месте, и над кнопкой — последствие
+ * ФИО и телефон правят себе владелец и администратор; отдел и должность - тот,
+ * у кого право на людей (сервер пускает к своей записи сотрудника, как в
+ * карточке). Остальным это текст.
+ *
+ * «Сменить пароль» раскрывает три поля на месте, и над кнопкой - последствие
  * фактом: «Остальные сеансы закроются: 2». Не ронять человека из всех
- * сеансов молча — урок кабинета дашборда BBC.
+ * сеансов молча - урок кабинета дашборда BBC.
  */
-export function ProfileTab({ me, onMe }: { me: Me; onMe: (next: Me) => void }) {
+const BY_ADMIN = "задаёт администратор";
+
+export function ProfileTab({
+  me,
+  onMe,
+  departments,
+  employees = null,
+  onPeopleChanged,
+}: {
+  me: Me;
+  onMe: (next: Me) => void;
+  /** Отделы компании - для выбора своего; `null` - ещё не прочитаны или не видны. */
+  departments: Department[] | null;
+  /** Люди компании - кому передать владение; `null` - не прочитаны или не видны. */
+  employees?: EmployeeRow[] | null;
+  onPeopleChanged?: () => void;
+}) {
   const admin = isAdmin(me);
   const employee = me.employee;
   const department = employee?.department;
   const [changing, setChanging] = useState(false);
+  const [changingEmail, setChangingEmail] = useState(false);
+  const [handing, setHanding] = useState(false);
+  const [switchError, setSwitchError] = useState("");
+  const role = me.role ?? me.company?.role ?? null;
   // Владелец, зарегистрированный без имени, заведён сотрудником под своей
-  // почтой. Показать почту в строке ФИО — значит выдать её за имя; пустая
+  // почтой. Показать почту в строке ФИО - значит выдать её за имя; пустая
   // строка честнее и сама просит её заполнить.
   const shownName = employee?.full_name || me.user?.full_name || "";
   const name = shownName && shownName === me.user?.email ? "" : shownName;
+  const ownRecord = employee && can(me, "people", "edit") ? employee : null;
+  // После любой правки `me` перечитывается целиком. Ответ `/auth/profile` -
+  // только `{id, full_name, phone}`, а раньше он ложился в `me` вместо «кто
+  // вошёл»: поправил своё ФИО - и до перезагрузки пропадали имя в шапке,
+  // роль и права (28.09.2026). Отдел и должность живут в записи сотрудника,
+  // и портрет без перечитывания показывал бы прежнее.
+  const refresh = async () => {
+    onMe(await financeApi.me());
+    onPeopleChanged?.();
+  };
+  const saveSelf = async (patch: { full_name?: string; phone?: string }) => {
+    await peopleApi.self.profile(patch);
+    await refresh();
+  };
+  const saveRecord = async (patch: { department_id?: string | null; job_title?: string }) => {
+    if (!ownRecord) return;
+    await peopleApi.employees.update(ownRecord.id, patch);
+    await refresh();
+  };
+  const email = me.user?.email ?? "";
+  // Название компании правит только владелец (сервер: `PATCH /auth/company`).
+  // До 29.09.2026 строки не было, и «ТОО "BBC тест"», набранное при
+  // регистрации, стояло в шапке и в каждом приглашении сотруднику навсегда.
+  const owner = isOwner(me);
+  const saveCompany = async (title: string) => {
+    await financeApi.renameCompany(title);
+    await refresh();
+  };
 
   return (
-    <div className="cab-lines">
+    <div className="cab-fields">
+      {me.company ? (
+        <EditLine
+          label="Компания"
+          wide
+          value={me.company.title}
+          editable={owner}
+          placeholder={owner ? "Название, как в документах" : "задаёт владелец"}
+          onSave={saveCompany}
+        />
+      ) : null}
       <EditLine
         label="ФИО"
         value={name}
         editable={admin}
-        onSave={async (value) => onMe(await peopleApi.self.profile({ full_name: value }))}
+        placeholder={admin ? "Фамилия и имя" : BY_ADMIN}
+        onSave={(value) => saveSelf({ full_name: value })}
       />
       <EditLine
         label="Телефон"
@@ -43,34 +112,87 @@ export function ProfileTab({ me, onMe }: { me: Me; onMe: (next: Me) => void }) {
         kind="phone"
         mono
         editable={admin}
-        onSave={async (value) => onMe(await peopleApi.self.profile({ phone: value }))}
+        placeholder={admin ? "+7 ___ ___ __ __" : BY_ADMIN}
+        onSave={(value) => saveSelf({ phone: value })}
       />
-      {me.user?.email ? <EditLine label="Почта" value={me.user.email} onSave={async () => undefined} /> : null}
       <EditLine
         label="Отдел"
-        value={department ? `${department.code} · ${department.title}` : ""}
-        onSave={async () => undefined}
+        value={department?.id ?? ""}
+        kind="select"
+        options={[
+          { value: "", label: "Без отдела" },
+          ...(departments ?? []).map((item) => ({ value: item.id, label: departmentLabel(item) })),
+        ]}
+        shown={department ? departmentLabel(department) : undefined}
+        editable={Boolean(ownRecord) && departments !== null}
+        onSave={(value) => saveRecord({ department_id: value || null })}
       />
-      <EditLine label="Должность" value={employee?.job_title ?? ""} onSave={async () => undefined} />
+      <EditLine
+        label="Должность"
+        value={employee?.job_title ?? ""}
+        editable={Boolean(ownRecord)}
+        placeholder={ownRecord ? "Не указана" : BY_ADMIN}
+        onSave={(value) => saveRecord({ job_title: value })}
+      />
+      {email ? (
+        // Почта - логин входа. До 29.09.2026 она была только текстом, и
+        // однажды заданную почту сменить было нечем. Меняется с паролем:
+        // человек у чужого открытого браузера не должен переносить учётку.
+        <div className="cab-line cab-line-top">
+          <span className="cab-line-label">Почта</span>
+          <span className="cab-line-value">
+            {changingEmail ? (
+              <EmailForm email={email} onDone={() => setChangingEmail(false)} onChanged={refresh} />
+            ) : (
+              <span className="cab-email">
+                <span className="cab-line-static">{email}</span>
+                <button type="button" className="btn-ghost btn-sm cab-password-open" onClick={() => setChangingEmail(true)}>
+                  Сменить почту
+                </button>
+              </span>
+            )}
+          </span>
+        </div>
+      ) : null}
 
-      <div className="cab-lines-gap" />
-      <div className="cab-line cab-line-top">
+      <div className="cab-line cab-line-top" data-wide={email ? undefined : "true"}>
         <span className="cab-line-label">Пароль</span>
         <span className="cab-line-value">
           {changing ? (
             <PasswordForm onDone={() => setChanging(false)} />
           ) : (
-            <button type="button" className="cab-line-text" onClick={() => setChanging(true)}>
+            <button type="button" className="btn-ghost btn-sm cab-password-open" onClick={() => setChanging(true)}>
               Сменить пароль
             </button>
           )}
         </span>
       </div>
 
-      {/* Тема — тумблером в шапке, как на входе (28.09.2026), а не строкой здесь. */}
-      {(me.companies?.length ?? 0) > 1 ? <div className="cab-lines-gap" /> : null}
+      {/* Роль - у всех словом; владелец может передать владение (29.09.2026:
+          «владельцем может стать другой, а я - администратором»). */}
+      {role ? (
+        <div className="cab-line cab-line-top" data-wide="true">
+          <span className="cab-line-label">Роль</span>
+          <span className="cab-line-value">
+            {handing ? (
+              <OwnerForm me={me} employees={employees ?? []} onDone={() => setHanding(false)} onChanged={refresh} />
+            ) : (
+              <span className="cab-email">
+                <span className="cab-line-static">{ROLE_TITLES[role as keyof typeof ROLE_TITLES] ?? role}</span>
+                {role === "owner" ? (
+                  <button type="button" className="btn-ghost btn-sm cab-password-open" onClick={() => setHanding(true)}>
+                    Передать владение
+                  </button>
+                ) : null}
+              </span>
+            )}
+          </span>
+        </div>
+      ) : null}
+
+      {/* Тема - тумблером в шапке, как на входе (28.09.2026), а не строкой здесь. */}
       {(me.companies?.length ?? 0) > 1 ? (
-        <div className="cab-line">
+        <div className="cab-line" data-wide="true">
           <span className="cab-line-label">Компании</span>
           <span className="cab-line-value cab-companies">
             {(me.companies ?? []).map((company) =>
@@ -83,16 +205,222 @@ export function ProfileTab({ me, onMe }: { me: Me; onMe: (next: Me) => void }) {
                   key={company.id}
                   type="button"
                   className="fin-link-btn cab-company"
-                  onClick={async () => onMe(await financeApi.switchCompany(company.id))}
+                  onClick={async () => {
+                    setSwitchError("");
+                    try {
+                      onMe(await financeApi.switchCompany(company.id));
+                    } catch (exc) {
+                      setSwitchError(exc instanceof Error ? exc.message : "Компания не открылась");
+                    }
+                  }}
                 >
                   {company.title}
                 </button>
               ),
             )}
+            {switchError ? (
+              <span className="cab-line-error fin-fail" role="alert">
+                {switchError}
+              </span>
+            ) : null}
           </span>
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * «Передать владение»: кому (только тот, кто уже входит сам), кем остаюсь,
+ * пароль. Над кнопкой - последствие фактом: вернуть владение сможет только
+ * новый владелец. Сервер проверяет всё то же (`auth.transfer_ownership`).
+ */
+function OwnerForm({
+  me,
+  employees,
+  onDone,
+  onChanged,
+}: {
+  me: Me;
+  employees: EmployeeRow[];
+  onDone: () => void;
+  onChanged: () => Promise<void>;
+}) {
+  const [to, setTo] = useState("");
+  const [keep, setKeep] = useState<"admin" | "employee">("admin");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState("");
+  const candidates = employees.filter(
+    (row) => row.account && row.account.status === "active" && row.account.user_id !== me.user?.id && !row.archived,
+  );
+  const chosen = candidates.find((row) => row.account?.user_id === to) ?? null;
+
+  if (done) {
+    return (
+      <span className="cab-line-static">
+        {done}{" "}
+        <button type="button" className="fin-link-btn" onClick={onDone}>
+          Готово
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <form
+      className="cab-password"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (!chosen?.account) return;
+        setBusy(true);
+        setError("");
+        try {
+          await financeApi.transferOwner({ user_id: chosen.account.user_id, password, keep });
+          setDone(`Владелец теперь - ${chosen.full_name}. Вы - ${ROLE_TITLES[keep]}.`);
+          await onChanged();
+        } catch (exc) {
+          setError(exc instanceof Error ? exc.message : "Владение не передано");
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <label className="auth-field">
+        <span className="eyebrow">Кому</span>
+        {candidates.length ? (
+          <ChoiceSelect className="input-field" value={to} onChange={setTo} placeholder="Выберите человека">
+            {candidates.map((row) => (
+              <option key={row.id} value={row.account?.user_id ?? ""}>
+                {row.full_name} · {ROLE_TITLES[row.account?.role ?? "employee"]}
+              </option>
+            ))}
+          </ChoiceSelect>
+        ) : (
+          <span className="auth-hint">Передать некому: нужен человек, который уже входит в KORT сам.</span>
+        )}
+      </label>
+      <span className="auth-field">
+        <span className="eyebrow">Вы остаётесь</span>
+        <SelectLine
+          items={[
+            { key: "admin", label: "Администратор" },
+            { key: "employee", label: "Сотрудник" },
+          ]}
+          value={keep}
+          onChange={setKeep}
+          role="radiogroup"
+          label="Кем остаться"
+          size="sm"
+        />
+      </span>
+      <label className="auth-field">
+        <span className="eyebrow">Ваш пароль</span>
+        <input
+          className="input-field"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
+        />
+      </label>
+      {chosen ? (
+        <p className="cab-consequence">
+          {chosen.full_name} станет владельцем, вы - {ROLE_TITLES[keep]}. Вернуть владение сможет только новый владелец.
+        </p>
+      ) : null}
+      {error ? (
+        <p className="cab-error fin-fail" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <span className="cab-add-actions">
+        <button type="button" className="btn-ghost btn-sm" onClick={onDone}>
+          Отмена
+        </button>
+        <button type="submit" className="btn-primary btn-sm" disabled={busy || !chosen || !password}>
+          {busy ? "Передаём…" : "Передать владение"}
+        </button>
+      </span>
+    </form>
+  );
+}
+
+/** «Сменить почту»: новая почта и текущий пароль; вход дальше - по новой. */
+function EmailForm({ email, onDone, onChanged }: { email: string; onDone: () => void; onChanged: () => Promise<void> }) {
+  const [next, setNext] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState("");
+
+  if (done) {
+    return (
+      <span className="cab-line-static">
+        {done}{" "}
+        <button type="button" className="fin-link-btn" onClick={onDone}>
+          Готово
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <form
+      className="cab-password"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setError("");
+        try {
+          const result = await financeApi.changeEmail({ email: next.trim(), password });
+          await onChanged();
+          setDone(`Почта изменена. Входите с ${result.email}.`);
+        } catch (exc) {
+          setError(exc instanceof Error ? exc.message : "Почта не сменилась");
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <label className="auth-field">
+        <span className="eyebrow">Новая почта</span>
+        <input
+          className="input-field"
+          type="email"
+          value={next}
+          onChange={(e) => setNext(e.target.value)}
+          placeholder={email}
+          autoComplete="email"
+          autoFocus
+        />
+      </label>
+      <label className="auth-field">
+        <span className="eyebrow">Пароль</span>
+        <input
+          className="input-field"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
+        />
+        <span className="auth-hint">Нынешний - почта это логин.</span>
+      </label>
+      {error ? (
+        <p className="cab-error fin-fail" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <span className="cab-add-actions">
+        <button type="button" className="btn-ghost btn-sm" onClick={onDone}>
+          Отмена
+        </button>
+        <button type="submit" className="btn-primary btn-sm" disabled={busy || !next.trim() || !password}>
+          {busy ? "Меняем…" : "Сменить почту"}
+        </button>
+      </span>
+    </form>
   );
 }
 
@@ -205,7 +533,7 @@ function PasswordForm({ onDone }: { onDone: () => void }) {
 }
 
 /**
- * «Моё · Доступ»: что открыто, в порядке колонки. Закрытое не перечисляется —
+ * «Моё · Доступ»: что открыто, в порядке колонки. Закрытое не перечисляется -
  * список закрытого шум, а открытое видно и в колонке.
  */
 export function MyAccess({ me }: { me: Me }) {

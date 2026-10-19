@@ -1,15 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { IConfigService } from "@univerjs/core";
 
 import { HEADER_STYLE, PAPER, ROW_H, fitWidth, headerHeight, sampled } from "@/components/univer/columns";
 import { listRule, putLists } from "@/components/univer/lists";
 import { type PollOutcome, pollWhileVisible } from "@/components/univer/live";
 import { type LookKeeper, keepLook } from "@/components/univer/look";
-import { guardSheets } from "@/components/univer/protect";
+import { PROTECTION_MENU, type StructureKind, guardCommands, rangesOf } from "@/components/univer/guard";
 import { UniverSheet, type UniverApi, type WorkbookSnapshot } from "@/components/univer/sheet";
 import { DATE_PATTERN, MONEY_PATTERN, WRAP_CLIP, dateOf, serialOf } from "@/components/univer/sheet-model";
 import { useFillHeight } from "@/components/univer/use-fill-height";
+import { type SheetWarningSpec, SheetWarning } from "@/components/univer/warning";
 import { writeCells } from "@/components/univer/write";
 import { lookStore } from "@/components/finance/look-store";
 import { useSessionScope } from "@/components/session-state";
@@ -22,33 +24,94 @@ import {
 } from "@/components/finance/api";
 
 /**
- * Журнал как лист Univer — второй вид на те же операции.
+ * Журнал как лист Univer - второй вид на те же операции.
  *
  * Почему именно Univer, а не своя решётка
  * ───────────────────────────────────────
  * Это уже решалось в разделе «Книги» в сентябре 2026 и стоило переписанного
  * компонента. Своя решётка была: виртуализированная, с правкой по ячейке,
  * пустой строкой внизу, и она проходила все проверки. А человек из Excel
- * приходит с привычками — выделить диапазон и увидеть сумму, потянуть за угол,
- * вставить столбец из буфера, Ctrl+Z, — и ни одной из них она не отвечала.
+ * приходит с привычками - выделить диапазон и увидеть сумму, потянуть за угол,
+ * вставить столбец из буфера, Ctrl+Z, - и ни одной из них она не отвечала.
  * Догонять по одной значит писать Univer заново и хуже.
  *
  * Разметка листа
  * ──────────────
- * Строка 0 — заголовки. Дальше операции в порядке журнала (новые сверху). Под
- * последней — запас пустых строк: новую операцию заводят, спустившись вниз и
+ * Строка 0 - заголовки. Дальше операции в порядке журнала (новые сверху). Под
+ * последней - запас пустых строк: новую операцию заводят, спустившись вниз и
  * напечатав, а не кнопкой.
  *
- * Колонка — поле операции по порядку из ответа сервера. Позиция колонки не
- * адрес: адрес — это `key`, и правка уходит по нему. То же правило, что для
+ * Колонка - поле операции по порядку из ответа сервера. Позиция колонки не
+ * адрес: адрес - это `key`, и правка уходит по нему. То же правило, что для
  * колонок книг, и по той же причине.
  */
+
+/**
+ * Что сломалось бы в журнале от команды листа - словами, у каждой своё
+ * (29.09.2026: «не одно предупреждение для всех»). Строка журнала - адрес
+ * своей операции, колонка - её поле: сдвиг любого из них увёл бы правку в
+ * чужую операцию или чужое поле.
+ */
+const JOURNAL_REFUSALS: Partial<Record<StructureKind, SheetWarningSpec>> = {
+  insertRows: {
+    title: "Строка в журнал не вставляется",
+    lines: [
+      "Каждая строка журнала - своя операция; вставка сдвинула бы строки, и правка ушла бы в соседнюю операцию.",
+      "Новую операцию впишите в пустую строку под последней - она встанет на своё место по дате при следующей сборке листа.",
+    ],
+  },
+  removeRows: {
+    title: "Строку журнала не удалить отсюда",
+    lines: [
+      "Строка - это операция с деньгами: её удаляют в «Журнале» списком - кнопкой «Удалить» у строки операции.",
+      "Удалённая операция остаётся в корзине кабинета - её можно вернуть.",
+    ],
+  },
+  insertCols: {
+    title: "Колонку в журнал не добавить",
+    lines: ["Колонки журнала - поля операции, одни и те же у всех сотрудников: их набор задаёт учёт, а не лист."],
+  },
+  moveCols: {
+    title: "Колонки журнала не переставляются",
+    lines: ["Порядок колонок общий у всех. У себя колонку можно сузить или скрыть: правая кнопка по букве колонки."],
+  },
+  moveRows: {
+    title: "Строки журнала не передвигаются",
+    lines: ["Порядок журнала - по дате операций; чтобы операция встала выше или ниже, поменяйте её дату."],
+  },
+  sort: {
+    title: "Журнал не сортируется в листе",
+    lines: [
+      "Сортировка перемешала бы строки на экране, а каждая строка - адрес своей операции: следующая правка ушла бы в соседнюю.",
+      "Отбирайте нужное фильтром в шапке - он строки не двигает.",
+    ],
+  },
+  shiftCells: {
+    title: "Ячейки журнала не сдвигаются",
+    lines: ["Сдвиг переложил бы суммы и даты в чужие операции и поля. Очистите ячейки или поправьте их значения."],
+  },
+  merge: {
+    title: "Ячейки журнала не объединяются",
+    lines: ["У каждой ячейки - своё поле своей операции. Для заметного вида - заливка и жирный: это ваш вид листа."],
+  },
+  renameSheet: { title: "Лист журнала не переименовывается", lines: ["Журнал один, его название задаёт учёт."] },
+  removeSheet: { title: "Лист журнала не удаляется", lines: ["Это и есть журнал операций, а не копия."] },
+  addSheet: { title: "Новый лист здесь не заводится", lines: ["Журнал - один лист операций; свои таблицы ведутся в «Книгах Google»."] },
+  orderSheets: { title: "Лист журнала один", lines: [] },
+  protect: {
+    title: "Защита листа не нужна",
+    lines: [
+      "Журнал сам возвращает то, что правится в карточке операции, и предупреждает перед изменениями для всех.",
+      "Поставленная защита вернула бы замки и отказ «нет разрешения» на обычную заливку.",
+    ],
+  },
+};
 
 /** Сколько пустых строк держать под последней операцией. */
 const SPARE_ROWS = 100;
 const HEADER_ROW = 0;
 
-/** Стиль текста колонки: серый — правка здесь не сохранится. */
+/** Стиль текста колонки: серый - правка здесь не сохранится. */
 const textStyle = (column: GridColumn) => (column.editable ? "text" : "readonly");
 
 /**
@@ -56,7 +119,7 @@ const textStyle = (column: GridColumn) => (column.editable ? "text" : "readonly"
  *
  * Одна функция на сборку листа и на запись ответа сервера обратно: иначе
  * значение, пришедшее после правки, выглядело бы иначе, чем то же значение
- * при открытии листа, — дата текстом вместо даты, сумма без разрядов.
+ * при открытии листа, - дата текстом вместо даты, сумма без разрядов.
  *
  * Стиль есть и у пустой ячейки: в нём обрезка (`WRAP_CLIP`), и значение,
  * выбранное в пустой ячейке из списка, иначе переносилось бы по словам до
@@ -79,7 +142,7 @@ function cellFor(column: GridColumn, raw: string): Record<string, unknown> {
 function rawOf(column: GridColumn, cell: unknown): unknown {
   if (cell === null || cell === undefined) return "";
   const value = typeof cell === "object" ? ((cell as { v?: unknown }).v ?? "") : cell;
-  // Дата вернулась номером дня — переводим обратно, иначе на сервер
+  // Дата вернулась номером дня - переводим обратно, иначе на сервер
   // уехало бы «46174», и следующее чтение показало бы сорок шесть тысяч.
   if (column.kind === "date" && typeof value === "number") return dateOf(value);
   return value;
@@ -89,7 +152,7 @@ function rawOf(column: GridColumn, cell: unknown): unknown {
  * То же ли это значение, что уже в учёте.
  *
  * Событие правки Univer присылает и на смену оформления (жирный, заливка), и
- * на нашу же запись ответа обратно в ячейку. Отправлять такое на сервер —
+ * на нашу же запись ответа обратно в ячейку. Отправлять такое на сервер -
  * значит плодить версии и записи в истории без единой изменённой цифры.
  */
 function same(column: GridColumn, raw: unknown, known: string): boolean {
@@ -104,14 +167,14 @@ function same(column: GridColumn, raw: unknown, known: string): boolean {
 }
 
 /**
- * Предел ширины по виду колонки — те же, что у таких же колонок реестра:
+ * Предел ширины по виду колонки - те же, что у таких же колонок реестра:
  * справочники (счёт, статья, контрагент) и «только чтение» (вид, состояние)
- * читаются целиком, свободный текст — девять значений из десяти.
+ * читаются целиком, свободный текст - девять значений из десяти.
  */
 const WIDTH_CAP: Record<string, number> = { date: 112, money: 160, enum: 280, readonly: 160 };
 const TEXT_CAP = 320;
 
-/** Значение так, как его рисует лист, — для замера ширины колонки. */
+/** Значение так, как его рисует лист, - для замера ширины колонки. */
 function faceOf(column: GridColumn, raw: string): string {
   if (!raw) return "";
   const cell = cellFor(column, raw);
@@ -123,8 +186,8 @@ function faceOf(column: GridColumn, raw: string): string {
 }
 
 /**
- * Ширины колонок — по содержимому, общим правилом листов (`fitWidth`):
- * ширина с сервера — нижняя граница. Раньше она была и верхней, и «Вид»
+ * Ширины колонок - по содержимому, общим правилом листов (`fitWidth`):
+ * ширина с сервера - нижняя граница. Раньше она была и верхней, и «Вид»
  * шириной 90 резал «Поступление» до «Поступлени».
  */
 function fitColumns(payload: GridPayload): Array<{ label: string; width: number }> {
@@ -148,8 +211,8 @@ function buildWorkbook(payload: GridPayload): WorkbookSnapshot {
   });
   cellData[HEADER_ROW] = head;
 
-  // Каждая ячейка до последней запасной строки — со стилем (см. `cellFor`);
-  // у пустой — только стиль, без значения.
+  // Каждая ячейка до последней запасной строки - со стилем (см. `cellFor`);
+  // у пустой - только стиль, без значения.
   for (let index = 0; index < payload.rows.length + SPARE_ROWS; index += 1) {
     const row = payload.rows[index];
     const line: Record<number, Record<string, unknown>> = {};
@@ -172,9 +235,9 @@ function buildWorkbook(payload: GridPayload): WorkbookSnapshot {
     locale: "ruRU",
     sheetOrder: ["journal"],
     styles: {
-      // Шапка — общий стиль листов, как у реестра (`univer/columns.ts`).
+      // Шапка - общий стиль листов, как у реестра (`univer/columns.ts`).
       head: HEADER_STYLE,
-      // Значение не выходит за свою колонку и не переносится — стандарт
+      // Значение не выходит за свою колонку и не переносится - стандарт
       // ячеек листов, тот же, что у реестра (`WRAP_CLIP` в общем корне).
       text: { tb: WRAP_CLIP },
       money: { ht: 3, n: { pattern: MONEY_PATTERN }, tb: WRAP_CLIP },
@@ -204,16 +267,16 @@ function buildWorkbook(payload: GridPayload): WorkbookSnapshot {
  *
  * Это то, чего нашей таблице не хватало по сравнению с Google Sheets: в книге
  * «Журнал ГК BBC» у колонок «Счёт», «Подкатегория» и прочих стоят списки, и
- * человек не печатает названия руками, а выбирает. Печать руками — это
+ * человек не печатает названия руками, а выбирает. Печать руками - это
  * опечатки, а опечатка в названии статьи создаёт вторую статью и делит отчёт
  * надвое.
  *
- * Список — подсказка, а не запрет. Новая статья появляется в работе постоянно,
+ * Список - подсказка, а не запрет. Новая статья появляется в работе постоянно,
  * и запретить ввести её значило бы заставить идти в справочник посреди
- * заполнения. Счёт — исключение, но его строгость обеспечивает сервер: он
+ * заполнения. Счёт - исключение, но его строгость обеспечивает сервер: он
  * откажет с объяснением, а не создаст счёт из опечатки.
  *
- * Как список выглядит и ведёт себя — общий стандарт листов
+ * Как список выглядит и ведёт себя - общий стандарт листов
  * (`univer/lists.ts`), тот же, что у реестра. До 27.09 журнал ставил правило
  * Univer по умолчанию, и значения в колонке рисовались цветными капсулами.
  * Список только там, где правка открыта: колонка «только чтение» или лист без
@@ -237,7 +300,7 @@ function listRules(payload: GridPayload, canEdit: boolean): Array<Record<string,
 /**
  * Лист, который сейчас на экране, и то, какая операция в какой его строке.
  *
- * Главное правило листа: **строка на экране — это адрес операции до тех пор,
+ * Главное правило листа: **строка на экране - это адрес операции до тех пор,
  * пока лист не пересобран.** Карта строится один раз из того ответа, по
  * которому лист собран, и дальше меняется только по месту: правка обновляет
  * версию и ячейки своей строки, новая операция занимает ту пустую строку, где
@@ -245,7 +308,7 @@ function listRules(payload: GridPayload, canEdit: boolean): Array<Record<string,
  *
  * Раньше после каждой правки журнал перечитывался целиком, а лист оставался
  * прежним. Перечитанный журнал отсортирован по дате заново, поэтому стоило
- * поправить дату — и операции ниже сдвигались в памяти на строку, а на экране
+ * поправить дату - и операции ниже сдвигались в памяти на строку, а на экране
  * нет. Следующая правка уходила в соседнюю операцию. Проверено живьём 21
  * сентября: сумму правили у «Перевод · Тофиг Т.», а записалась она в «Билет
  * Avtobys», со строкой состояния «записано».
@@ -270,10 +333,10 @@ function mount(payload: GridPayload, generation: number): Mounted {
   return { generation, payload, rows, ids, seq: payload.seq ?? 0 };
 }
 
-/** Лист журнала в книге Univer — адрес для записи и прав. */
+/** Лист журнала в книге Univer - адрес для записи и прав. */
 const SHEET_ID = "journal";
 
-/** Что сделано одной правкой — для строки состояния. */
+/** Что сделано одной правкой - для строки состояния. */
 type Tally = {
   saved: number;
   created: number;
@@ -284,7 +347,7 @@ type Tally = {
 
 type Beat = { text: string; at: number; refusal: boolean };
 
-/** Номер строки так, как его видит человек: слева у Univer строка шапки — «1». */
+/** Номер строки так, как его видит человек: слева у Univer строка шапки - «1». */
 const shown = (sheetRow: number) => sheetRow + 1;
 
 export function TableView({
@@ -294,23 +357,25 @@ export function TableView({
 }: {
   onChanged: () => void;
   refresh?: number;
-  /** Право правки раздела «Таблица». Нет — лист только для чтения. */
+  /** Право правки раздела «Таблица». Нет - лист только для чтения. */
   canEdit?: boolean;
 }) {
   const [sheet, setSheet] = useState<Mounted | null>(null);
   const [error, setError] = useState("");
   const [beat, setBeat] = useState<Beat | null>(null);
+  /** Окно перед изменением, которое сломало бы связь строк с операциями. */
+  const [warning, setWarning] = useState<SheetWarningSpec | null>(null);
   const { ref: box, height } = useFillHeight(360, 44);
   /**
    * Смонтированный лист держим и в ref: обработчик правки живёт внутри Univer
-   * и пересоздаваться не должен — иначе подписка навесится повторно и одна
+   * и пересоздаваться не должен - иначе подписка навесится повторно и одна
    * правка уедет на сервер дважды.
    */
   const current = useRef<Mounted | null>(null);
   const generation = useRef(0);
   /** Очередь правок: по одной, чтобы версия строки успевала обновиться. */
   const queue = useRef<Promise<void>>(Promise.resolve());
-  /** Больше нуля — лист пишет в свои ячейки сам, и эти правки не наши. */
+  /** Больше нуля - лист пишет в свои ячейки сам, и эти правки не наши. */
   const writing = useRef(0);
   const onChangedRef = useRef(onChanged);
   useEffect(() => {
@@ -326,11 +391,11 @@ export function TableView({
   scopeRef.current = scope;
   const [keeper, setKeeper] = useState<LookKeeper | null>(null);
   const [lookEmpty, setLookEmpty] = useState(true);
-  /** Пересобрать лист с тем же ответом — после «Сбросить мой вид». */
+  /** Пересобрать лист с тем же ответом - после «Сбросить мой вид». */
   const [remount, setRemount] = useState(0);
 
-  // Чтение — с отменой: ответ, пришедший после ухода с раздела, не должен
-  // собирать лист в уже снятом компоненте. `refresh` — кнопка «Перечитать» в
+  // Чтение - с отменой: ответ, пришедший после ухода с раздела, не должен
+  // собирать лист в уже снятом компоненте. `refresh` - кнопка «Перечитать» в
   // шапке раздела: только она пересобирает открытый лист.
   useEffect(() => {
     let alive = true;
@@ -353,7 +418,7 @@ export function TableView({
   /**
    * Сообщение гаснет само.
    *
-   * «Строка 5: записано» через минуту — уже не отчёт о действии, а
+   * «Строка 5: записано» через минуту - уже не отчёт о действии, а
    * утверждение о текущем состоянии, и неверное: рядом может идти правка,
    * которую сервер отклонил. Отказ держим дольше: его читают, а не замечают
    * краем глаза.
@@ -373,8 +438,8 @@ export function TableView({
     if (!mine) return;
     putLists(api, SHEET_ID, listRules(mine.payload, canEditRef.current));
     const { columns } = mine.payload;
-    // Личный вид: ширины, цвета, перенос — у каждого свои (`univer/look.ts`).
-    // Строка — операция («o:<id>»), шапка — «h»; колонка — ключ поля.
+    // Личный вид: ширины, цвета, перенос - у каждого свои (`univer/look.ts`).
+    // Строка - операция («o:<id>»), шапка - «h»; колонка - ключ поля.
     const fieldIndex = (key: string) => {
       const at = columns.findIndex((column) => column.key === key);
       return at >= 0 ? at : null;
@@ -454,7 +519,7 @@ export function TableView({
       }
     };
 
-    /** Строка целиком — для новой операции нужны все её ячейки, а не одна. */
+    /** Строка целиком - для новой операции нужны все её ячейки, а не одна. */
     const readRow = (sheetRow: number): Record<string, unknown> => {
       const target = active();
       const cells: Record<string, unknown> = {};
@@ -505,7 +570,7 @@ export function TableView({
         });
         mine.rows.set(sheetRow, out.row);
         // Обратно пишем ответ сервера, а не оставляем напечатанное: «3.9.26»
-        // становится датой, «1 500,5» — суммой с разрядами, и на экране ровно
+        // становится датой, «1 500,5» - суммой с разрядами, и на экране ровно
         // то, что в учёте.
         writeRow(sheetRow, out.row);
         tally.saved += 1;
@@ -514,7 +579,7 @@ export function TableView({
         if (exc instanceof FinanceApiError && exc.status === 409) {
           await refetch(sheetRow, row.id);
           tally.refusals.push(
-            `строка ${shown(sheetRow)}: её успели изменить — на экране свежие значения, повторите правку`,
+            `строка ${shown(sheetRow)}: её успели изменить - на экране свежие значения, повторите правку`,
           );
           return;
         }
@@ -522,7 +587,7 @@ export function TableView({
           `строка ${shown(sheetRow)}: ${exc instanceof Error ? exc.message : "правка не сохранилась"}`,
         );
         // Откат по месту. Оставить на экране значение, которое сервер не
-        // принял, — значит показать цифру, которой нет в учёте.
+        // принял, - значит показать цифру, которой нет в учёте.
         writeRow(sheetRow, row);
       }
     };
@@ -533,21 +598,21 @@ export function TableView({
       if (!Object.keys(cells).some(filled)) return;
       // Пока строке не хватает данных, сервер не зовём: отказ после каждой
       // напечатанной ячейки читается как каприз, хотя человек просто ещё не
-      // дописал. Говорим, чего не хватает, — ровным тоном, это не ошибка.
+      // дописал. Говорим, чего не хватает, - ровным тоном, это не ошибка.
       const missing: string[] = [];
       if (!filled("paid_at")) missing.push("дата платежа");
       if (!filled("amount")) missing.push("сумма");
       if (!filled("account_from") && !filled("account_to"))
-        missing.push("счёт: «Со счёта» — расход, «На счёт» — поступление");
+        missing.push("счёт: «Со счёта» - расход, «На счёт» - поступление");
       if (missing.length) {
-        tally.missing = `строка ${shown(sheetRow)}: не хватает — ${missing.join(", ")}`;
+        tally.missing = `строка ${shown(sheetRow)}: не хватает - ${missing.join(", ")}`;
         return;
       }
       busy.add(sheetRow);
       try {
         const out = await financeApi.addGridRow(cells);
         // Операция остаётся там, где её напечатали. Место по дате она займёт
-        // при следующей сборке листа — как новая строка в Excel не прыгает
+        // при следующей сборке листа - как новая строка в Excel не прыгает
         // посреди ввода в середину таблицы.
         mine.rows.set(sheetRow, out.row);
         mine.ids.set(out.row.id, sheetRow);
@@ -563,9 +628,9 @@ export function TableView({
       }
     };
 
-    // ── Живой режим: правки коллег (опрос — общий движок `univer/live.ts`) ──
+    // ── Живой режим: правки коллег (опрос - общий движок `univer/live.ts`) ──
 
-    /** Первая пустая строка под журналом — туда встаёт операция коллеги. */
+    /** Первая пустая строка под журналом - туда встаёт операция коллеги. */
     const freeRow = (): number | null => {
       const limit = Number(active()?.getMaxRows?.() ?? mine.payload.rows.length + SPARE_ROWS + 1);
       for (let sheetRow = mine.payload.rows.length + 1; sheetRow < limit; sheetRow += 1) {
@@ -577,7 +642,7 @@ export function TableView({
       return null;
     };
 
-    /** Строка коллеги новее той, что на экране, — записать; занята — отложить. */
+    /** Строка коллеги новее той, что на экране, - записать; занята - отложить. */
     const place = (sheetRow: number, row: GridRow): boolean => {
       const known = mine.rows.get(sheetRow);
       if (known && known.version >= row.version) return false;
@@ -601,7 +666,7 @@ export function TableView({
           if (place(at, row)) changed += 1;
           continue;
         }
-        // Новая операция коллеги — в первую пустую строку внизу, как новая
+        // Новая операция коллеги - в первую пустую строку внизу, как новая
         // операция, напечатанная здесь: место по дате она займёт при
         // следующей сборке листа, а не прыжком посреди чужого ввода.
         const free = freeRow();
@@ -627,7 +692,7 @@ export function TableView({
       if (changed) parts.push(`изменено строк: ${changed}`);
       if (added) parts.push(`новых операций: ${added}`);
       if (removed) parts.push(`удалено: ${removed}`);
-      if (overflow) parts.push(`ещё ${overflow} — пустых строк не хватило, «Перечитать» соберёт лист заново`);
+      if (overflow) parts.push(`ещё ${overflow} - пустых строк не хватило, «Перечитать» соберёт лист заново`);
       if (parts.length) {
         setBeat({ text: `Правки коллег: ${parts.join(" · ")}`, at: Date.now(), refusal: false });
         onChangedRef.current();
@@ -642,7 +707,7 @@ export function TableView({
         mine.seq = Math.max(mine.seq, batch.seq);
         return "ok";
       } catch (exc) {
-        // Вход потерян или раздел закрыли — опрашивать больше нечего.
+        // Вход потерян или раздел закрыли - опрашивать больше нечего.
         if (exc instanceof FinanceApiError && (exc.status === 401 || exc.status === 403)) return "stop";
         return "fail";
       }
@@ -650,40 +715,67 @@ export function TableView({
     const poller = pollWhileVisible(tick);
     disposers.push(() => poller.stop());
 
-    // Права листа — общим корнем (`univer/protect.ts`). Строки не вставляются
-    // и не удаляются (строка — адрес операции; новая заводится в пустой
-    // строке внизу), колонки — тоже (их задаёт сервер); сортировка закрыта:
-    // она перемешала бы строки на экране, а карта «строка → операция»
-    // осталась бы прежней, и правка ушла бы в соседнюю операцию. Фильтр
-    // строки не двигает — он открыт.
-    void guardSheets(
-      api,
-      [
-        {
-          sheetId: SHEET_ID,
-          guard: {
-            name: "Журнал",
-            readOnly: !canEditRef.current,
-            allow: {
-              insertRows: false,
-              deleteRows: false,
-              insertColumns: false,
-              deleteColumns: false,
-              sort: false,
-              filter: true,
-            },
-            lockedColumns: columns.flatMap((column, index) => (column.editable ? [] : [index])),
-            lockedRows: [HEADER_ROW],
-          },
-        },
-      ],
-      () => alive,
-    ).then((cancel) => {
-      if (alive) disposers.push(cancel);
-      else cancel();
+    // Защиты листа нет (29.09.2026): замки на вкладке и отказ «нет разрешения
+    // на установку стилей» мешали оформлению. Строка журнала - адрес своей
+    // операции, поэтому вставка и удаление строк, сортировка и колонки здесь
+    // не делаются - но не молча, а окном со словами, что сломалось бы
+    // (`univer/guard.ts`). Фильтр строки не двигает - он открыт.
+    const hideColumns = (cols: number[]) => {
+      guard.pass(() => {
+        void api.executeCommand("sheet.command.set-col-hidden", {
+          unitId: api.getActiveWorkbook?.()?.getId?.(),
+          subUnitId: SHEET_ID,
+          ranges: cols.map((col) => ({ startRow: 0, endRow: 0, startColumn: col, endColumn: col, rangeType: 2 })),
+        });
+      });
+    };
+    const guard = guardCommands(api, (command, kind: StructureKind) => {
+      if (kind === "removeCols") {
+        const cols = [
+          ...new Set(
+            rangesOf(api, command).flatMap((range) =>
+              Array.from({ length: Math.max(0, range.endColumn - range.startColumn + 1) }, (_, i) => range.startColumn + i),
+            ),
+          ),
+        ].filter((col) => col < columns.length);
+        if (!cols.length) return true;
+        const names = cols.map((col) => `«${columns[col]?.title ?? col + 1}»`).join(", ");
+        setWarning({
+          title: cols.length === 1 ? `Скрыть колонку ${names} у себя?` : `Скрыть колонки ${names} у себя?`,
+          lines: [
+            "Колонки журнала - поля операции: у всех они одни и те же, убрать их нельзя.",
+            "Скрыть - только в вашем виде листа: у коллег и в выгрузке колонка остаётся.",
+            "Вернуть: «Сбросить мой вид» под листом.",
+          ],
+          confirm: "Скрыть",
+          onConfirm: () => hideColumns(cols),
+        });
+        return true;
+      }
+      setWarning(JOURNAL_REFUSALS[kind] ?? { title: "Так журнал не меняется", lines: [] });
+      return true;
     });
+    disposers.push(() => guard.stop());
+    try {
+      const config = api._injector.get(IConfigService) as {
+        setConfig: (key: string, value: unknown, options?: { merge: boolean }) => void;
+      };
+      config.setConfig("menu", Object.fromEntries(PROTECTION_MENU.map((id) => [id, { hidden: true }])), { merge: true });
+    } catch {
+      /* пункты защиты останутся - их команды всё равно перехватываются */
+    }
 
     const apply = async (touched: Map<number, Set<number>>) => {
+      if (!canEditRef.current) {
+        // Защиты нет - правку того, кому журнал открыт на просмотр, лист
+        // возвращает сам и говорит почему.
+        for (const sheetRow of touched.keys()) {
+          if (sheetRow === HEADER_ROW) writeHeader();
+          else writeRow(sheetRow, mine.rows.get(sheetRow) ?? null);
+        }
+        setBeat({ text: "Журнал открыт вам только на просмотр - правка не сохраняется", at: Date.now(), refusal: false });
+        return;
+      }
       const tally: Tally = { saved: 0, created: 0, lastRow: 0, refusals: [], missing: "" };
       const order = [...touched.keys()].sort((a, b) => a - b);
       const big = order.length > 20;
@@ -736,7 +828,7 @@ export function TableView({
         }>;
       }) => {
         if (writing.current > 0) return;
-        // Оформление — личный вид, а не правка операции.
+        // Оформление - личный вид, а не правка операции.
         if (look.busy()) return;
         // Все ячейки всех затронутых диапазонов, а не левая верхняя. Вставка
         // столбца сумм из буфера приходит одним диапазоном; раньше из него
@@ -764,18 +856,18 @@ export function TableView({
     if (values?.dispose) disposers.push(() => values.dispose());
 
     // Печать в ячейке со списком остаётся печатью (сервер узнаёт счёт и
-    // статью по началу названия) — это делает общий корень листов.
+    // статью по началу названия) - это делает общий корень листов.
     const edits = api.addEvent?.(api.Event.SheetEditStarted, (event: { row: number }) => {
-      // Пока человек печатает в строке, правка коллеги её не перетирает —
+      // Пока человек печатает в строке, правка коллеги её не перетирает -
       // она ждёт закрытия редактора (см. SheetEditEnded ниже).
       editingRow = event.row;
     });
     if (edits?.dispose) disposers.push(() => edits.dispose());
 
     const ended = api.addEvent?.(api.Event.SheetEditEnded, () => {
-      // Значение из редактора ложится командой чуть позже события — даём ему
+      // Значение из редактора ложится командой чуть позже события - даём ему
       // лечь и сохраниться, потом дописываем правки коллег, ждавшие этой
-      // строки (если своя правка их не обогнала — версия решает).
+      // строки (если своя правка их не обогнала - версия решает).
       window.setTimeout(() => {
         editingRow = null;
         const waiting = [...deferred.entries()];
@@ -789,7 +881,7 @@ export function TableView({
 
   const workbook = useMemo(() => (sheet ? buildWorkbook(sheet.payload) : null), [sheet]);
 
-  // «На весь экран» и тема — в общем корне листов (`univer/sheet.tsx`).
+  // «На весь экран» и тема - в общем корне листов (`univer/sheet.tsx`).
   return (
     <div className="flex flex-col gap-2">
       {error ? (
@@ -809,15 +901,16 @@ export function TableView({
           />
         ) : null}
       </div>
+      <SheetWarning spec={warning} onClose={() => setWarning(null)} />
       {/* Строка состояния: таблица обязана говорить, что записала. Молчание
-          после правки — это и есть сомнение «сохранилось ли». В покое пусто:
+          после правки - это и есть сомнение «сохранилось ли». В покое пусто:
           место держим, текста не пишем. */}
       <div className="flex items-start gap-3">
         <p
           className="text-xs flex-1"
           role="status"
           style={{
-            // Цвет — только отказу. «Записано» и «не хватает суммы» — ход работы.
+            // Цвет - только отказу. «Записано» и «не хватает суммы» - ход работы.
             color: beat?.refusal ? "var(--accent-rose)" : "var(--text-secondary)",
             minHeight: "1.2em",
           }}
@@ -828,7 +921,7 @@ export function TableView({
           <button
             type="button"
             className="btn-ghost text-xs"
-            title="Ширины, цвета и перенос — ваши, коллеги их не видят"
+            title="Ширины, цвета и перенос - ваши, коллеги их не видят"
             onClick={async () => {
               await keeper.reset();
               setRemount((value) => value + 1);

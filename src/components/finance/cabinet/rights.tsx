@@ -8,25 +8,39 @@ import {
   type ContractScope,
   type Grant,
   type GrantChange,
+  type Me,
   type OwnEntity,
   type SubjectAccess,
   contractsApi,
   peopleApi,
 } from "@/components/finance/api";
+import { grantCap, headOnly, isAdmin } from "@/components/finance/access";
 import { ConfirmDialog } from "@/components/finance/ui/confirm-dialog";
 import { SelectLine } from "@/components/finance/ui/select-line";
 
 /**
- * Права галочками — только не галочками (фронт-план, 6.9 «Люди · Права»).
+ * Права галочками - только не галочками (фронт-план, 6.9 «Люди · Права»).
  *
  * Уровень выбирается текстом в строку: «Нет · Видит · Правит». Два флажка
  * «видит» и «правит» допускали бы «правит, но не видит». Изменение уходит
- * сразу; под строкой прочерчивается линия сохранения, отказ — текстом.
+ * сразу; под строкой прочерчивается линия сохранения, отказ - текстом.
  *
- * Режим отдела — одна колонка. Режим человека (карточка сотрудника →
- * «Доступ») — «у отдела» мелкой строкой под названием, «Лично» с первой
+ * Режим отдела - одна колонка. Режим человека (карточка сотрудника →
+ * «Доступ») - «у отдела» мелкой строкой под названием, «Лично» с первой
  * позицией «Как у отдела» и «Итог». Администратор и владелец видят вместо
  * матрицы одну строку: у них записей прав нет, они видят всё.
+ *
+ * Кто сам не администратор, раздаёт права не выше своих (29.09.2026): выше
+ * своего уровень виден, но не выбирается - подсказка говорит почему. Сервер
+ * держит то же правило (`check_grant`). Начальник отдела «Сотрудники и
+ * права» не раздаёт вовсе: начальника назначает администратор - строкой
+ * «Начальник» в правах отдела.
+ *
+ * Отдел - потолок (29.09.2026): у человека из отдела лично можно только
+ * сузить. Выше отдела выбирает только администратор - запись уходит с
+ * пометкой «шире отдела» и так и подписана в строке. Запись выше отдела без
+ * пометки (отдел сузили потом) подписана «не действует»: «Итог» - по отделу.
+ * Человек без отдела живёт по личным правам, потолка у него нет.
  */
 type Kind = "department" | "employee";
 type Choice = AccessLevel | "inherit";
@@ -34,6 +48,12 @@ type Choice = AccessLevel | "inherit";
 const LEVEL_WORDS: Record<AccessLevel, string> = { none: "Нет", view: "Видит", edit: "Правит" };
 const FIELD_WORDS: Record<AccessLevel, string> = { none: "Скрыто", view: "Видит", edit: "Правит" };
 const ROW_WORDS = { all: "все", department: "своего отдела", own: "где ответственный" } as const;
+const PEOPLE_WORDS = { all: "всех", department: "своего отдела" } as const;
+const ROW_RANK = { own: 0, department: 1, all: 2 } as const;
+const RANK: Record<AccessLevel, number> = { none: 0, view: 1, edit: 2 };
+const ABOVE = "Выше ваших прав - открывает администратор";
+const ABOVE_DEPT = "Выше прав отдела - открывает администратор";
+const BEYOND_DEPT = "Шире отдела - только этому человеку";
 
 let catalogCache: Promise<AccessCatalog> | null = null;
 export function loadCatalog(): Promise<AccessCatalog> {
@@ -54,19 +74,37 @@ export function LevelSwitch({
   onChange,
   label,
   disabled,
+  cap = "edit",
+  ceiling = null,
+  beyondOk = false,
 }: {
   value: Choice;
   levels: AccessLevel[];
   words?: Record<AccessLevel, string>;
-  /** Есть — первой позицией «Как у отдела». */
+  /** Есть - первой позицией «Как у отдела». */
   inherit?: boolean;
   onChange: (next: Choice) => void;
   label: string;
   disabled?: boolean;
+  /** Выше этого уровня выбрать нельзя: раздающий сам не выше. */
+  cap?: AccessLevel;
+  /** Потолок отдела человека; `null` - отдела нет или это права отдела. */
+  ceiling?: AccessLevel | null;
+  /** Выше потолка можно - пометкой «шире отдела» (администратор). */
+  beyondOk?: boolean;
 }) {
   const items = [
     ...(inherit ? [{ key: "inherit" as Choice, label: "Как у отдела" }] : []),
-    ...levels.map((level) => ({ key: level as Choice, label: words[level] })),
+    ...levels.map((level) => {
+      const aboveCap = RANK[level] > RANK[cap];
+      const aboveDept = ceiling !== null && RANK[level] > RANK[ceiling];
+      return {
+        key: level as Choice,
+        label: words[level],
+        disabled: aboveCap || (aboveDept && !beyondOk),
+        title: aboveCap ? ABOVE : aboveDept ? (beyondOk ? BEYOND_DEPT : ABOVE_DEPT) : undefined,
+      };
+    }),
   ];
   return (
     <SelectLine
@@ -85,10 +123,10 @@ export function LevelSwitch({
 type RowState = { sending?: boolean; error?: string };
 
 /**
- * Наборы прав: девятнадцать строк по одной на каждого нового человека —
+ * Наборы прав: девятнадцать строк по одной на каждого нового человека -
  * работа, которую никто не доделывает, и сотрудник входит в пустой кабинет.
  * Набор ставит уровни по всем разделам разом; поля договора не трогает.
- * Уровень выше возможного для раздела урезается до возможного (отчёты —
+ * Уровень выше возможного для раздела урезается до возможного (отчёты -
  * только «видит»).
  */
 type Preset = { key: string; title: string; levels: (resource: string) => AccessLevel | null };
@@ -104,23 +142,30 @@ const PRESETS: Preset[] = [
       MONEY_EDIT.has(r) ? "edit" : r.startsWith("reports.") || r === "integrations" || r === "contracts" ? "view" : "none",
   },
   { key: "view", title: "Только просмотр", levels: (r) => (r === "people" || r === "audit" ? "none" : "view") },
+  // Весь учёт: людей и журнал действий набор не открывает - это решение о
+  // начальнике и администраторе, а не об отделе.
+  { key: "all", title: "Все разделы", levels: (r) => (r === "people" || r === "audit" ? "none" : "edit") },
 ];
 
 export function RightsMatrix({
   kind,
   id,
+  me,
   readOnly = false,
   onChanged,
 }: {
   kind: Kind;
   id: string;
+  /** Кто смотрит: не администратор раздаёт не выше своего. */
+  me?: Me | null;
   readOnly?: boolean;
-  /** Права записаны — карточка пересчитывает «разделов не открыто». */
+  /** Права записаны - карточка пересчитывает «разделов не открыто». */
   onChanged?: (data: SubjectAccess) => void;
 }) {
   const [catalog, setCatalog] = useState<AccessCatalog | null>(null);
   const [data, setData] = useState<SubjectAccess | null>(null);
   const [entities, setEntities] = useState<OwnEntity[]>([]);
+  const [departments, setDepartments] = useState<{ id: string; code: string; title: string }[]>([]);
   const [error, setError] = useState("");
   const [rows, setRows] = useState<Record<string, RowState>>({});
   const [fieldsOpen, setFieldsOpen] = useState(false);
@@ -128,6 +173,10 @@ export function RightsMatrix({
   const [preset, setPreset] = useState<Preset | "inherit" | "none" | null>(null);
   const [presetBusy, setPresetBusy] = useState(false);
   const [presetError, setPresetError] = useState("");
+  const [headBusy, setHeadBusy] = useState("");
+  const [headError, setHeadError] = useState("");
+  const admin = isAdmin(me);
+  const head = headOnly(me);
 
   useEffect(() => {
     let alive = true;
@@ -139,6 +188,7 @@ export function RightsMatrix({
         setCatalog(nextCatalog);
         setData(nextData);
         setEntities(schema?.own_entities ?? []);
+        setDepartments(schema?.departments ?? []);
       })
       .catch((exc) => alive && setError(exc instanceof Error ? exc.message : "Права не прочитались"));
     return () => {
@@ -166,9 +216,10 @@ export function RightsMatrix({
 
   const applyPreset = useCallback(async () => {
     if (!catalog || !preset) return;
-    const RANK: Record<AccessLevel, number> = { none: 0, view: 1, edit: 2 };
     const changes: Record<string, GrantChange> = {};
     for (const item of catalog.resources) {
+      // Начальник отдела «Сотрудники и права» не раздаёт - набор их не трогает.
+      if (head && item.key === "people") continue;
       if (preset === "inherit") {
         changes[item.key] = null;
         continue;
@@ -176,7 +227,10 @@ export function RightsMatrix({
       const wanted = preset === "none" ? "none" : preset.levels(item.key);
       if (wanted === null) continue;
       const top = item.levels.reduce<AccessLevel>((best, level) => (RANK[level] > RANK[best] ? level : best), "none");
-      changes[item.key] = RANK[wanted] > RANK[top] ? top : wanted;
+      // Не выше возможного у раздела и не выше своих прав.
+      const cap = grantCap(me, item.key);
+      const bounded = RANK[wanted] > RANK[top] ? top : wanted;
+      changes[item.key] = RANK[bounded] > RANK[cap] ? cap : bounded;
     }
     setPresetBusy(true);
     setPresetError("");
@@ -191,7 +245,7 @@ export function RightsMatrix({
     } finally {
       setPresetBusy(false);
     }
-  }, [catalog, preset, kind, id, onChanged]);
+  }, [catalog, preset, kind, id, onChanged, me, head]);
 
   const groups = useMemo(() => {
     const out: { title: string; items: AccessCatalog["resources"] }[] = [];
@@ -219,7 +273,7 @@ export function RightsMatrix({
   const choiceOf = (resource: string): Choice => {
     const grant = own[resource];
     if (person) return grant ? grant.level : noDept ? (data.effective[resource] ?? "none") : "inherit";
-    // Поле договора без записи — «как у договоров», а не «скрыто».
+    // Поле договора без записи - «как у договоров», а не «скрыто».
     if (!grant && resource.startsWith("contracts.field.")) return data.effective[resource] ?? contractsLevel;
     return grant?.level ?? "none";
   };
@@ -229,22 +283,56 @@ export function RightsMatrix({
   const scope: ContractScope = contractsGrant?.scope ?? {};
   const contractsLevel = data.effective.contracts ?? "none";
 
+  /**
+   * Потолок отдела для раздела у человека: уровень отдела (поле без записи -
+   * как договоры отдела). Роль начальника - люди своего отдела - потолком не
+   * режется. `null` - потолка нет.
+   */
+  const ceilingOf = (resource: string): AccessLevel | null => {
+    if (!person || noDept) return null;
+    if (resource === "people" && own.people?.scope?.rows === "department") return null;
+    if (resource.startsWith("contracts.field.")) return dept[resource]?.level ?? dept.contracts?.level ?? "none";
+    return dept[resource]?.level ?? "none";
+  };
+  const deptRows = dept.contracts?.scope?.rows ?? "all";
+
   const setScope = (next: ContractScope) => {
     const level = own.contracts?.level ?? (person ? dept.contracts?.level : undefined) ?? "view";
-    void save("contracts", { level, scope: { rows: scope.rows ?? "all", entities: scope.entities ?? [], ...next } });
+    const merged: ContractScope = {
+      rows: scope.rows ?? "all",
+      entities: scope.entities ?? [],
+      departments: scope.departments ?? [],
+      ...next,
+    };
+    delete merged.beyond;
+    // Шире отдела по строкам или уровню - пометкой администратора.
+    const ceiling = ceilingOf("contracts");
+    const beyond =
+      admin &&
+      person &&
+      !noDept &&
+      (ROW_RANK[merged.rows ?? "all"] > ROW_RANK[deptRows] || (ceiling !== null && RANK[level] > RANK[ceiling]));
+    void save("contracts", { level, scope: beyond ? { ...merged, beyond: true } : merged });
   };
 
   const renderRow = (resource: string, title: string, levels: AccessLevel[], words = LEVEL_WORDS, note?: string) => {
     const state = rows[resource] ?? {};
     const deptLevel = dept[resource]?.level ?? (resource.startsWith("contracts.field.") ? null : "none");
+    const ceiling = ceilingOf(resource);
+    const personal = own[resource];
+    const beyond = Boolean(personal?.scope?.beyond);
+    // Записано выше отдела без пометки - отдел сузили потом: не действует.
+    const idle = !beyond && ceiling !== null && personal !== undefined && RANK[personal.level] > RANK[ceiling];
     return (
       <div className="cab-right" key={resource} data-sending={state.sending ? "true" : undefined}>
         <span className="cab-right-title">
           {title}
           {note ? <span className="annot cab-right-note">{note}</span> : null}
+          {beyond ? <span className="annot cab-right-note">шире отдела</span> : null}
           {person && !noDept ? (
             <span className="cab-right-sub fin-soft">
               у отдела{deptTitle ? ` ${deptTitle}` : ""}: {deptLevel ? words[deptLevel as AccessLevel] : "как у договоров"}
+              {idle ? ` · выше отдела не действует` : ""}
             </span>
           ) : null}
         </span>
@@ -254,8 +342,19 @@ export function RightsMatrix({
           words={words}
           inherit={person && !noDept}
           label={title}
-          disabled={readOnly || state.sending}
-          onChange={(next) => void save(resource, next === "inherit" ? null : next)}
+          disabled={readOnly || state.sending || (head && resource === "people")}
+          cap={grantCap(me, resource)}
+          ceiling={ceiling}
+          beyondOk={admin}
+          onChange={(next) => {
+            if (next === "inherit") return void save(resource, null);
+            if (ceiling !== null && RANK[next] > RANK[ceiling]) {
+              // Выше отдела - только с пометкой «шире отдела» (выбрать может администратор).
+              const kept = resource === "contracts" ? { ...scope } : resource === "people" ? { ...(personal?.scope ?? {}) } : {};
+              return void save(resource, { level: next, scope: { ...kept, beyond: true } });
+            }
+            void save(resource, next);
+          }}
         />
         {person ? (
           <span className="cab-right-total" aria-label="Итог">
@@ -301,6 +400,95 @@ export function RightsMatrix({
         onConfirm={() => void applyPreset()}
         onCancel={() => setPreset(null)}
       />
+      {!person && data.members?.length ? (
+        // Начальник - право «Сотрудники и права» своего отдела, записанное
+        // человеку лично; здесь оно ставится одним нажатием. Заместителей
+        // может быть несколько.
+        <div className="cab-right cab-right-sub-row cab-heads">
+          <span className="cab-right-title">
+            Начальник отдела
+            <span className="cab-right-sub fin-soft">заводит людей в отдел, правит их доступ не выше своего, удаляет</span>
+          </span>
+          <span className="cab-entity-list">
+            {data.members
+              .filter((member) => !member.admin)
+              .map((member) => {
+                const on = data.heads?.includes(member.id) ?? false;
+                return (
+                  <button
+                    key={member.id}
+                    type="button"
+                    className="cab-toggle"
+                    aria-pressed={on}
+                    disabled={readOnly || !admin || headBusy !== ""}
+                    title={admin ? undefined : "Начальника назначает администратор"}
+                    onClick={async () => {
+                      setHeadBusy(member.id);
+                      setHeadError("");
+                      try {
+                        await peopleApi.access.put("employee", member.id, {
+                          people: on ? null : { level: "edit", scope: { rows: "department" } },
+                        });
+                        setData(await peopleApi.access.get("department", id));
+                      } catch (exc) {
+                        setHeadError(exc instanceof Error ? exc.message : "Не записалось");
+                      } finally {
+                        setHeadBusy("");
+                      }
+                    }}
+                  >
+                    {member.name}
+                  </button>
+                );
+              })}
+          </span>
+          {headError ? <span className="cab-line-error fin-fail">{headError}</span> : null}
+        </div>
+      ) : null}
+      {!person && data.heads?.length ? (
+        // Доли отделов в договорах своего отдела начальник видит, пока
+        // администратор не снял (решение владельца 30.09.2026): пометка
+        // `shares: false` в том же праве «Сотрудники и права».
+        <div className="cab-right cab-right-sub-row cab-heads">
+          <span className="cab-right-title">
+            Видит доли отделов
+            <span className="cab-right-sub fin-soft">в договорах, где стоит его отдел</span>
+          </span>
+          <span className="cab-entity-list">
+            {(data.members ?? [])
+              .filter((member) => data.heads?.includes(member.id))
+              .map((member) => {
+                const on = !(data.heads_without_shares ?? []).includes(member.id);
+                return (
+                  <button
+                    key={member.id}
+                    type="button"
+                    className="cab-toggle"
+                    aria-pressed={on}
+                    disabled={readOnly || !admin || headBusy !== ""}
+                    title={admin ? undefined : "Решает администратор"}
+                    onClick={async () => {
+                      setHeadBusy(member.id);
+                      setHeadError("");
+                      try {
+                        await peopleApi.access.put("employee", member.id, {
+                          people: { level: "edit", scope: on ? { rows: "department", shares: false } : { rows: "department" } },
+                        });
+                        setData(await peopleApi.access.get("department", id));
+                      } catch (exc) {
+                        setHeadError(exc instanceof Error ? exc.message : "Не записалось");
+                      } finally {
+                        setHeadBusy("");
+                      }
+                    }}
+                  >
+                    {member.name}
+                  </button>
+                );
+              })}
+          </span>
+        </div>
+      ) : null}
       {person ? (
         <div className="cab-right cab-right-head" aria-hidden="true">
           <span />
@@ -314,6 +502,36 @@ export function RightsMatrix({
           {group.items.map((item) => (
             <Fragment key={item.key}>
               {renderRow(item.key, item.title, item.levels, LEVEL_WORDS, item.note)}
+              {item.key === "people" && (data.effective.people ?? "none") !== "none" ? (
+                <div className="cab-right-more">
+                  <div className="cab-right cab-right-sub-row">
+                    <span className="cab-right-title">
+                      Чьих сотрудников
+                      {person && !own.people ? <span className="cab-right-sub fin-soft">как у отдела</span> : null}
+                    </span>
+                    <SelectLine
+                      items={(catalog.people_scopes ?? ["all", "department"]).map((key) => ({
+                        key,
+                        label: PEOPLE_WORDS[key],
+                      }))}
+                      value={((own.people ?? (person ? dept.people : undefined))?.scope?.rows as "department" | undefined) ?? "all"}
+                      onChange={(rowsScope) => {
+                        const level = own.people?.level ?? (person ? dept.people?.level : undefined) ?? "view";
+                        // «Всех» выше отдела - пометкой «шире отдела»; «своего отдела» - роль
+                        // начальника, потолком не режется.
+                        const top = person && !noDept ? (dept.people?.level ?? "none") : null;
+                        const beyond = rowsScope === "all" && top !== null && RANK[level] > RANK[top];
+                        void save("people", { level, scope: beyond ? { rows: rowsScope, beyond: true } : { rows: rowsScope } });
+                      }}
+                      role="radiogroup"
+                      label="Чьих сотрудников"
+                      size="sm"
+                      disabled={readOnly || !admin || rows.people?.sending}
+                      className="cab-level"
+                    />
+                  </div>
+                </div>
+              ) : null}
               {item.key === "contracts" && contractsLevel !== "none" ? (
                 <div className="cab-right-more">
                   <div className="cab-right cab-right-sub-row">
@@ -322,10 +540,17 @@ export function RightsMatrix({
                       {scopeInherited ? <span className="cab-right-sub fin-soft">как у отдела</span> : null}
                     </span>
                     <SelectLine
-                      items={(catalog.row_scopes ?? ["all", "department", "own"]).map((key) => ({
-                        key,
-                        label: ROW_WORDS[key],
-                      }))}
+                      items={(catalog.row_scopes ?? ["all", "department", "own"]).map((key) => {
+                        const wider = !admin && ROW_RANK[key] > ROW_RANK[me?.contracts_scope?.rows ?? "all"];
+                        // Шире области отдела - только администратор, пометкой.
+                        const aboveDept = person && !noDept && ROW_RANK[key] > ROW_RANK[deptRows];
+                        return {
+                          key,
+                          label: ROW_WORDS[key],
+                          disabled: wider || (aboveDept && !admin),
+                          title: wider ? ABOVE : aboveDept ? (admin ? BEYOND_DEPT : ABOVE_DEPT) : undefined,
+                        };
+                      })}
                       value={scope.rows ?? "all"}
                       onChange={(rowsScope) => setScope({ rows: rowsScope })}
                       role="radiogroup"
@@ -335,9 +560,61 @@ export function RightsMatrix({
                       className="cab-level"
                     />
                     {noDept && scope.rows === "department" ? (
-                      <span className="cab-line-error fin-wait">Отдела нет — договоров своего отдела не увидит</span>
+                      <span className="cab-line-error fin-wait">Отдела нет - договоров своего отдела не увидит</span>
                     ) : null}
                   </div>
+                  {(scope.rows ?? "all") !== "all" && departments.length ? (
+                    // Другие отделы - только просмотр (28.09.2026): юристу ЮО
+                    // показать договоры НО, не давая их править. Правку такого
+                    // договора сервер не примет, лист и карточка её не предложат.
+                    <div className="cab-right cab-right-sub-row">
+                      <span className="cab-right-title">
+                        Ещё видит отделы
+                        <span className="cab-right-sub fin-soft">только просмотр</span>
+                      </span>
+                      <span className="cab-entity-list">
+                        {departments
+                          // Свой отдел не предлагается: его договоры и так видны.
+                          .filter((department) =>
+                            person ? data.subject.department?.id !== department.id : data.subject.id !== department.id,
+                          )
+                          .map((department) => {
+                            const on = scope.departments?.includes(department.id) ?? false;
+                            // Не администратор открывает только те отделы, что видит сам.
+                            const closed =
+                              !admin &&
+                              (me?.contracts_scope?.rows ?? "all") !== "all" &&
+                              !(me?.contracts_scope?.departments ?? []).includes(department.id);
+                            return (
+                              <button
+                                key={department.id}
+                                type="button"
+                                className="cab-toggle"
+                                aria-pressed={on}
+                                title={
+                                  closed && !on
+                                    ? ABOVE
+                                    : department.title && department.title !== department.code
+                                      ? department.title
+                                      : undefined
+                                }
+                                disabled={readOnly || scopeInherited || rows.contracts?.sending || (closed && !on)}
+                                onClick={() => {
+                                  const current = scope.departments ?? [];
+                                  setScope({
+                                    departments: on
+                                      ? current.filter((item) => item !== department.id)
+                                      : [...current, department.id],
+                                  });
+                                }}
+                              >
+                                {department.code || department.title}
+                              </button>
+                            );
+                          })}
+                      </span>
+                    </div>
+                  ) : null}
                   <div className="cab-right cab-right-sub-row">
                     <span className="cab-right-title">Какими юрлицами</span>
                     <span className="cab-entities">

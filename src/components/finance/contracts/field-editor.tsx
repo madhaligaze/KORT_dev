@@ -1,15 +1,15 @@
 "use client";
 
 /**
- * Поле карточки: покой, наведение, правка, сохранение — одно поведение для
+ * Поле карточки: покой, наведение, правка, сохранение - одно поведение для
  * всех типов (фронт-план 6.2, «Поле»).
  *
  * Кнопки «Сохранить» нет, и сохранение молчит: под полем прочерчивается
- * волосяная линия и гаснет. Сообщение — только при отказе и только у поля.
+ * волосяная линия и гаснет. Сообщение - только при отказе и только у поля.
  * Сторона и сумма существующего договора спрашивают «опечатка или с даты»
  * прямо под полем; пока нет ответа, новое значение стоит приглушённым.
  */
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import { type Party, type RegistryField, type RegistrySchema, contractsApi } from "@/components/finance/api";
 import { ChangeMode } from "@/components/finance/contracts/change-mode";
@@ -26,12 +26,13 @@ import {
   type Edit,
 } from "@/components/finance/contracts/store";
 import { contractMoney, formatDay, middleEllipsis, parseDay, shortName } from "@/components/finance/format";
+import { DateCalendar, calendarKey } from "@/components/finance/ui/date-picker";
 import { useSessionDrop, useSessionState } from "@/components/session-state";
 
 /**
  * Откуда открыта карточка: что предлагает выбор списков в этом листе
- * (`choices` блока — в «Разовых» статус только «на исполнении» и «исполнен»)
- * и открыт ли договор на правку (`readonly` — договор другого отдела).
+ * (`choices` блока - в «Разовых» статус только «на исполнении» и «исполнен»)
+ * и открыт ли договор на правку (`readonly` - договор другого отдела).
  */
 export type CardScope = { choices: Record<string, string[]> | null; readonly: boolean };
 export const CardScopeContext = createContext<CardScope>({ choices: null, readonly: false });
@@ -108,10 +109,10 @@ export function InlineField({ contractId, field, label, labelNote, wide, suffix,
   const text = display(field, value, { schema, parties, people });
   const scope = useContext(CardScopeContext);
   const readOnly = !field.editable || scope.readonly;
-  const lockedTitle = scope.readonly ? "Договор другого отдела — только просмотр" : "Нет права правки";
+  const lockedTitle = scope.readonly ? "Договор другого отдела - только просмотр" : "Нет права правки";
 
   // Прочерк «сохранено» гаснет сам: включается в кадре анимации после ответа,
-  // выключается через 0,7 с — оба раза из таймера, а не посреди эффекта.
+  // выключается через 0,7 с - оба раза из таймера, а не посреди эффекта.
   useEffect(() => {
     if (edit?.state === "sending") {
       wasSending.current = true;
@@ -148,7 +149,7 @@ export function InlineField({ contractId, field, label, labelNote, wide, suffix,
 
   let control: ReactNode;
   if (editing && !readOnly) {
-    // Наша сторона закрыта на наши юрлица, но у покупки наше ТОО — заказчик, и
+    // Наша сторона закрыта на наши юрлица, но у покупки наше ТОО - заказчик, и
     // исполнитель законно чужой (правило сервера `_OTHER_SIDE`).
     const other = field.key === "executor" ? "customer" : field.key === "customer" ? "executor" : "";
     const otherOwn = Boolean(other && parties[String(contract?.values[other] ?? "")]?.own);
@@ -161,6 +162,7 @@ export function InlineField({ contractId, field, label, labelNote, wide, suffix,
         onCancel={stopEditing}
         placeholder={placeholder ?? label ?? field.title}
         draftKey={`${draftKey}.text`}
+        contractId={contractId}
       />
     );
   } else if (field.type === "url" && typeof value === "string" && value) {
@@ -199,7 +201,7 @@ export function InlineField({ contractId, field, label, labelNote, wide, suffix,
             {suffix ? <small className="fin-muted"> {suffix}</small> : null}
           </>
         ) : (
-          "—"
+          "-"
         )}
       </button>
     );
@@ -223,7 +225,7 @@ export function InlineField({ contractId, field, label, labelNote, wide, suffix,
       {edit?.state === "failed" ? <div className="ifield-error">{edit.error}</div> : null}
       {edit?.state === "conflict" && contractId ? (
         <div className="ifield-error">
-          Только что изменено{edit.by ? `: ${edit.by}` : ""} — {display(field, edit.theirs, { schema, parties, people }) || "пусто"}.
+          Только что изменено{edit.by ? `: ${edit.by}` : ""} - {display(field, edit.theirs, { schema, parties, people }) || "пусто"}.
           Ваше: {display(field, edit.value, { schema, parties, people }) || "пусто"} ·{" "}
           <button type="button" className="fin-link-btn" onClick={() => insist(contractId, field.key)}>
             Поставить моё
@@ -239,7 +241,7 @@ export function InlineField({ contractId, field, label, labelNote, wide, suffix,
 }
 
 /**
- * Завести значение закрытого списка прямо из выбора — только тому, кто
+ * Завести значение закрытого списка прямо из выбора - только тому, кто
  * настраивает реестр. Значение заводится в настройке тем же запросом, что во
  * вкладке «Списки», схема перечитывается, и в поле уходит уже идентификатор:
  * иначе карточка на секунду показала бы его вместо подписи.
@@ -261,6 +263,7 @@ function Editor({
   onCancel,
   placeholder,
   draftKey,
+  contractId = null,
 }: {
   field: RegistryField;
   value: unknown;
@@ -270,16 +273,18 @@ function Editor({
   placeholder: string;
   /** Где в сессии лежит набранный текст (`TextEditor`). */
   draftKey: string;
+  /** Договор поля; `null` - новый, ещё не заведённый. */
+  contractId?: string | null;
 }) {
   const schema = useRegistry((s) => s.schema);
   const people = useRegistry((s) => s.people);
   const staff = useRegistry((s) => s.staff);
   const [failure, setFailure] = useState("");
-  // Напечатано почти то же, что уже есть в списке, — сначала вопрос.
+  // Напечатано почти то же, что уже есть в списке, - сначала вопрос.
   const [twin, setTwin] = useState<{ text: string; option: ComboOption } | null>(null);
   const canSetup = Boolean(schema?.access.setup);
   // Выбор, ограниченный листом (`choices` блока): только эти значения и без
-  // «добавить своё» — лист «Разовых» знает два статуса, и третий ему не нужен.
+  // «добавить своё» - лист «Разовых» знает два статуса, и третий ему не нужен.
   const only = useContext(CardScopeContext).choices?.[field.key] ?? null;
   // Сбой «добавить в список» показывается под полем, а выбор остаётся открытым.
   const guarded = (run: () => Promise<void>) => {
@@ -317,6 +322,17 @@ function Editor({
         />
         {failure ? <div className="ifield-error">{failure}</div> : null}
       </>
+    );
+  }
+  if (field.key === "department") {
+    return (
+      <DepartmentsEditor
+        value={Array.isArray(value) ? (value as string[]) : value ? [String(value)] : []}
+        contractId={contractId}
+        closed={field.fill === "list"}
+        onCommit={onCommit}
+        onCancel={onCancel}
+      />
     );
   }
   if (field.type === "list" || field.type === "department" || field.type === "choice" || field.type === "bool") {
@@ -369,8 +385,8 @@ function Editor({
           emptyText={
             closed
               ? field.type === "department"
-                ? "Такого отдела нет — отделы заводят в личном кабинете"
-                : "Нет в списке — список пополняют в настройке реестра"
+                ? "Такого отдела нет - отделы заводят в личном кабинете"
+                : "Нет в списке - список пополняют в настройке реестра"
               : undefined
           }
           onPick={(option) => onCommit(field.type === "bool" ? option.id === "true" : option.id)}
@@ -462,6 +478,7 @@ function TextEditor({
       }
     },
   };
+  if (field.type === "date") return <DateEditor common={common} value={value} draft={draft} setDraft={setDraft} error={error} onCommit={onCommit} onCancel={onCancel} />;
   return (
     <>
       {multiline ? (
@@ -475,11 +492,176 @@ function TextEditor({
 }
 
 /**
- * Ответственные. Выбор — из справочника сотрудников личного кабинета, а не
+ * Дата в карточке - с календарём (30.09.2026): день выбирается щелчком и
+ * записывается сразу, печатать не нужно. Набор по-прежнему работает, стрелки
+ * двигают день прямо в поле (`calendarKey`), Enter и уход из поля - как у
+ * любого поля карточки.
+ */
+function DateEditor({
+  common,
+  value,
+  draft,
+  setDraft,
+  error,
+  onCommit,
+  onCancel,
+}: {
+  common: {
+    className: string;
+    value: string;
+    placeholder: string;
+    autoFocus: boolean;
+    onChange: (event: { target: { value: string } }) => void;
+    onBlur: () => void;
+    onKeyDown: (event: React.KeyboardEvent) => void;
+  };
+  value: unknown;
+  draft: string;
+  setDraft: (text: string) => void;
+  error: string;
+  onCommit: (value: unknown) => void;
+  onCancel: () => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(true);
+  const calendarId = useId();
+  const stored = typeof value === "string" && value ? value.slice(0, 10) : null;
+  const pick = (iso: string) => {
+    setOpen(false);
+    if (iso === stored) onCancel();
+    else onCommit(iso);
+  };
+  return (
+    <>
+      <input
+        {...common}
+        ref={input}
+        inputMode="numeric"
+        role="combobox"
+        aria-controls={calendarId}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
+        onKeyDown={(event) => {
+          const next = calendarKey(event, draft, stored);
+          if (next) {
+            event.preventDefault();
+            setOpen(true);
+            setDraft(formatDay(next));
+            return;
+          }
+          common.onKeyDown(event);
+        }}
+      />
+      {open ? (
+        <DateCalendar
+          id={calendarId}
+          anchor={input}
+          value={stored}
+          cursor={parseDay(draft)}
+          onPick={pick}
+          onClear={stored ? () => onCommit("") : undefined}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+      {error ? <div className="ifield-error">{error}</div> : null}
+    </>
+  );
+}
+
+/**
+ * Ответственные. Выбор - из справочника сотрудников личного кабинета, а не
  * из тех, кто уже стоит в договорах: иначе человека, только что заведённого в
  * «Людях», выбрать было нельзя, а напечатанное «Асхат» заводило второго
  * «Асхата» рядом с «Асхатом Ибраевым».
  */
+/**
+ * «Отдел» договора - списком, как «Ответственное лицо» (30.09.2026): «HR,
+ * ЮО», «ОБО, НО, ЮО, HR» у договора «4 в 1». Дописать отдел может каждый, кто
+ * правит поле; убрать - владелец или администратор, а сотрудник - только
+ * вписанный им самим (свою ошибку исправляет сам). Где убрать нельзя, крестика
+ * нет; отдел с долей сервер не отдаст и «своему» - откажет словами.
+ */
+function DepartmentsEditor({
+  value,
+  contractId,
+  closed,
+  onCommit,
+  onCancel,
+}: {
+  value: string[];
+  contractId: string | null;
+  closed: boolean;
+  onCommit: (value: unknown) => void;
+  onCancel: () => void;
+}) {
+  const schema = useRegistry((s) => s.schema);
+  const me = useRegistry((s) => s.me);
+  const addedBy = useRegistry((s) => (contractId ? s.byId.get(contractId)?.departments_by : undefined));
+  const [chosen, setChosen] = useState<string[]>(value);
+  const [adding, setAdding] = useState(value.length === 0);
+  const departments = schema?.departments ?? [];
+  // Новый договор ещё не заведён - всё в нём вписано самим человеком.
+  const canRemove = (id: string) => Boolean(schema?.access.admin) || !contractId || (me !== null && addedBy?.[id] === me);
+  const codeOf = (id: string) => departments.find((item) => item.id === id)?.code ?? id;
+  const options: ComboOption[] = departments
+    .filter((item) => !chosen.includes(item.id))
+    .map((item) => ({ id: item.id, label: item.code, hint: item.title !== item.code ? item.title : undefined }));
+  const save = (next: string[]) => {
+    setChosen(next);
+    onCommit(next);
+  };
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem 0.75rem", alignItems: "baseline", minHeight: "2rem" }}>
+        {chosen.map((id) => (
+          <span key={id}>
+            {codeOf(id)}
+            {canRemove(id) ? (
+              <>
+                {" "}
+                <button
+                  type="button"
+                  className="fin-link-btn"
+                  aria-label={`Убрать ${codeOf(id)}`}
+                  onClick={() => save(chosen.filter((item) => item !== id))}
+                >
+                  ×
+                </button>
+              </>
+            ) : null}
+          </span>
+        ))}
+        {!adding && options.length ? (
+          <button type="button" className="fin-link-btn" aria-label="Добавить отдел" onClick={() => setAdding(true)}>
+            +
+          </button>
+        ) : null}
+        <button type="button" className="fin-link-btn fin-muted" onClick={onCancel}>
+          Готово
+        </button>
+      </div>
+      {adding ? (
+        <Combo
+          options={options}
+          placeholder="Отдел"
+          allowCreate={!closed}
+          emptyText={closed ? "Такого отдела нет - отделы заводят в личном кабинете" : undefined}
+          onPick={(option) => {
+            setAdding(false);
+            save([...chosen, option.id]);
+          }}
+          onCreate={(text) => {
+            setAdding(false);
+            save([...chosen, text]);
+          }}
+          onCancel={() => setAdding(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function PeopleEditor({
   value,
   people,
@@ -497,7 +679,7 @@ function PeopleEditor({
 }) {
   const [chosen, setChosen] = useState<string[]>(value);
   const [adding, setAdding] = useState(value.length === 0);
-  // Пока справочник не прочитан — те, кто уже стоит в договорах.
+  // Пока справочник не прочитан - те, кто уже стоит в договорах.
   const pool = staff ?? Object.values(people);
   const options: ComboOption[] = pool
     .filter((person) => !chosen.includes(person.id))
@@ -531,7 +713,7 @@ function PeopleEditor({
           options={options}
           placeholder="Сотрудник"
           allowCreate={!closed}
-          emptyText={closed ? "Нет среди сотрудников — их заводят в личном кабинете, «Люди»" : undefined}
+          emptyText={closed ? "Нет среди сотрудников - их заводят в личном кабинете, «Люди»" : undefined}
           onPick={(option) => {
             setAdding(false);
             save([...chosen, option.id]);

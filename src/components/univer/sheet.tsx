@@ -23,12 +23,15 @@ import UniverPresetSheetsThreadCommentRuRU from "@univerjs/preset-sheets-thread-
 import { UniverSheetsDrawingPreset } from "@univerjs/presets/preset-sheets-drawing";
 import UniverPresetSheetsDrawingRuRU from "@univerjs/presets/preset-sheets-drawing/locales/ru-RU";
 import { createUniver, LocaleType, mergeLocales } from "@univerjs/presets";
-import { IConfigService } from "@univerjs/core";
-import { IMenuManagerService } from "@univerjs/preset-sheets-core";
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { CommandType, ICommandService, IConfigService } from "@univerjs/core";
+import { IMenuManagerService, IRenderManagerService, MenuItemType } from "@univerjs/preset-sheets-core";
+import { SheetsFilterService } from "@univerjs/preset-sheets-filter";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { type Observable, distinctUntilChanged, map, of, switchMap } from "rxjs";
 
 import { useSessionScope } from "@/components/session-state";
+import { stopAtEdges } from "@/components/univer/edges";
 import { type ListArrow, type ListWatch, openList, watchLists } from "@/components/univer/lists";
 import { type PlaceKeeper, keepPlace } from "@/components/univer/place";
 import { isDarkTheme } from "@/components/univer/sheet-model";
@@ -53,22 +56,22 @@ import "@univerjs/presets/lib/styles/preset-sheets-drawing.css";
 export type WorkbookSnapshot = Record<string, any>;
 
 export type UniverSheetHandle = {
-  /** Текущее состояние книги целиком — то, что уходит в сохранение. */
+  /** Текущее состояние книги целиком - то, что уходит в сохранение. */
   snapshot: () => WorkbookSnapshot | null;
 };
 
-/** Фасад Univer. Типы пакета сюда не тянем — они огромны и меняются от версии. */
+/** Фасад Univer. Типы пакета сюда не тянем - они огромны и меняются от версии. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type UniverApi = any;
 
 type Props = {
-  /** Книга. `null` — пустая таблица «с нуля». */
+  /** Книга. `null` - пустая таблица «с нуля». */
   data: WorkbookSnapshot | null;
   /**
    * Фасад готов, книга создана.
    *
    * Через него подписываются на правки и раздают права. Возвращённая функция
-   * вызывается при размонтировании — ею снимают подписки, иначе второй заход
+   * вызывается при размонтировании - ею снимают подписки, иначе второй заход
    * в раздел получит их вдвое.
    */
   onReady?: (api: UniverApi) => void | (() => void);
@@ -77,13 +80,13 @@ type Props = {
    *
    * Только там, где книга хранится снимком целиком («Таблицы»): и то и другое
    * Univer держит в ресурсах снимка. В «Финансах» и «Книгах» строки живут в
-   * базе, снимка нет — комментарий, оставленный там, пропал бы при перезагрузке.
+   * базе, снимка нет - комментарий, оставленный там, пропал бы при перезагрузке.
    */
   extras?: boolean;
   /** Кнопка «На весь экран» в ленте. По умолчанию есть у каждого листа. */
   fullscreen?: boolean;
   /**
-   * Ссылка «Изменить» в выпадающем списке ячейки — открывает панель правил.
+   * Ссылка «Изменить» в выпадающем списке ячейки - открывает панель правил.
    * В «Таблицах» списки свои и правятся здесь же; в реестре и журнале их
    * ставит раздел по справочникам, и правило, поправленное в панели, молча
    * разошлось бы с сервером до следующей пересборки листа.
@@ -95,16 +98,22 @@ type Props = {
    */
   onShown?: () => void;
   /**
+   * Лист нарисован и место сессии возвращено. `restored` - человек уже
+   * работал в этом листе не в начале (его место вернулось); нет - раздел
+   * может поставить лист, куда удобнее начать.
+   */
+  onStart?: (restored: boolean) => void;
+  /**
    * Оформление, формулы и вставка в ленте. `false` оставляет то, что работает
-   * с данными: отмену, поиск, фильтр и сортировку. `"look"` — ещё и всё, что
+   * с данными: отмену, поиск, фильтр и сортировку. `"look"` - ещё и всё, что
    * меняет только вид (шрифт, цвета, выравнивание, перенос, границы): лист,
    * который пишет в базу только значения, держит такое оформление личным видом
    * учётки (`look.ts`), а формулы, слияние, вставка и проверки остаются
-   * закрыты — они меняли бы данные или раскладку листа.
+   * закрыты - они меняли бы данные или раскладку листа.
    */
   formatting?: boolean | "look";
   /**
-   * Стрелка списка у выбранной ячейки. `false` — пока раздел держит над
+   * Стрелка списка у выбранной ячейки. `false` - пока раздел держит над
    * ячейкой свой слой (вопрос реестра «опечатка или с даты»): стрелка легла
    * бы поверх него.
    */
@@ -115,6 +124,18 @@ type Props = {
    * перезагрузку страницы (`place.ts`). Без имени лист открывается с начала.
    */
   session?: string;
+  /**
+   * Пункт «Сортировка и фильтр» выбран: раздел может сделать своё и вернуть
+   * `true` (реестр ставит фильтр на строки договоров и объясняет, почему на
+   * листе из частей сортировки нет). `false` - команда Univer как есть.
+   */
+  onSortFilter?: (command: string) => boolean;
+  /**
+   * Своё в конце ленты, за её пунктами («Только мои» у реестра). Стоит
+   * рядом с лентой, а не в ней: пункты Univer на узком окне уходят под «⋮»
+   * с конца, и кнопка в конце ленты пропадала бы первой.
+   */
+  ribbonEnd?: ReactNode;
 };
 
 /**
@@ -142,23 +163,179 @@ const LOOK_MENU = new Set([
   "sheet.command.set-text-rotation",
 ]);
 
+/**
+ * Фильтр и сортировка - одной воронкой в ленте (28.09.2026: «фильтры и
+ * сортировку в одно поле объединить»). У Univer это четыре пункта: сортировка
+ * выпадающим списком, фильтр, «очистить», «пересчитать». Свои пункты зовут те
+ * же команды Univer - права листа (сортировка закрыта на листе с частями) они
+ * проверяют так же, - а прежние прячутся.
+ *
+ * Пункты - со своими id и действием-функцией. До 29.09.2026 действием была
+ * строка с id команды Univer, фасад брал его же id пункта меню, и прятание
+ * «прежних» (`SORT_FILTER_ORIGINALS`) прятало и эти: список раскрывался
+ * пустым, и фильтр было не включить ничем, кроме Ctrl+Shift+L.
+ *
+ * 29.09.2026 вечером: кнопка была словами «Сортировка и фильтр» в конце
+ * ленты, и на окне ~1000px Univer первой убирал её под «⋮» - что за
+ * троеточием, было не понять. Теперь это значок воронки сразу за
+ * «Отменить/Повторить»: узкий и первым в очереди, под «⋮» не уходит. Пункты -
+ * короткими словами; «Показать фильтр» и «Убрать фильтр» - два пункта, из
+ * которых виден один, по состоянию листа: одна строка «показать или убрать»
+ * не говорила, что сейчас.
+ */
+const SORT_FILTER_ID = "kort.sort-filter";
+type SortFilterShow = "always" | "filter-off" | "filter-on" | "criteria";
+const SORT_FILTER_ITEMS: { id: string; title: string; action: string; icon?: string; show: SortFilterShow }[] = [
+  { id: "kort.sort-filter.on", title: "Показать фильтр", action: "sheet.command.smart-toggle-filter", show: "filter-off" },
+  { id: "kort.sort-filter.clear", title: "Сбросить отбор", action: "sheet.command.clear-filter-criteria", show: "criteria" },
+  { id: "kort.sort-filter.asc", title: "По возрастанию", action: "sheet.command.sort-range-asc-ext", icon: "ExpandAscendingIcon", show: "always" },
+  { id: "kort.sort-filter.desc", title: "По убыванию", action: "sheet.command.sort-range-desc-ext", icon: "ExpandDescendingIcon", show: "always" },
+  { id: "kort.sort-filter.custom", title: "По нескольким колонкам…", action: "sheet.command.sort-range-custom", icon: "CustomSortIcon", show: "always" },
+  { id: "kort.sort-filter.off", title: "Убрать фильтр", action: "sheet.command.smart-toggle-filter", show: "filter-on" },
+];
+/** Прежние пункты сортировки и фильтра - их заменяет «Сортировка и фильтр». */
+const SORT_FILTER_ORIGINALS = [
+  "sheet.command.smart-toggle-filter",
+  "sheet.command.clear-filter-criteria",
+  "sheet.command.re-calc-filter",
+  "sheet.menu.sheets-sort",
+];
+
 /** Пункты ленты, которые остаются у листа без оформления (`formatting={false}`). */
 const DATA_ONLY_MENU = new Set([
   "univer.command.undo",
   "univer.command.redo",
   "base-ui.operation.toggle-shortcut-panel",
   "ui.operation.open-find-dialog",
-  "sheet.command.smart-toggle-filter",
-  "sheet.command.clear-filter-criteria",
-  "sheet.command.re-calc-filter",
-  "sheet.menu.sheets-sort",
-  "sheet.command.sort-range-asc",
-  "sheet.command.sort-range-asc-ext",
-  "sheet.command.sort-range-desc",
-  "sheet.command.sort-range-desc-ext",
-  "sheet.command.sort-range-custom",
+  SORT_FILTER_ID,
+  ...SORT_FILTER_ITEMS.map((item) => item.id),
 ]);
 const RIBBON_TABS = ["ribbon.start", "ribbon.insert", "ribbon.formulas", "ribbon.data", "ribbon.view", "ribbon.others"];
+
+/**
+ * Собрать воронку «Фильтр и сортировка» и спрятать прежние пункты. Значок -
+ * один, воронка: четыре значка воронок и стрелок, как у Univer, читались
+ * загадкой, а подпись словами не помещалась в ленту.
+ */
+function mergeSortFilter(univerAPI: UniverApi, intercept: (command: string) => boolean): void {
+  try {
+    const injector = univerAPI._injector;
+    const commands = injector.get(ICommandService);
+    // Что сейчас на активном листе: есть ли фильтр и отобрано ли что-то. Univer
+    // пересылает модель на каждой мутации фильтра - повторы гасятся.
+    const filters = injector.get(SheetsFilterService) as {
+      activeFilterModel$: Observable<{ hasCriteria$: Observable<boolean> } | null>;
+    };
+    const state$ = filters.activeFilterModel$.pipe(
+      switchMap((model) => (model ? model.hasCriteria$.pipe(map((criteria) => ({ on: true, criteria }))) : of({ on: false, criteria: false }))),
+    );
+    const hidden$ = (show: SortFilterShow): Observable<boolean> | undefined => {
+      if (show === "always") return undefined;
+      return state$.pipe(
+        map((now) => (show === "filter-off" ? now.on : show === "filter-on" ? !now.on : !now.criteria)),
+        distinctUntilChanged(),
+      );
+    };
+    // Меню - прямо в службу меню, плоским списком, а не фасадом
+    // `createSubmenu`: фасад Univer 0.25 всегда кладёт пункты подменю в
+    // «группы» (`…-group-0`), а выпадающий список ленты рисует только прямые
+    // пункты и группы молча пропускает. Отсюда и пустой список до 29.09.2026.
+    // Пункт списка ленты исполняет команду с id самого пункта - её и заводим.
+    const children: Record<string, unknown> = {};
+    SORT_FILTER_ITEMS.forEach((item, index) => {
+      if (!commands.hasCommand(item.id)) {
+        commands.registerCommand({
+          id: item.id,
+          type: CommandType.COMMAND,
+          handler: () => {
+            // Раздел может сделать своё: у реестра фильтр ставится на строки
+            // договоров, а не на «непрерывный диапазон» вокруг ячейки.
+            if (intercept(item.action)) return true;
+            void univerAPI.executeCommand(item.action);
+            return true;
+          },
+        });
+      }
+      children[item.id] = {
+        order: index,
+        menuItemFactory: () => ({
+          id: item.id,
+          type: MenuItemType.BUTTON,
+          title: item.title,
+          icon: item.icon,
+          commandId: item.id,
+          hidden$: hidden$(item.show),
+        }),
+      };
+    });
+    const menus = injector.get(IMenuManagerService);
+    // В группу «Отменить/Повторить»: лента `simple` прячет под «⋮» пункты с
+    // конца, а группа истории - первая.
+    menus.mergeMenu({
+      "ribbon.start.history": {
+        [SORT_FILTER_ID]: {
+          order: 10,
+          menuItemFactory: () => ({
+            id: SORT_FILTER_ID,
+            type: MenuItemType.SUBITEMS,
+            icon: "FilterIcon",
+            tooltip: "Фильтр и сортировка",
+          }),
+          ...children,
+        },
+      },
+    });
+    const config = injector.get(IConfigService);
+    config.setConfig("menu", Object.fromEntries(SORT_FILTER_ORIGINALS.map((id) => [id, { hidden: true }])), { merge: true });
+    menus.appendRootMenu({});
+  } catch (exc) {
+    // Не собралось - останутся прежние кнопки Univer, это неудобство, не поломка.
+    console.warn("«Сортировка и фильтр» не собралась:", exc);
+  }
+}
+
+/**
+ * Рамка диапазона фильтра. Univer обводит весь отфильтрованный диапазон той
+ * же синей рамкой, что и выделение, а у реестра фильтр стоит на всей таблице
+ * с открытия - лист выглядел навсегда выделенным (29.09.2026: «таблица всё
+ * время в отмеченном состоянии», пропадало только вместе с фильтром).
+ * Воронки в шапке остаются, рамки нет.
+ *
+ * Модуль отрисовки фильтра Univer наружу не отдаёт: он находится среди
+ * модулей отрисовки книги по своему полю, и рамка снимается у его класса -
+ * один раз на страницу, для всех листов.
+ */
+let filterFrameQuiet = false;
+
+function quietFilterFrame(univerAPI: UniverApi, unitId: string | undefined): void {
+  if (filterFrameQuiet || !unitId) return;
+  type FilterRender = {
+    _filterRangeShape?: unknown;
+    _renderRange?: unknown;
+    _currentRenderParams?: unknown;
+    _refreshRendering?: (params: unknown) => void;
+  };
+  try {
+    const render = univerAPI._injector.get(IRenderManagerService).getRenderById(unitId);
+    const resolved: Map<unknown, unknown[]> | undefined =
+      render?._injector?.resolvedDependencyCollection?.resolvedDependencies;
+    for (const list of resolved?.values() ?? []) {
+      for (const item of list) {
+        const renderer = item as FilterRender | null;
+        if (!renderer || typeof renderer !== "object" || !("_filterRangeShape" in renderer)) continue;
+        if (typeof renderer._renderRange !== "function") continue;
+        Object.getPrototypeOf(renderer)._renderRange = function renderNoRange() {};
+        filterFrameQuiet = true;
+        // Уже нарисованная рамка снимается перерисовкой: воронки встают снова.
+        renderer._refreshRendering?.(renderer._currentRenderParams ?? null);
+        return;
+      }
+    }
+  } catch (exc) {
+    // Рамка - помеха, а не поломка: лист работает и с ней.
+    console.warn("рамка фильтра осталась:", exc);
+  }
+}
 
 /**
  * Спрятать в ленте всё, кроме работы с данными.
@@ -166,7 +343,7 @@ const RIBBON_TABS = ["ribbon.start", "ribbon.insert", "ribbon.formulas", "ribbon
  * Прячется то, что лента на самом деле содержит (обходом меню), а не список,
  * выписанный под версию: пункт, добавленный следующей версией Univer, не
  * проскочит в ленту реестра. Формулы и форматы чисел заводят свои пункты позже
- * книги — поэтому обход повторяется на каждом изменении меню, а сигнал об
+ * книги - поэтому обход повторяется на каждом изменении меню, а сигнал об
  * изменении подаётся, только если нашлось новое (иначе своё же изменение
  * запускало бы обход снова и снова).
  */
@@ -184,7 +361,8 @@ function keepDataOnly(univerAPI: UniverApi, extra: ReadonlySet<string> = new Set
       const walk = (nodes: Node[] | undefined, allowed: boolean) => {
         for (const node of nodes ?? []) {
           const id = node.item?.id;
-          const ok = allowed || (id ? DATA_ONLY_MENU.has(id) || extra.has(id) : false);
+          const ok =
+          allowed || (id ? (DATA_ONLY_MENU.has(id) || extra.has(id)) && !SORT_FILTER_ORIGINALS.includes(id) : false);
           if (id && !ok && !hidden[id]) fresh[id] = hidden[id] = { hidden: true };
           if (node.children) walk(node.children, ok);
         }
@@ -192,14 +370,14 @@ function keepDataOnly(univerAPI: UniverApi, extra: ReadonlySet<string> = new Set
       for (const tab of RIBBON_TABS) walk(menus.getMenuByPositionKey(tab) as Node[], false);
       if (!Object.keys(fresh).length) return;
       config.setConfig("menu", fresh, { merge: true });
-      // Лента перечитывает меню по сигналу изменения — пустое слияние его даёт.
+      // Лента перечитывает меню по сигналу изменения - пустое слияние его даёт.
       menus.appendRootMenu({});
     };
     sweep();
     const subscription = menus.menuChanged$.subscribe(() => queueMicrotask(sweep));
     return () => subscription.unsubscribe();
   } catch (exc) {
-    // Лишние кнопки — неудобство, а не повод не открыть лист.
+    // Лишние кнопки - неудобство, а не повод не открыть лист.
     console.warn("лента листа не урезана:", exc);
     return () => {};
   }
@@ -215,65 +393,68 @@ const RENDERED = 2;
 /**
  * Всё, что общее у листов продукта, живёт здесь, а не в разделах.
  *
- * Лист журнала, «Реестр · таблица», «Таблицы» и «Книги» — один и тот же
+ * Лист журнала, «Реестр · таблица», «Таблицы» и «Книги» - один и тот же
  * компонент. Раньше тему умел только лист реестра (своим адаптером), кнопку
- * «На весь экран» — только журнал (своей пилюлей поверх ленты), и каждое
+ * «На весь экран» - только журнал (своей пилюлей поверх ленты), и каждое
  * улучшение приходилось повторять в каждом разделе. Теперь:
  *
- * * **тема** — лист идёт за `data-theme` приложения и за системной темой
+ * * **тема** - лист идёт за `data-theme` приложения и за системной темой
  *   («Как в системе»); тёмный класс Univer снимается при уходе, иначе
  *   следующий светлый лист получил бы тёмную ленту;
- * * **«На весь экран»** — вкладкой прямо в ряду вкладок ленты, с классами
- *   соседней вкладки Univer: шрифт, отступы, наведение и тёмная тема у неё
- *   те же, что у «Начало» и «Вставки». Esc сворачивает; страница под листом
- *   не прокручивается;
- * * **скорость прокрутки** — `speed.ts`: ячейка считается один раз на кадр,
+ * * **лента** - одной строкой без вкладок (`ribbonType: "simple"`),
+ *   сортировка и фильтр - одной воронкой за «Отменить/Повторить»; рамки
+ *   вокруг диапазона фильтра нет (`quietFilterFrame`);
+ * * **«На весь экран»** - по центру строки над лентой, своей кнопкой (не
+ *   вкладкой Univer). Esc сворачивает; страница под листом не прокручивается;
+ * * **скорость прокрутки** - `speed.ts`: ячейка считается один раз на кадр,
  *   а не семь-восемь, и без лишних разборов строк;
- * * **выпадающие списки** — `lists.ts`: раздел ставит правило `listRule`, а
+ * * **выпадающие списки** - `lists.ts`: раздел ставит правило `listRule`, а
  *   значение текстом без капсулы, стрелка у выбранной ячейки, Alt+↓ и печать
- *   без списка — здесь, у каждого листа одинаково.
+ *   без списка - здесь, у каждого листа одинаково;
+ * * **край листа** - `edges.ts`: стрелка у последней колонки (строки) рамку
+ *   не переносит на соседнюю строку, как делал Univer, а оставляет на месте.
  */
 const FULL_TEXT = "На весь экран";
 const COLLAPSE_TEXT = "Свернуть";
 
 /**
- * Ряд вкладок ленты: `role="tablist"` шапки Univer. Прежний признак «три и
- * больше кнопок» не находил ряд у листа без оформления — там вкладок две
- * («Начало», «Данные»), и «На весь экран» пропадала. Он остаётся запасным для
- * версии без роли.
+ * Строка над лентой (`ribbon-header-menu` Univer). С лентой `simple` вкладок
+ * в ней нет, и она пуста - туда по центру встаёт «На весь экран». Запасной
+ * путь - ряд вкладок (`role="tablist"`), если лента когда-нибудь вернётся к
+ * вкладкам.
  */
 function findTabRow(root: HTMLElement): HTMLElement | null {
   const header = root.querySelector("header");
   if (!header) return null;
-  const list = header.querySelector<HTMLElement>('[role="tablist"]');
-  if (list) return list;
-  for (const node of Array.from(header.querySelectorAll<HTMLElement>("div"))) {
-    const buttons = Array.from(node.children).filter((child) => child.tagName === "BUTTON");
-    if (buttons.length >= 3) return node;
-  }
-  return null;
+  return (
+    header.querySelector<HTMLElement>('[data-u-comp="ribbon-header-menu"]') ??
+    header.querySelector<HTMLElement>('[role="tablist"]')
+  );
 }
 
-/** Классы вкладки, которая сейчас не выбрана: у выбранной свои цвет и вес. */
-function idleTabClass(row: HTMLElement): string {
-  const buttons = Array.from(row.children).filter(
-    (child): child is HTMLButtonElement => child instanceof HTMLButtonElement && !child.dataset.usheetFull,
-  );
-  // По роли вкладки, а не по толщине шрифта: пока шрифт не догрузился, вес у
-  // всех вкладок одинаковый, и «На весь экран» брала классы выбранной —
-  // синюю заливку «Начала».
-  const idle =
-    buttons.find((button) => button.getAttribute("aria-selected") === "false") ??
-    (buttons.some((button) => button.hasAttribute("aria-selected"))
-      ? undefined
-      : buttons.find((button) => Number(getComputedStyle(button).fontWeight) < 600));
-  // Невыбранной вкладки ещё нет — подождать, а не взять классы выбранной.
-  return idle?.className ?? "";
+/**
+ * Пересчитать, какие пункты ленты уходят под «⋮». Univer считает это
+ * наблюдателем размеров ленты, а ширина, сменившаяся в тот же миг, что и
+ * первый замер (встал `ribbonEnd`, догрузился шрифт), пропускалась: на окне
+ * ~1000px пункты не сворачивались под «⋮», а обрезались краем. Пустое слияние
+ * меню пересоздаёт ленту - и наблюдатель, который первым делом меряет заново.
+ */
+function relayoutRibbon(univerAPI: UniverApi): void {
+  try {
+    univerAPI._injector.get(IMenuManagerService).appendRootMenu({});
+  } catch {
+    /* лента останется как есть */
+  }
+}
+
+/** Ряд ленты: сама лента пунктов Univer и то, что встаёт за ней. */
+function findRibbonRow(root: HTMLElement): HTMLElement | null {
+  return root.querySelector<HTMLElement>('[data-u-comp="ribbon-toolbar"]')?.parentElement ?? null;
 }
 
 /**
  * Пустая книга: один лист, столько же строк и колонок, сколько даёт новый
- * документ Google Sheets. Числа не круглые, потому что скопированы у него —
+ * документ Google Sheets. Числа не круглые, потому что скопированы у него -
  * человек, переехавший из Sheets, не должен упереться в другую границу.
  */
 export function blankWorkbook(name = "Новая таблица"): WorkbookSnapshot {
@@ -296,9 +477,24 @@ export function blankWorkbook(name = "Новая таблица"): WorkbookSnaps
 }
 
 export const UniverSheet = forwardRef<UniverSheetHandle, Props>(function UniverSheet(
-  { data, onReady, extras = false, fullscreen = true, listEdit = true, formatting = true, listArrow = true, session, onShown },
+  {
+    data,
+    onReady,
+    extras = false,
+    fullscreen = true,
+    listEdit = true,
+    formatting = true,
+    listArrow = true,
+    session,
+    onShown,
+    onStart,
+    onSortFilter,
+    ribbonEnd,
+  },
   ref,
 ) {
+  const onSortFilterRef = useRef(onSortFilter);
+  onSortFilterRef.current = onSortFilter;
   const containerRef = useRef<HTMLDivElement>(null);
   const [full, setFull] = useState(false);
   const fullRef = useRef(full);
@@ -308,14 +504,19 @@ export const UniverSheet = forwardRef<UniverSheetHandle, Props>(function UniverS
   const listArrowRef = useRef(listArrow);
   listArrowRef.current = listArrow;
   const listsRef = useRef<ListWatch | null>(null);
-  /** Узел в ряду вкладок ленты, куда порталом встаёт «На весь экран». */
-  const [tabSlot, setTabSlot] = useState<{ host: HTMLElement; className: string } | null>(null);
+  /** Узел в строке над лентой, куда порталом встаёт «На весь экран». */
+  const [tabSlot, setTabSlot] = useState<{ host: HTMLElement } | null>(null);
+  /** Узел в конце ряда ленты, куда порталом встаёт `ribbonEnd`. */
+  const [endSlot, setEndSlot] = useState<{ host: HTMLElement } | null>(null);
+  const wantsEnd = Boolean(ribbonEnd);
   // Через ref, чтобы обработчик, пересозданный родителем, не пересоздавал
   // книгу: эффект ниже монтируется один раз и живёт до размонтирования.
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
   const onShownRef = useRef(onShown);
   onShownRef.current = onShown;
+  const onStartRef = useRef(onStart);
+  onStartRef.current = onStart;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const apiRef = useRef<any>(null);
 
@@ -357,7 +558,10 @@ export const UniverSheet = forwardRef<UniverSheetHandle, Props>(function UniverS
         ),
       },
       presets: [
-        UniverSheetsCorePreset({ container: containerRef.current }),
+        // Лента одной строкой, без вкладок «Начало» и «Данные» (28.09.2026):
+        // у листов продукта пунктов немного, а вкладки прятали половину их
+        // за щелчком. Над лентой по центру - только «На весь экран».
+        UniverSheetsCorePreset({ container: containerRef.current, ribbonType: "simple" }),
         UniverSheetsSortPreset(),
         UniverSheetsFilterPreset(),
         UniverSheetsConditionalFormattingPreset(),
@@ -370,24 +574,36 @@ export const UniverSheet = forwardRef<UniverSheetHandle, Props>(function UniverS
       ],
     });
     apiRef.current = univerAPI;
-    // Тема — до книги: первая отрисовка уже в нужных цветах, без вспышки.
+    // Пробникам Playwright - фасад листа, только по флагу в браузере пробника:
+    // в headless Ctrl+Z и правая кнопка до холста доходят не всегда.
+    try {
+      if (window.localStorage.getItem("kort_probe") === "1") {
+        (window as unknown as Record<string, unknown>).__kortUniver = univerAPI;
+      }
+    } catch {
+      /* хранилище закрыто - без крючка */
+    }
+    // Тема - до книги: первая отрисовка уже в нужных цветах, без вспышки.
     const retheme = () => {
       try {
         univerAPI.toggleDarkMode?.(isDarkTheme());
       } catch {
-        /* версия без тёмной темы — лист останется светлым */
+        /* версия без тёмной темы - лист останется светлым */
       }
     };
     retheme();
     // `data` берётся прямо из пропа, хотя эффект и с пустыми зависимостями:
     // новая книга приходит не сменой пропа, а пересозданием компонента через
-    // `key` у родителя, поэтому значение на монтировании — всегда нужное.
+    // `key` у родителя, поэтому значение на монтировании - всегда нужное.
     univerAPI.createWorkbook(data ?? blankWorkbook());
     // После книги: плагины листа стартуют с первой книгой, до неё их служб в
-    // Univer ещё нет. Кадры движок начнёт рисовать позже — подписка их застанет.
+    // Univer ещё нет. Кадры движок начнёт рисовать позже - подписка их застанет.
     const stopSpeed = speedUp(univerAPI);
-    // Меню плагинов листа заводятся вместе с книгой — урезать ленту можно
+    // Стрелки у края листа не переносят рамку на соседнюю строку (`edges.ts`).
+    const stopEdges = stopAtEdges(univerAPI);
+    // Меню плагинов листа заводятся вместе с книгой - урезать ленту можно
     // только после неё.
+    mergeSortFilter(univerAPI, (command) => onSortFilterRef.current?.(command) ?? false);
     const stopTrim =
       formatting === true ? null : keepDataOnly(univerAPI, formatting === "look" ? LOOK_MENU : undefined);
     // `onReady` берётся из пропа по той же причине, что и `data`: компонент
@@ -404,11 +620,11 @@ export const UniverSheet = forwardRef<UniverSheetHandle, Props>(function UniverS
     });
     listsRef.current = lists;
     // Место на листе в сессии: `session` и область читаются на монтировании,
-    // как `data` — новый лист приходит пересозданием через `key`.
+    // как `data` - новый лист приходит пересозданием через `key`.
     const place = session ? keepPlace(univerAPI, sessionScope, session, () => fullRef.current) : null;
     placeRef.current = place;
 
-    // «Лист виден»: стадия Rendered и два кадра — первый холст уже на экране.
+    // «Лист виден»: стадия Rendered и два кадра - первый холст уже на экране.
     // Тогда же лист встаёт на запомненное место: до отрисовки прокрутке не на
     // что опереться.
     let shownFrame = 0;
@@ -416,8 +632,16 @@ export const UniverSheet = forwardRef<UniverSheetHandle, Props>(function UniverS
     const shown = () => {
       if (shownSent) return;
       shownSent = true;
+      // Шрифт догрузился - ширины пунктов ленты другие: пересчитать «⋮».
+      void document.fonts?.ready.then(() => apiRef.current === univerAPI && relayoutRibbon(univerAPI));
       shownFrame = requestAnimationFrame(() => {
-        if (place?.restore()) setFull(true);
+        quietFilterFrame(univerAPI, univerAPI.getActiveWorkbook?.()?.getId?.());
+        relayoutRibbon(univerAPI);
+        const back = place?.restore();
+        if (back?.full) setFull(true);
+        // Своё место не возвращено - раздел ставит лист на начальное место
+        // (реестр: нижняя пустая строка - сразу вписывать новый договор).
+        onStartRef.current?.(Boolean(back?.moved));
         shownFrame = requestAnimationFrame(() => onShownRef.current?.());
       });
     };
@@ -432,10 +656,10 @@ export const UniverSheet = forwardRef<UniverSheetHandle, Props>(function UniverS
       shown();
     }
 
-    // Тачпад: лист докрутили до края вбок — и браузер принимал тот же жест за
+    // Тачпад: лист докрутили до края вбок - и браузер принимал тот же жест за
     // «Назад»/«Вперёд» и уводил со страницы (Chrome и Safari на Mac, Edge на
     // Windows). Univer у края событие не гасит, и оно доходило до окна.
-    // Гасим горизонтальное колесо над листом на всплытии — после Univer, так
+    // Гасим горизонтальное колесо над листом на всплытии - после Univer, так
     // что прокрутку листа это не трогает, а вбок странице ехать некуда
     // (`overflow-x: clip` у html). Вертикальное не трогаем: у нижнего края
     // листа страница должна прокручиваться дальше.
@@ -445,7 +669,7 @@ export const UniverSheet = forwardRef<UniverSheetHandle, Props>(function UniverS
     };
     host.addEventListener("wheel", onSideWheel, { passive: false });
 
-    // Смена темы в приложении — атрибут `data-theme`; «Как в системе» — ещё и
+    // Смена темы в приложении - атрибут `data-theme`; «Как в системе» - ещё и
     // системная настройка, которая меняется без атрибута.
     const themeObserver = new MutationObserver(retheme);
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
@@ -462,21 +686,21 @@ export const UniverSheet = forwardRef<UniverSheetHandle, Props>(function UniverS
       place?.stop();
       placeRef.current = null;
       // Снимать сам Univer, а не фасад. `univerAPI.dispose()` снимает только
-      // обёртку: связь в Univer односторонняя — ядро, снимаясь, снимает фасад,
+      // обёртку: связь в Univer односторонняя - ядро, снимаясь, снимает фасад,
       // но не наоборот. До 28.09.2026 здесь стоял `univerAPI.dispose()`, и
-      // каждый уход с листа оставлял в памяти целый экземпляр — движок,
+      // каждый уход с листа оставлял в памяти целый экземпляр - движок,
       // холсты, подписки, таймеры. Видно это было по консоли: ушли из
-      // «Таблицы» раньше, чем лист дорисовался, — и его таймер «отрисован»
+      // «Таблицы» раньше, чем лист дорисовался, - и его таймер «отрисован»
       // срабатывал уже в кабинете, раскладывая строку формул нулевой ширины
       // («The column width is less than 0»).
       //
-      // Каждый шаг — в своём `try`: неудача одного (лист не дорисован,
+      // Каждый шаг - в своём `try`: неудача одного (лист не дорисован,
       // повторное снятие) не должна оставлять Univer живым.
-      for (const step of [stopTrim, lifecycle?.dispose?.bind(lifecycle), detach, stopSpeed, () => univer.dispose()]) {
+      for (const step of [stopTrim, lifecycle?.dispose?.bind(lifecycle), detach, stopEdges, stopSpeed, () => univer.dispose()]) {
         try {
           step?.();
         } catch {
-          /* шаг не удался (лист не дорисован, повторный dispose) — остальные всё равно идут */
+          /* шаг не удался (лист не дорисован, повторный dispose) - остальные всё равно идут */
         }
       }
       // Univer вешает тёмный класс на <html> и сам его не снимает.
@@ -488,12 +712,12 @@ export const UniverSheet = forwardRef<UniverSheetHandle, Props>(function UniverS
   }, []);
 
   // Вкладка «На весь экран» в ряду вкладок ленты. Лента рисуется Univer после
-  // создания книги и может перерисоваться (смена листа, права) — наблюдатель
+  // создания книги и может перерисоваться (смена листа, права) - наблюдатель
   // возвращает узел на место, если его выкинули.
   //
   // Наблюдатель только планирует, а в DOM пишет кадр спустя. Запись прямо из
-  // колбэка, который следит за тем же деревом, — петля: своя вставка рождает
-  // новую запись, та — новую вставку, и всё это в микрозадачах, до которых ни
+  // колбэка, который следит за тем же деревом, - петля: своя вставка рождает
+  // новую запись, та - новую вставку, и всё это в микрозадачах, до которых ни
   // отрисовка, ни React уже не доходят. 26.09 так намертво висела вкладка при
   // выходе из «Таблиц»: React оторвал лист от документа раньше, чем снял
   // наблюдатель, проверка «узел на месте» смотрела на `isConnected`, который у
@@ -505,26 +729,21 @@ export const UniverSheet = forwardRef<UniverSheetHandle, Props>(function UniverS
     let frame = 0;
     const attach = () => {
       frame = 0;
-      // Лист уже снят со страницы и ждёт размонтирования — не трогать.
+      // Лист уже снят со страницы и ждёт размонтирования - не трогать.
       if (!root.isConnected) return;
       // Дешёвая проверка первой: Univer меняет DOM листа постоянно (редактор
-      // ячейки, всплывающие списки), а узел на месте почти всегда. Классы
-      // пересчитываются и тогда: вкладки ленты дорисовываются после первой
-      // вставки, и класс, взятый с одной лишь выбранной «Начало», оставлял
-      // «На весь экран» синей навсегда.
+      // ячейки, всплывающие списки), а узел на месте почти всегда.
       const placed = host?.isConnected && host.parentElement?.firstElementChild === host;
       const row = placed ? (host?.parentElement ?? null) : findTabRow(root);
       if (!row) return;
       if (!host) {
         host = document.createElement("span");
-        host.style.display = "contents";
+        host.className = "usheet-full-slot";
         host.dataset.usheetSlot = "true";
       }
       if (row.firstChild !== host) row.insertBefore(host, row.firstChild);
-      const className = idleTabClass(row);
-      if (!className) return;
-      const slot = { host, className };
-      setTabSlot((current) => (current?.host === slot.host && current.className === slot.className ? current : slot));
+      const slot = { host };
+      setTabSlot((current) => (current?.host === slot.host ? current : slot));
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(attach);
@@ -540,13 +759,52 @@ export const UniverSheet = forwardRef<UniverSheetHandle, Props>(function UniverS
     };
   }, [fullscreen]);
 
-  // Раздел открыл или закрыл свой слой над ячейкой — стрелке пора на место.
+  // Своё в конце ряда ленты - тем же приёмом, что «На весь экран»: лента
+  // перерисовывается, наблюдатель только планирует, узел ставится кадром позже.
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!wantsEnd || !root) return;
+    let host: HTMLElement | null = null;
+    let frame = 0;
+    const attach = () => {
+      frame = 0;
+      if (!root.isConnected) return;
+      const placed = host?.isConnected && host.parentElement?.lastElementChild === host;
+      const row = placed ? (host?.parentElement ?? null) : findRibbonRow(root);
+      if (!row) return;
+      if (!host) {
+        host = document.createElement("span");
+        host.className = "usheet-ribbon-end";
+      }
+      if (row.lastElementChild !== host) {
+        row.appendChild(host);
+        // Лента стала уже - пусть Univer заново решит, что уходит под «⋮».
+        requestAnimationFrame(() => apiRef.current && relayoutRibbon(apiRef.current));
+      }
+      const slot = { host };
+      setEndSlot((current) => (current?.host === slot.host ? current : slot));
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(attach);
+    };
+    schedule();
+    const observer = new MutationObserver(schedule);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      host?.remove();
+      setEndSlot(null);
+    };
+  }, [wantsEnd]);
+
+  // Раздел открыл или закрыл свой слой над ячейкой - стрелке пора на место.
   useEffect(() => {
     listsRef.current?.refresh();
   }, [listArrow]);
 
   useEffect(() => {
-    // Развернули или свернули — место листа в сессии это помнит.
+    // Развернули или свернули - место листа в сессии это помнит.
     fullRef.current = full;
     placeRef.current?.save();
     // Univer меряет холст по событию resize: без толчка после смены размера
@@ -554,7 +812,7 @@ export const UniverSheet = forwardRef<UniverSheetHandle, Props>(function UniverS
     const nudge = window.setTimeout(() => window.dispatchEvent(new Event("resize")), 60);
     if (!full) return () => window.clearTimeout(nudge);
     // Пока лист во весь экран, страница под ним не едет: колесо двигает
-    // таблицу, а не то, что осталось снизу. Общим замком приложения —
+    // таблицу, а не то, что осталось снизу. Общим замком приложения -
     // `overflow: hidden` на body страницу не держит (у `html` `overflow-x: clip`).
     const unlock = lockScroll();
     const onKey = (event: KeyboardEvent) => {
@@ -576,7 +834,7 @@ export const UniverSheet = forwardRef<UniverSheetHandle, Props>(function UniverS
             <button
               type="button"
               data-usheet-full="true"
-              className={tabSlot.className}
+              className="usheet-full"
               aria-pressed={full}
               onClick={(event) => {
                 setFull((was) => !was);
@@ -590,6 +848,7 @@ export const UniverSheet = forwardRef<UniverSheetHandle, Props>(function UniverS
             tabSlot.host,
           )
         : null}
+      {endSlot && ribbonEnd ? createPortal(ribbonEnd, endSlot.host) : null}
       {arrow
         ? createPortal(
             <button

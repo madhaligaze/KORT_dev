@@ -1,28 +1,29 @@
 "use client";
 
 /**
- * «Реестр · таблица» — реестр договоров листом Univer (фронт-план 6.4, 4.7).
+ * «Реестр · таблица» - реестр договоров листом Univer (фронт-план 6.4, 4.7).
  *
  * Здесь только то, что живёт в React: хранилище → лист (`sync`), вопрос
  * «опечатка или с даты» слоем над ячейкой, строка под листом. Всё, что
- * связывает Univer с договорами, — в `sheet-adapter.ts`.
+ * связывает Univer с договорами, - в `sheet-adapter.ts`.
  *
  * Univer роняет серверную отрисовку (`Path2D is not defined`), поэтому тот,
  * кто ставит этот компонент на страницу, берёт его через `next/dynamic` с
- * `ssr: false`. Рядом с листом — только прозрачность: `transform` и `filter` на
+ * `ssr: false`. Рядом с листом - только прозрачность: `transform` и `filter` на
  * предке сделали бы его контейнером для `position: fixed` и сломали замеры
- * холста (правило проекта о GSAP). Слой вопроса поэтому — портал в `body`.
+ * холста (правило проекта о GSAP). Слой вопроса поэтому - портал в `body`.
  *
- * Выпадающие списки — общий стандарт листов (`univer/lists.ts`): стрелку у
+ * Выпадающие списки - общий стандарт листов (`univer/lists.ts`): стрелку у
  * выбранной ячейки, Alt+↓ и печать без списка даёт `UniverSheet`; здесь
  * только прячем стрелку, пока над ячейкой висит вопрос.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { type ChangeMode as ChangeModeValue, contractsApi } from "@/components/finance/api";
+import { type ChangeMode as ChangeModeValue, type Me, type PointRef, contractsApi } from "@/components/finance/api";
 import { ChangeMode } from "@/components/finance/contracts/change-mode";
 import { OtherContracts } from "@/components/finance/contracts/contract-card";
+import { MineToggle, useMine } from "@/components/finance/contracts/mine";
 import {
   RegistryBinding,
   buildRegistry,
@@ -37,30 +38,59 @@ import {
   boot,
   cancel,
   ensurePayments,
+  ensureShares,
   ensureStaff,
   ensureSummary,
   forBook,
   getRegistry,
   holdLive,
   put,
+  reloadAll,
+  reloadSchema,
   useRegistry,
 } from "@/components/finance/contracts/store";
 import { formatDay } from "@/components/finance/format";
 import { lookStore } from "@/components/finance/look-store";
+import { type FilterStatus, keepFilter } from "@/components/univer/filter";
 import { type LookKeeper, keepLook } from "@/components/univer/look";
+import { useSessionScope } from "@/components/session-state";
 import { UniverSheet, type UniverApi } from "@/components/univer/sheet";
+import { type SheetWarningSpec, SheetWarning } from "@/components/univer/warning";
 import { useFillHeight } from "@/components/univer/use-fill-height";
 
 type Props = {
-  /** Открыть карточку договора (или закрыть — `null`). `ctx` — лист и блок строки. */
+  me: Me;
+  /** Открыть карточку договора (или закрыть - `null`). `ctx` - лист и блок строки. */
   onOpenCard: (id: string | null, ctx?: { view: string; block: number }) => void;
   /** Договор открытой карточки: его строка отмечена, лист к ней прокручивается. */
   openId: string | null;
-  /** Книга листов: `""` — реестр («Таблица»), `oneoff` — «Разовые». */
+  /** Книга листов: `""` - реестр («Таблица»), `oneoff` - «Разовые». */
   book?: string;
+  /** Соседи открытой карточки по листу - для её стрелок ↑ ↓. */
+  onNeighbors?: (around: { prev: string | null; next: string | null }) => void;
 };
 
-type Note = { text: string; fail: boolean; at: number };
+/**
+ * Строка под листом. `point` - изменение для всех, запомненное точкой
+ * восстановления: «Вернуть» у него - у автора и администратора, не только из
+ * корзины (`contracts/restore.py`).
+ */
+type Note = { text: string; fail: boolean; at: number; point?: PointRef };
+
+/**
+ * Подсказка «несколько строк - Ctrl» (29.09.2026: «что можно отметить
+ * несколько строк, нигде не сказано»). Встаёт, когда выделена одна строка,
+ * пока человек не отметит «Больше не показывать»; отметка помнится у учётки.
+ */
+const ROW_TIP = "kort_tip_rows_off";
+
+function rowTipOff(user: string): boolean {
+  try {
+    return localStorage.getItem(`${ROW_TIP}:${user}`) === "1";
+  } catch {
+    return false;
+  }
+}
 
 /** Сколько подсказка ждёт мышь, ушедшую с ячейки, прежде чем погаснуть. */
 const HIDE_DELAY = 420;
@@ -70,8 +100,21 @@ function stillAsking(group: AskGroup): { id: string; key: string }[] {
   return group.items.filter((item) => edits.get(item.id)?.get(item.key)?.state === "asking");
 }
 
-export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
+export function RegistrySheet({ me, onOpenCard, openId, book = "", onNeighbors }: Props) {
   const state = useRegistry((value) => value);
+  // «Мои» у заголовка реестра: лист собирается из своих договоров.
+  const { only } = useMine(me, book);
+  const [warning, setWarning] = useState<SheetWarningSpec | null>(null);
+  /**
+   * Изменения для всех, сделанные из этого листа, - для Ctrl+Z, когда своя
+   * история Univer пуста (лист после них пересобирается и её теряет).
+   * Правки значений сюда не идут: их Ctrl+Z возвращает сам Univer.
+   */
+  const points = useRef<PointRef[]>([]);
+  const [rowTip, setRowTip] = useState<{ left: number; top: number } | null>(null);
+  const tipUser = me.user?.id ?? "";
+  const tipBox = useRef<HTMLDivElement>(null);
+  const mod = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
   const { ref: box, height } = useFillHeight(360, 4);
   const [note, setNote] = useState<Note | null>(null);
   const [ask, setAsk] = useState<AskGroup | null>(null);
@@ -100,24 +143,66 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
   useEffect(() => () => window.clearTimeout(hideTimer.current), []);
   const [keeper, setKeeper] = useState<LookKeeper | null>(null);
   const [lookEmpty, setLookEmpty] = useState(true);
+  /** Отбор фильтром в шапке на активном листе (`univer/filter.ts`). */
+  const [filtered, setFiltered] = useState<FilterStatus | null>(null);
+  const sessionScope = useSessionScope();
 
   useEffect(() => {
     onOpenRef.current = onOpenCard;
   }, [onOpenCard]);
 
+  // Alt+Enter - карточка договора активной строки (в редакторе ячейки Alt+Enter
+  // остаётся переводом строки). Слушатель нативный, в фазе захвата: фокус
+  // стоит в поле ввода самого Univer, у которого своё дерево React, и
+  // `onKeyDownCapture` на рамке до него не доходил - до 30.09.2026 Alt+Enter
+  // не открывал ничего, хотя подсказка под листом его обещала.
+  useEffect(() => {
+    const host = box.current;
+    if (!host) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (!event.altKey || event.key !== "Enter" || !binding.current || binding.current.isEditing()) return;
+      if (binding.current.openActive()) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    host.addEventListener("keydown", onKey, true);
+    return () => host.removeEventListener("keydown", onKey, true);
+  }, [box]);
+
   // Живой режим, пока лист открыт: чужие правки приходят опросом раз в 2 с.
   useEffect(() => holdLive(), []);
-  // Ответственные в списке ячейки — из справочника сотрудников кабинета.
+  // Ответственные в списке ячейки - из справочника сотрудников кабинета.
   useEffect(() => {
     void ensureStaff();
   }, []);
-  // «Оплачено/Остаток по выписке» меняют выписки и разнесение, а не правки
-  // договоров — опросу реестра о них неоткуда узнать. Раз в минуту, пока
-  // вкладка на виду, и сразу при возвращении на неё.
+  // Доли сотрудников - последняя колонка листа и «По сотрудникам» у
+  // «Разовых»; те, что открыты человеку. Книга собирается, когда они
+  // прочитаны (или отказали): иначе ширина колонки встала бы по пустым ячейкам.
+  const [sharesRead, setSharesRead] = useState(false);
   useEffect(() => {
+    let alive = true;
+    void ensureShares().finally(() => {
+      if (alive) setSharesRead(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  // «Оплачено/Остаток по выписке» меняют выписки и разнесение, а не правки
+  // договоров - опросу реестра о них неоткуда узнать. Раз в минуту, пока
+  // вкладка на виду, и сразу при возвращении на неё. Первый раз - когда
+  // схема прочитана: она говорит, открыт ли журнал. До 30.09.2026 лист
+  // спрашивал раньше неё, и у каждого юриста в консоли висел 403, а за ним
+  // лишнее перечитывание прав.
+  const schemaKnown = state.schema !== null;
+  useEffect(() => {
+    if (!schemaKnown) return;
     void ensurePayments();
     const refresh = () => {
-      if (document.visibilityState === "visible") void ensurePayments();
+      if (document.visibilityState !== "visible") return;
+      void ensurePayments();
+      void ensureShares();
     };
     const timer = window.setInterval(refresh, 60_000);
     document.addEventListener("visibilitychange", refresh);
@@ -125,9 +210,9 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, []);
+  }, [schemaKnown]);
 
-  // «Оплачено/Остаток (сводка)» — из книги-сводки: раз в минуту, пока вкладка
+  // «Оплачено/Остаток (сводка)» - из книги-сводки: раз в минуту, пока вкладка
   // на виду, и сразу при возвращении на неё (сервер держит книгу пять минут).
   const usesSummary = useMemo(
     () =>
@@ -160,14 +245,14 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
   /**
    * Книга собирается заново только при смене раскладки (колонки, листы, права)
    * или по просьбе связки. Правки, чужие договоры и новые значения списков
-   * лист переписывает по месту: пересборка — это секунда и потерянная
+   * лист переписывает по месту: пересборка - это секунда и потерянная
    * прокрутка.
    */
   const built = useMemo<Built | null>(() => {
-    // `generation` — просьба связки собрать книгу заново (лист поменяли в обход).
-    if (!ready || !structure || empty || generation < 0) return null;
-    return buildRegistry(getRegistry(), paletteNow(), book);
-  }, [ready, structure, empty, generation, book]);
+    // `generation` - просьба связки собрать книгу заново (лист поменяли в обход).
+    if (!ready || !structure || empty || !sharesRead || generation < 0) return null;
+    return buildRegistry(getRegistry(), paletteNow(), book, only);
+  }, [ready, structure, empty, sharesRead, generation, book, only]);
 
   const onReady = useCallback(
     (api: UniverApi) => {
@@ -181,13 +266,36 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
           openCard: (id, ctx) => onOpenRef.current(id, ctx),
           sheet: (view) => {
             activeView.current = view;
+            // Univer дописывает смену листа чуть позже события.
+            queueMicrotask(() => setFiltered(binding.current?.filterStatus() ?? null));
           },
           rebuild: () => setGeneration((value) => value + 1),
+          warn: (spec) => setWarning(spec),
+          changed: (point, text) => {
+            if (point && point.kind !== "values") points.current = [...points.current, point].slice(-20);
+            setNote({ text, fail: false, at: Date.now(), point: point ?? undefined });
+          },
+          undo: () => {
+            const last = points.current.pop();
+            if (!last) return false;
+            void restoreRef.current(last);
+            return true;
+          },
+          rowTip: (at) => {
+            if (!at || rowTipOff(tipUser)) {
+              setRowTip(null);
+              return;
+            }
+            const rect = binding.current?.cellRectAt(at.sheet, at.row, 0);
+            // Справа от «№» на уровне строки: ниже - строки, которые человек
+            // сейчас будет отмечать, их подсказка закрывать не должна.
+            setRowTip(rect?.visible ? { left: Math.round(rect.right + 8), top: Math.round(rect.top - 6) } : null);
+          },
           hint: (at) => {
-            // Univer прячет заметку, как только мышь ушла с ячейки, — а по
+            // Univer прячет заметку, как только мышь ушла с ячейки, - а по
             // дороге к «Учтено» она уходит всегда. Раньше подсказка гасла в
             // тот же миг, и кнопку приходилось ловить (28.09.2026). Теперь
-            // прятание ждёт: успела мышь дойти до подсказки — она остаётся.
+            // прятание ждёт: успела мышь дойти до подсказки - она остаётся.
             if (!at) {
               scheduleHide(HIDE_DELAY);
               return;
@@ -202,10 +310,13 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
               setHintSpot(null);
               return;
             }
-            // Вплотную под ячейкой (у нижнего края окна — над ней): щели,
+            // Вплотную под ячейкой (у нижнего края окна - над ней): щели,
             // через которую мышь проходила бы по соседней ячейке, нет.
             const above = rect.bottom + 220 > window.innerHeight;
-            setHintSpot({ left: Math.round(rect.left), top: Math.round(above ? rect.top : rect.bottom), above });
+            // У правого края окна подсказка сжималась в столбик - сдвигаем
+            // её влево настолько, чтобы влезла во всю ширину (400px).
+            const left = Math.max(8, Math.min(rect.left, window.innerWidth - 412));
+            setHintSpot({ left: Math.round(left), top: Math.round(above ? rect.top : rect.bottom), above });
           },
         },
         box.current,
@@ -213,25 +324,33 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
       binding.current = next;
       const stop = next.start(activeView.current, openRef.current);
       next.sync(getRegistry());
-      // Личный вид: ширины, цвета, перенос — у каждого свои (`univer/look.ts`).
+      // Личный вид: ширины, цвета, перенос - у каждого свои (`univer/look.ts`).
       const look = keepLook(api, next.lookIds(), lookStore(book ? `registry.${book}` : "registry", getRegistry().company ?? ""));
       next.setLook(look);
       setKeeper(look);
       setLookEmpty(look.empty());
       const unwatch = look.subscribe(() => setLookEmpty(look.empty()));
+      // Фильтр в шапке - на листах из одного блока; условия живут в сессии.
+      const filter = keepFilter(api, built.unitId, sessionScope, book ? `registry.${book}` : "registry", () =>
+        setFiltered(next.filterStatus()),
+      );
+      next.setFilter(filter);
+      setFiltered(next.filterStatus());
       if (process.env.NODE_ENV !== "production") {
         // Только в разработке: пробники Playwright читают лист.
         (window as unknown as Record<string, unknown>).__cregSheet = { api, binding: next, build: buildRegistry, palette: paletteNow };
       }
       return () => {
         unwatch();
+        filter.stop();
+        next.setFilter(null);
         look.stop();
         next.setLook(null);
         stop();
         if (binding.current === next) binding.current = null;
       };
     },
-    [built, box, book, scheduleHide],
+    [built, box, book, scheduleHide, sessionScope, tipUser],
   );
 
   useEffect(() => {
@@ -243,7 +362,50 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
     binding.current?.setOpen(openId);
   }, [openId]);
 
-  // «Читаем реестр…» — только если чтение затянулось: быстрый ответ не должен
+  // Стрелки карточки ведут по строкам листа: соседи пересчитываются, когда
+  // открыт другой договор или строки листа поменялись. Эффект идёт на каждую
+  // перемену хранилища (опрос раз в 2 с), поэтому наверх уходят только
+  // новые соседи: объект с прежними перерисовывал раздел вместе с карточкой.
+  const sentNeighbors = useRef<{ prev: string | null; next: string | null } | null>(null);
+  useEffect(() => {
+    if (!onNeighbors) return;
+    const now = binding.current;
+    const around = {
+      prev: openId && now ? now.neighbor(openId, -1) : null,
+      next: openId && now ? now.neighbor(openId, 1) : null,
+    };
+    const last = sentNeighbors.current;
+    if (last && last.prev === around.prev && last.next === around.next) return;
+    sentNeighbors.current = around;
+    onNeighbors(around);
+  }, [openId, state, built, onNeighbors]);
+
+  /**
+   * «Вернуть» - как было до изменения, по точке восстановления: удалённые
+   * договоры - из корзины, лист и колонки - прежними, значения - прежними,
+   * если их после не поменяли коллеги. Вернувшееся приходит опросом; лист и
+   * колонки - перечитанной схемой, порядок строк - перечитанным реестром.
+   */
+  const restorePoint = useCallback(async (point: PointRef) => {
+    points.current = points.current.filter((item) => item.id !== point.id);
+    setNote({ text: "Возвращаем…", fail: false, at: Date.now() });
+    try {
+      const result = await contractsApi.restorePoints.restore(point.id);
+      const skipped = result.skipped.length ? ` · не тронуто: ${result.skipped[0]}${result.skipped.length > 1 ? ` и ещё ${result.skipped.length - 1}` : ""}` : "";
+      setNote({ text: `Вернули как было: ${result.title}${skipped}`, fail: false, at: Date.now() });
+      await reloadSchema();
+      if (result.kind === "order") {
+        await reloadAll();
+        setGeneration((value) => value + 1);
+      }
+    } catch (exc) {
+      setNote({ text: `Не вернулось: ${exc instanceof Error ? exc.message : "ошибка"}`, fail: true, at: Date.now() });
+    }
+  }, []);
+  const restoreRef = useRef(restorePoint);
+  restoreRef.current = restorePoint;
+
+  // «Читаем реестр…» - только если чтение затянулось: быстрый ответ не должен
   // мигать подписью.
   useEffect(() => {
     if (ready) return;
@@ -251,9 +413,9 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
     return () => window.clearTimeout(timer);
   }, [ready]);
 
-  // Отказ сервера по правке ячейки («„имх“ нет в списке …») — строкой под
+  // Отказ сервера по правке ячейки («„имх“ нет в списке …») - строкой под
   // листом сразу: у ячейки он виден только при наведении, а напечатавший
-  // смотрит в лист, а не водит мышью. Каждый отказ — один раз.
+  // смотрит в лист, а не водит мышью. Каждый отказ - один раз.
   const shownFail = useRef(0);
   useEffect(() => {
     let latest: { at: number; text: string } | null = null;
@@ -269,7 +431,7 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
     setNote({ text: latest.text, fail: true, at: Date.now() });
   }, [state.edits]);
 
-  // Строка под листом гаснет сама; отказ держится дольше — его читают.
+  // Строка под листом гаснет сама; отказ держится дольше - его читают.
   useEffect(() => {
     if (!note) return;
     const timer = window.setTimeout(() => setNote(null), note.fail ? 12000 : 6000);
@@ -290,7 +452,7 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
       binding.current?.markAhead(
         items,
         (item) =>
-          `с ${formatDay(mode.effective_from)} — ${binding.current?.valueText(item.id, item.key, values.get(`${item.id}|${item.key}`)) ?? ""}`,
+          `с ${formatDay(mode.effective_from)} - ${binding.current?.valueText(item.id, item.key, values.get(`${item.id}|${item.key}`)) ?? ""}`,
       );
     }
     setAsk(null);
@@ -299,7 +461,7 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
   }, []);
 
   // Слой вопроса едет вместе с ячейкой; ячейка ушла из видимой части листа,
-  // лист сменили или на вопрос ответили в карточке — слой закрывается, как Esc.
+  // лист сменили или на вопрос ответили в карточке - слой закрывается, как Esc.
   useEffect(() => {
     if (!ask) return;
     let frame = 0;
@@ -333,7 +495,7 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
     return () => window.cancelAnimationFrame(frame);
   }, [ask, settle]);
 
-  // Клик мимо вопроса — то же, что Esc: молча сохранить правку «как-нибудь»
+  // Клик мимо вопроса - то же, что Esc: молча сохранить правку «как-нибудь»
   // нельзя, сервер её всё равно не примет.
   useEffect(() => {
     if (!ask) return;
@@ -344,6 +506,32 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
     document.addEventListener("pointerdown", onDown, true);
     return () => document.removeEventListener("pointerdown", onDown, true);
   }, [ask, settle]);
+
+  // Подсказка про несколько строк уходит, как подсказка ячейки: прокрутка,
+  // Esc, правая кнопка (меню встаёт на её место), щелчок мимо неё.
+  useEffect(() => {
+    if (!rowTip) return;
+    const hide = () => setRowTip(null);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") hide();
+    };
+    const onDown = (event: PointerEvent) => {
+      if (tipBox.current && event.target instanceof Node && tipBox.current.contains(event.target)) return;
+      // Щелчок по листу сам решит: новое выделение одной строки поставит её снова.
+      hide();
+    };
+    const host = box.current;
+    host?.addEventListener("wheel", hide, { passive: true });
+    host?.addEventListener("contextmenu", hide);
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onDown, true);
+    return () => {
+      host?.removeEventListener("wheel", hide);
+      host?.removeEventListener("contextmenu", hide);
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onDown, true);
+    };
+  }, [rowTip, box]);
 
   // Подсказка уходит, когда лист прокрутили (ячейка уехала), по Esc и по
   // щелчку мимо неё. Наведение на другую ячейку прячет её само (сервис заметок).
@@ -370,7 +558,7 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
 
   /**
    * «Учтено» / «Снять отметку». Подсказка не закрывается: замечание в ней
-   * остаётся с пометкой «учтено» — видно, что отмечено и о чём, а уголок
+   * остаётся с пометкой «учтено» - видно, что отмечено и о чём, а уголок
    * ячейки остаётся флажком (`sheet-adapter`, `inkMarkers`).
    */
   const acknowledge = async (id: string, code: string, on: boolean) => {
@@ -402,23 +590,13 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
   // Рамка листа стоит с первого кадра, даже пока реестр читается: замер
   // высоты вешается на неё один раз при монтировании. Когда рамка появлялась
   // только после чтения, замер уже прошёл впустую, и лист оставался на
-  // минимуме — 360 пикселей и пустота под ним.
+  // минимуме - 360 пикселей и пустота под ним.
   return (
     <div>
       <div
         ref={box}
         className="creg-sheet-wrap"
         style={{ height }}
-        onKeyDownCapture={(event) => {
-          // Alt+Enter — карточка договора активной строки (в редакторе ячейки
-          // Alt+Enter остаётся переводом строки).
-          if (event.altKey && event.key === "Enter" && binding.current && !binding.current.isEditing()) {
-            if (binding.current.openActive()) {
-              event.preventDefault();
-              event.stopPropagation();
-            }
-          }
-        }}
       >
         {built ? (
           <UniverSheet
@@ -429,10 +607,13 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
             formatting="look"
             listArrow={!ask}
             session={book ? `registry.${book}` : "registry"}
+            onSortFilter={(command) => binding.current?.sortFilter(command) ?? false}
+            onStart={(restored) => binding.current?.begin(restored)}
+            ribbonEnd={<MineToggle me={me} book={book} />}
           />
         ) : empty ? (
           <p className="creg-sheet-note" role="status" style={{ margin: "1rem" }}>
-            Листов в этой книге нет — их заводят в «Настроить реестр» → «Листы»
+            Листов в этой книге нет - их заводят в «Настроить реестр» → «Листы»
           </p>
         ) : state.phase === "error" ? (
           <p className="creg-sheet-note fin-fail" role="status" style={{ margin: "1rem" }}>
@@ -452,14 +633,37 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
         )}
       </div>
       <div className="creg-sheet-foot">
+        {filtered && filtered.columns.length ? (
+          // Отбор виден словами и числом, как в Excel «Найдено 21 из 90»:
+          // иначе спрятанные строки выглядели бы пропавшими договорами.
+          <p className="creg-sheet-filter" role="status">
+            Отбор по {filtered.columns.map((label) => `«${label}»`).join(", ")}: видно {filtered.shown} из {filtered.total} ·{" "}
+            <button type="button" className="fin-link-btn" onClick={() => binding.current?.clearFilter()}>
+              Показать все
+            </button>
+          </p>
+        ) : null}
         <p className={note?.fail ? "creg-sheet-note fin-fail" : "creg-sheet-note"} role="status" aria-live="polite">
           {note?.text ?? ""}
+          {note?.point ? (
+            <>
+              {" · "}
+              <button
+                type="button"
+                className="fin-link-btn"
+                title="Как было до этого изменения - то же, что Ctrl+Z или «Восстановление» в кабинете"
+                onClick={() => note.point && void restorePoint(note.point)}
+              >
+                Вернуть
+              </button>
+            </>
+          ) : null}
         </p>
         {keeper && !lookEmpty ? (
           <button
             type="button"
             className="fin-link-btn creg-look-reset"
-            title="Ширины, цвета и перенос — ваши, коллеги их не видят"
+            title="Ширины, цвета и перенос - ваши, коллеги их не видят"
             onClick={async () => {
               await keeper.reset();
               // Вид снимается пересборкой листа: стили уже лежат в ячейках.
@@ -470,6 +674,40 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
           </button>
         ) : null}
       </div>
+      {rowTip && !warning && !ask
+        ? createPortal(
+            <div
+              ref={tipBox}
+              className="creg-hint creg-rowtip"
+              role="status"
+              style={{ left: rowTip.left, top: rowTip.top }}
+            >
+              <div className="creg-hint-body">
+                <p className="creg-hint-text">
+                  Несколько строк: <b>{mod}</b> + щелчок по «№» - по одной, <b>Shift</b> - подряд. Правой кнопкой -
+                  удалить их или открыть карточку.
+                </p>
+                <label className="creg-rowtip-off">
+                  <input
+                    type="checkbox"
+                    onChange={(event) => {
+                      if (!event.target.checked) return;
+                      try {
+                        localStorage.setItem(`${ROW_TIP}:${tipUser}`, "1");
+                      } catch {
+                        /* подсказка уйдёт до перезагрузки */
+                      }
+                      setRowTip(null);
+                    }}
+                  />
+                  Больше не показывать
+                </label>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+      <SheetWarning spec={warning} onClose={() => setWarning(null)} />
       {ask && spot && count
         ? createPortal(
             <div ref={pop}>
@@ -530,7 +768,7 @@ export function RegistrySheet({ onOpenCard, openId, book = "" }: Props) {
                             title={
                               issue.acknowledged
                                 ? "Замечание снова загорится"
-                                : "Проверено: так и должно быть — замечание перестанет гореть, флажок в ячейке останется"
+                                : "Проверено: так и должно быть - замечание перестанет гореть, флажок в ячейке останется"
                             }
                           >
                             {acking === issue.code ? "…" : issue.acknowledged ? "Снять отметку" : "Учтено"}

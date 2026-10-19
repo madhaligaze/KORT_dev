@@ -1,19 +1,19 @@
 /**
- * Хранилище реестра договоров — одно на компанию, общее для таблицы и карточек.
+ * Хранилище реестра договоров - одно на компанию, общее для таблицы и карточек.
  *
  * Модульный объект, а не контекст React: карточка открывается поверх листа,
  * и оба должны читать одну запись без посредника, а лист Univer живёт вне
- * дерева React — ему нужна подписка, а не пропсы (урок «Книг»: два списка
+ * дерева React - ему нужна подписка, а не пропсы (урок «Книг»: два списка
  * одних и тех же строк, живущих порознь, расходятся на первой правке).
  *
  * Правила записи (фронт-план 4.5):
- * * правка оптимистична — значение сразу видно во всех видах;
+ * * правка оптимистична - значение сразу видно во всех видах;
  * * на один договор в полёте не больше одного запроса; правки, пришедшие во
- *   время запроса, склеиваются в следующий — иначе второй запрос уехал бы с тем
+ *   время запроса, склеиваются в следующий - иначе второй запрос уехал бы с тем
  *   же `known_seq` и получил 409 от собственной правки;
  * * сторона и сумма существующего договора спрашивают «опечатка или с даты»:
  *   клиент предсказывает вопрос, сервер держит правило (422 `mode_required`);
- * * нет связи — правка ждёт в очереди и уходит при первом успешном опросе.
+ * * нет связи - правка ждёт в очереди и уходит при первом успешном опросе.
  */
 import { useSyncExternalStore } from "react";
 
@@ -29,9 +29,11 @@ import {
   type PaymentSummary,
   type PersonRef,
   type RegistrySchema,
+  type ShareMap,
   type SummaryEntry,
   type SummarySource,
   FinanceApiError,
+  SCHEMA_EVENT,
   contractsApi,
 } from "@/components/finance/api";
 
@@ -62,19 +64,24 @@ export type RegistryState = {
   parties: Readonly<Record<string, Party>>;
   /** Подписи людей: из договоров и из справочника. */
   people: Readonly<Record<string, PersonRef>>;
-  /** Справочник ответственных — действующие сотрудники (`ensureStaff`); `null` — ещё не прочитан. */
+  /** Справочник ответственных - действующие сотрудники (`ensureStaff`); `null` - ещё не прочитан. */
   staff: readonly PersonRef[] | null;
   /**
-   * «Оплачено/Остаток по выписке» — договор → сводка (`ensurePayments`).
-   * `null` — не прочитано или журнал человеку не открыт.
+   * «Оплачено/Остаток по выписке» - договор → сводка (`ensurePayments`).
+   * `null` - не прочитано или журнал человеку не открыт.
    */
   payments: Readonly<Record<string, PaymentSummary>> | null;
   /**
-   * «Оплачено/Остаток (сводка)» — договор → что о нём знает книга-сводка
-   * (`ensureSummary`). `null` — не прочитано или сводка не подключена.
+   * «Оплачено/Остаток (сводка)» - договор → что о нём знает книга-сводка
+   * (`ensureSummary`). `null` - не прочитано или сводка не подключена.
    */
   summary: Readonly<Record<string, SummaryEntry>> | null;
   summarySource: SummarySource | null;
+  /**
+   * Доли людей в договорах - только открытые этому человеку (`ensureShares`):
+   * «По сотрудникам» считает по ним. `null` - не прочитано.
+   */
+  shares: Readonly<Record<string, ShareMap>> | null;
   /** По какой сводке сервер посчитал листы («Остатки») в последнем полном чтении. */
   listSummaryRev: string;
   edits: ReadonlyMap<string, ReadonlyMap<string, Edit>>;
@@ -82,7 +89,7 @@ export type RegistryState = {
   remote: readonly RemoteNote[];
   /** Договор → «ушёл в „Прочие / Аренда“» / «убран · Дана Ж.». Убирается сменой отбора. */
   departed: ReadonlyMap<string, string>;
-  /** Только что появившиеся строки — для прочерка верхней линии. */
+  /** Только что появившиеся строки - для прочерка верхней линии. */
   fresh: ReadonlySet<string>;
   /**
    * Договор → отборы (и блоки), в которых он стоял до правки, уведшей его
@@ -109,6 +116,7 @@ const EMPTY: RegistryState = {
   payments: null,
   summary: null,
   summarySource: null,
+  shares: null,
   listSummaryRev: "",
   edits: new Map(),
   live: { online: true, lastOkAt: null, failures: 0 },
@@ -120,7 +128,7 @@ const EMPTY: RegistryState = {
 
 let state: RegistryState = EMPTY;
 
-/** Отборы, из которых договор ушёл этой правкой, — вдобавок к уже запомненным. */
+/** Отборы, из которых договор ушёл этой правкой, - вдобавок к уже запомненным. */
 function leftViews(
   wasIn: Map<string, readonly { view: string; block: number }[]>,
   before: Contract | undefined,
@@ -174,31 +182,80 @@ function sortOrder(byId: ReadonlyMap<string, Contract>): string[] {
 
 let booting: Promise<void> | null = null;
 
-/** Схема и все договоры — по одному запросу. 460 договоров — секунда. */
-export function boot(company: string, me: string | null, force = false): Promise<void> {
-  if (!force && state.company === company && (state.phase === "ready" || booting)) {
+/**
+ * Чей реестр в хранилище: учётка и компания. Каждая смена хозяина - новый
+ * номер, и ответ, запрошенный для прежнего, в хранилище уже не ложится.
+ *
+ * До 01.10.2026 хранилище различало только компанию. Владелец выходил,
+ * сотрудник входил в той же вкладке (компьютер общий, или владелец проверял,
+ * что видит сотрудник) - и сотрудник видел реестр владельца: все договоры,
+ * скрытые от него поля, кнопки настройки. В обратную сторону владелец после
+ * сотрудника с узкой областью видел «Договоров пока нет» вместо своих 463.
+ */
+let epoch = 0;
+/** Права на договоры, с которыми собран реестр (`useRegistryBoot`). */
+let bootedScope: string | undefined;
+
+function claim(company: string | null, me: string | null, phase: RegistryState["phase"]): void {
+  epoch += 1;
+  booting = null;
+  bootedScope = undefined;
+  schemaLoading = null;
+  inflight.clear();
+  paymentsAt = 0;
+  paymentsLoading = null;
+  paymentsClosedFor = null;
+  summaryAt = 0;
+  summaryLoading = null;
+  sharesAt = 0;
+  sharesLoading = null;
+  staffAt = 0;
+  staffLoading = null;
+  if (sharesSoon) clearTimeout(sharesSoon);
+  sharesSoon = 0;
+  state = { ...EMPTY, company, me, phase };
+  listeners.forEach((listener) => listener());
+}
+
+/** Выход из учётки: реестр вышедшего не остаётся в памяти вкладки. */
+export function forgetRegistry(): void {
+  if (state.company !== null || state.me !== null) claim(null, null, "idle");
+}
+
+/**
+ * Схема и все договоры - по одному запросу. 460 договоров - секунда.
+ *
+ * `scope` - права на договоры, с которыми человек пришёл (`me.access` и
+ * `me.contracts_scope`). Сменились - реестр читается заново: сузили область
+ * «до своего отдела», а договоры других отделов стояли на экране до
+ * перезагрузки - номер изменений договоров от смены прав не двигается.
+ */
+export function boot(company: string, me: string | null, force = false, scope?: string): Promise<void> {
+  const same = state.company === company && state.me === me;
+  const rescoped = scope !== undefined && bootedScope !== undefined && scope !== bootedScope;
+  if (!force && !rescoped && same && (state.phase === "ready" || booting)) {
     return booting ?? Promise.resolve();
   }
-  if (state.company !== company) {
-    state = { ...EMPTY, company, me, phase: "boot" };
-    listeners.forEach((listener) => listener());
-  } else {
-    emit({ phase: state.phase === "ready" ? "ready" : "boot", me });
-  }
-  booting = (async () => {
+  if (!same) claim(company, me, "boot");
+  else emit({ phase: state.phase === "ready" ? "ready" : "boot" });
+  if (scope !== undefined) bootedScope = scope;
+  const mine = epoch;
+  const run = (async () => {
     try {
       const [schema, all] = await Promise.all([contractsApi.schema(), contractsApi.all()]);
-      if (state.company !== company) return;
+      if (epoch !== mine) return;
       loadAll(schema, all);
     } catch (exc) {
-      if (state.company !== company) return;
+      if (epoch !== mine) return;
       if (exc instanceof FinanceApiError && exc.status === 401) onAuthLost?.();
       emit({ phase: "error", error: exc instanceof Error ? exc.message : "Реестр не прочитался" });
-    } finally {
-      booting = null;
     }
   })();
-  return booting;
+  booting = run;
+  void run.finally(() => {
+    if (booting === run) booting = null;
+  });
+  return run;
 }
 
 function loadAll(schema: RegistrySchema, all: ContractsAll): void {
@@ -223,11 +280,11 @@ function loadAll(schema: RegistrySchema, all: ContractsAll): void {
 /**
  * Отпечаток того, что решает принадлежность договоров листам: правила и
  * подсветка блоков. Принадлежность считает сервер и присылает с договорами,
- * поэтому смена правила — повод перечитать договоры, а не только схему.
+ * поэтому смена правила - повод перечитать договоры, а не только схему.
  *
  * До 28.09.2026 после «Применить правило» перечитывалась одна схема: лист
  * перестраивался под новые блоки, а договоры стояли по старому правилу до
- * перезагрузки страницы — правило выглядело неработающим.
+ * перезагрузки страницы - правило выглядело неработающим.
  */
 function placementKey(schema: RegistrySchema | null): string {
   if (!schema) return "";
@@ -239,10 +296,14 @@ function placementKey(schema: RegistrySchema | null): string {
 }
 
 export async function reloadSchema(): Promise<void> {
+  const mine = epoch;
   try {
     const schema = await contractsApi.schema();
+    if (epoch !== mine) return;
     const moved = state.phase === "ready" && placementKey(state.schema) !== placementKey(schema);
     emit({ schema, schemaRev: schema.schema_rev });
+    // Номер схемы двигает и смена прав на договоры - пусть рама перечитает права.
+    if (typeof window !== "undefined") window.dispatchEvent(new Event(SCHEMA_EVENT));
     if (moved) await reloadAll();
   } catch {
     /* следующий опрос попробует снова */
@@ -252,61 +313,71 @@ export async function reloadSchema(): Promise<void> {
 let schemaLoading: Promise<void> | null = null;
 
 /**
- * Только схема — колонке разделов: подпись «Разовые ЮО» берётся из правила
+ * Только схема - колонке разделов: подпись «Разовые ЮО» берётся из правила
  * книги, а грузить ради неё все договоры незачем. Полное чтение (`boot`)
  * схему не сбрасывает, а перечитывает.
  */
 export function ensureSchema(company: string, me: string | null): Promise<void> {
-  if (state.company === company && (state.schema || schemaLoading)) return schemaLoading ?? Promise.resolve();
-  if (state.company !== company) {
-    state = { ...EMPTY, company, me };
-    listeners.forEach((listener) => listener());
-  }
-  schemaLoading = (async () => {
+  const same = state.company === company && state.me === me;
+  if (same && (state.schema || schemaLoading)) return schemaLoading ?? Promise.resolve();
+  if (!same) claim(company, me, "idle");
+  const mine = epoch;
+  const run = (async () => {
     try {
       const schema = await contractsApi.schema();
-      if (state.company === company && !state.schema) emit({ schema, schemaRev: schema.schema_rev });
+      if (epoch === mine && !state.schema) emit({ schema, schemaRev: schema.schema_rev });
     } catch {
       /* подпись останется общей */
-    } finally {
-      schemaLoading = null;
     }
   })();
-  return schemaLoading;
+  schemaLoading = run;
+  void run.finally(() => {
+    if (schemaLoading === run) schemaLoading = null;
+  });
+  return run;
 }
 
-/** Перечитать всё — после загрузки Excel или сведения значений. */
+/** Перечитать всё - после загрузки Excel или сведения значений. */
 export async function reloadAll(): Promise<void> {
   if (!state.company) return;
+  const mine = epoch;
   const [schema, all] = await Promise.all([contractsApi.schema(), contractsApi.all()]);
+  if (epoch !== mine) return;
   loadAll(schema, all);
 }
 
 // ── Живой режим: опрос ───────────────────────────────────────────────────────
 
-// Сам опрос (пауза, видимость вкладки, отступление) — общий движок листов
+// Сам опрос (пауза, видимость вкладки, отступление) - общий движок листов
 // `univer/live.ts`; здесь только что спросить и как применить ответ.
 let interest = 0;
 let poller: Poller | null = null;
 
 async function pollOnce(): Promise<PollOutcome> {
   if (state.phase !== "ready") return "ok";
+  const mine = epoch;
   try {
     const batch = await contractsApi.changes(state.seq);
+    // Пока шёл опрос, сменилась учётка: ответ - про чужой реестр.
+    if (epoch !== mine) return "ok";
     applyChanges(batch);
+    // Договор поменялся - могли поменяться и доли (их правка двигает номер
+    // договора): лист и «По сотрудникам» видят их без перезагрузки.
+    if (batch.contracts.length && state.shares !== null) refreshSharesSoon();
     const live = { online: true, lastOkAt: Date.now(), failures: 0 };
     emit({ live });
     if (batch.schema_rev !== state.schemaRev) await reloadSchema();
     flushQueued();
     return "ok";
   } catch (exc) {
+    if (epoch !== mine) return "ok";
     if (exc instanceof FinanceApiError && exc.status === 401) {
       onAuthLost?.();
       return "stop";
     }
     if (exc instanceof FinanceApiError && exc.status === 403) await reloadSchema();
     const failures = state.live.failures + 1;
-    // «Нет связи» — после двух отказов подряд или 6 с без успеха: одиночный
+    // «Нет связи» - после двух отказов подряд или 6 с без успеха: одиночный
     // сбой не должен мигать янтарём.
     const stale = state.live.lastOkAt === null || Date.now() - state.live.lastOkAt > 6000;
     emit({ live: { online: !(failures >= 2 || stale), lastOkAt: state.live.lastOkAt, failures } });
@@ -377,9 +448,12 @@ function applyChanges(batch: ChangesBatch): void {
   }
   for (const id of batch.removed) {
     const before = byId.get(id);
-    if (before) {
+    if (before && !before.deleted) {
       departed.set(id, "убран");
       byId.set(id, { ...before, deleted: true });
+      // Строка чужого удалённого договора уходит сразу - строка у заголовка
+      // говорит, какой это был договор.
+      notes.push({ id, field: "убран", by: "", number: String(before.values.number ?? ""), at: Date.now() });
     }
   }
   emit({
@@ -440,8 +514,20 @@ function putOne(one: OneContract, keepEdits = true): void {
     merged = { ...incoming, values };
   }
   const wasIn = new Map(state.wasIn);
-  leftViews(wasIn, byId.get(incoming.id), incoming);
+  const previous = byId.get(incoming.id);
+  leftViews(wasIn, previous, incoming);
   byId.set(incoming.id, merged);
+  // Своя правка сдвигает курсор опроса мимо себя - опрос её не принесёт, и
+  // доли не перечитаются. До 30.09.2026 второй исполнитель, вписанный в
+  // листе, у самого вписавшего так и стоял без «доли не указаны», а у коллег
+  // появлялся. Доли зависят от людей и суммы (проценты) - их и сверяем.
+  if (
+    state.shares !== null &&
+    (JSON.stringify(previous?.values.people ?? null) !== JSON.stringify(incoming.values.people ?? null) ||
+      previous?.values.amount !== incoming.values.amount)
+  ) {
+    refreshSharesSoon();
+  }
   emit({
     byId,
     order: sortOrder(byId),
@@ -480,7 +566,7 @@ export function shownValue(id: string, key: string): unknown {
 const inflight = new Set<string>();
 
 /**
- * Правка поля. Если поле спросит режим — правка ждёт ответа («asking»), и вид
+ * Правка поля. Если поле спросит режим - правка ждёт ответа («asking»), и вид
  * показывает вопрос у поля; `answer()` отправляет её с режимом.
  */
 export function edit(id: string, key: string, value: unknown, mode?: ChangeMode): void {
@@ -531,19 +617,23 @@ function send(id: string): void {
   if (!contract) return;
   inflight.add(id);
   for (const [key, item] of batch) setEdit(id, key, { ...item, state: "sending" });
+  const mine = epoch;
   contractsApi
     .patch(id, values, contract.seq, mode ?? null)
     .then((one) => {
+      // Учётку сменили, пока правка летела: её ответ в чужой реестр не ложится.
+      if (epoch !== mine) return;
       inflight.delete(id);
       for (const [key] of batch) {
         const now = state.edits.get(id)?.get(key);
-        // Во время запроса человек успел напечатать другое — оно уйдёт следующим.
+        // Во время запроса человек успел напечатать другое - оно уйдёт следующим.
         if (now && now.state === "sending") setEdit(id, key, null);
       }
       putOne(one);
       send(id);
     })
     .catch((exc: unknown) => {
+      if (epoch !== mine) return;
       inflight.delete(id);
       if (exc instanceof FinanceApiError) {
         const body = (exc.body ?? {}) as { code?: string; fields?: string[]; conflicts?: string[] } & Partial<OneContract>;
@@ -603,9 +693,11 @@ export function pendingCount(): number {
 
 export async function create(
   values: Record<string, unknown>,
-  ctx?: { view?: string; block?: number; source?: string },
+  ctx?: { view?: string; block?: number; source?: string; before?: string | null },
 ): Promise<string> {
+  const mine = epoch;
   const one = await contractsApi.create(values, ctx);
+  if (epoch !== mine) return one.contract.id;
   putOne(one, false);
   const fresh = new Set(state.fresh);
   fresh.add(one.contract.id);
@@ -613,18 +705,64 @@ export async function create(
   return one.contract.id;
 }
 
+/**
+ * Договоры, удалённые сервером пачкой (лист: «Удалить N договоров», точка
+ * восстановления - `contracts/restore.py`), уходят из листа и карточек сразу,
+ * не дожидаясь опроса.
+ */
+export function dropMany(ids: readonly string[]): void {
+  if (!ids.length) return;
+  const byId = new Map(state.byId);
+  for (const id of ids) byId.delete(id);
+  emit({ byId, order: sortOrder(byId) });
+}
+
 export async function remove(id: string): Promise<void> {
+  const mine = epoch;
   await contractsApi.remove(id);
+  if (epoch !== mine) return;
   const byId = new Map(state.byId);
   byId.delete(id);
   emit({ byId, order: sortOrder(byId) });
 }
 
+/**
+ * Удалить несколько договоров - отмеченные строки листа. По одному запросу
+ * на договор, по три разом: каждый уходит в корзину своим событием журнала,
+ * и отказ одного (договор другого отдела) не держит остальные. Строки уходят
+ * из листа и карточек по мере ответов, а не после последнего.
+ */
+export async function removeMany(
+  ids: readonly string[],
+  progress?: (done: number) => void,
+): Promise<{ done: string[]; failed: { id: string; error: string }[] }> {
+  const done: string[] = [];
+  const failed: { id: string; error: string }[] = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < ids.length) {
+      const id = ids[next];
+      next += 1;
+      try {
+        await remove(id);
+        done.push(id);
+        progress?.(done.length);
+      } catch (exc) {
+        failed.push({ id, error: exc instanceof Error ? exc.message : "не удалился" });
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, ids.length) }, worker));
+  return { done, failed };
+}
+
 export async function refreshOne(id: string): Promise<void> {
+  const mine = epoch;
   try {
-    putOne(await contractsApi.one(id));
+    const one = await contractsApi.one(id);
+    if (epoch === mine) putOne(one);
   } catch {
-    /* договор мог уйти — опрос покажет */
+    /* договор мог уйти - опрос покажет */
   }
 }
 
@@ -632,11 +770,11 @@ export function put(one: OneContract): void {
   putOne(one, false);
 }
 
-/** Сводка оплат старше этого — перечитывается при следующем обращении. */
+/** Сводка оплат старше этого - перечитывается при следующем обращении. */
 const PAYMENTS_TTL = 30_000;
 let paymentsAt = 0;
 let paymentsLoading: Promise<void> | null = null;
-/** Журнал не открыт (403) — не спрашивать заново до смены компании. */
+/** Журнал не открыт (403) - не спрашивать заново до смены компании или учётки. */
 let paymentsClosedFor: string | null = null;
 
 /**
@@ -647,34 +785,38 @@ let paymentsClosedFor: string | null = null;
 export function ensurePayments(force = false): Promise<void> {
   const company = state.company;
   if (!company || paymentsClosedFor === company) return Promise.resolve();
+  // Схема уже сказала, что журнал не открыт, - не спрашивать: 403 в консоли
+  // у каждого юриста и лишнее перечитывание прав после него.
+  if (state.schema?.access.payments === false) return Promise.resolve();
   const fresh = state.payments !== null && Date.now() - paymentsAt < PAYMENTS_TTL;
   if (!force && (paymentsLoading || fresh)) return paymentsLoading ?? Promise.resolve();
+  const mine = epoch;
   paymentsLoading = (async () => {
     try {
       const result = await contractsApi.payments.all();
-      if (state.company !== company) return;
+      if (epoch !== mine) return;
       paymentsAt = Date.now();
       emit({ payments: result.contracts });
     } catch (exc) {
-      if (exc instanceof FinanceApiError && exc.status === 403) paymentsClosedFor = company;
+      if (epoch === mine && exc instanceof FinanceApiError && exc.status === 403) paymentsClosedFor = company;
     } finally {
-      paymentsLoading = null;
+      if (epoch === mine) paymentsLoading = null;
     }
   })();
   return paymentsLoading;
 }
 
-/** Сводка старше этого — перечитывается при следующем обращении (сервер держит книгу 5 мин). */
+/** Сводка старше этого - перечитывается при следующем обращении (сервер держит книгу 5 мин). */
 const SUMMARY_TTL = 60_000;
 let summaryAt = 0;
 let summaryLoading: Promise<void> | null = null;
 
 /**
- * «Оплачено/Остаток (сводка)» — своим запросом, как оплаты по выписке: книгу
+ * «Оплачено/Остаток (сводка)» - своим запросом, как оплаты по выписке: книгу
  * правят бухгалтеры, а не реестр, и номер изменений реестра о ней не знает.
  *
  * Листы вроде «Остатков» сервер раскладывает по уже прочитанной сводке.
- * Пришла сводка новее той, по которой собран реестр, — реестр перечитывается
+ * Пришла сводка новее той, по которой собран реестр, - реестр перечитывается
  * целиком, иначе строка с погашенным остатком стояла бы в «Остатках» до
  * перезагрузки страницы.
  */
@@ -683,10 +825,11 @@ export function ensureSummary(force = false): Promise<void> {
   if (!company) return Promise.resolve();
   const fresh = state.summary !== null && Date.now() - summaryAt < SUMMARY_TTL;
   if (!force && (summaryLoading || fresh)) return summaryLoading ?? Promise.resolve();
+  const mine = epoch;
   summaryLoading = (async () => {
     try {
       const result = await contractsApi.summary(force);
-      if (state.company !== company) return;
+      if (epoch !== mine) return;
       summaryAt = Date.now();
       emit({ summary: result.source ? result.contracts : null, summarySource: result.source });
       const rev = result.source?.rev ?? "";
@@ -694,19 +837,60 @@ export function ensureSummary(force = false): Promise<void> {
     } catch {
       /* колонка «по сводке» останется пустой до следующей попытки */
     } finally {
-      summaryLoading = null;
+      if (epoch === mine) summaryLoading = null;
     }
   })();
   return summaryLoading;
 }
 
-/** Справочник старше этого — перечитывается при следующем выборе. */
+/** Одним запросом на пачку правок: опрос приходит раз в 2 с из каждой вкладки. */
+let sharesSoon = 0;
+function refreshSharesSoon(): void {
+  if (sharesSoon) return;
+  sharesSoon = window.setTimeout(() => {
+    sharesSoon = 0;
+    void ensureShares(true);
+  }, 1500);
+}
+
+/** Доли старше этого - перечитываются при следующем обращении. */
+const SHARES_TTL = 60_000;
+let sharesAt = 0;
+let sharesLoading: Promise<void> | null = null;
+
+/**
+ * Доли людей в договорах (`shares.py`) - своим запросом, как сводка: в общий
+ * ответ реестра они не входят, потому что у каждого свои - сотруднику только
+ * его доли. `force` - после правки долей в карточке.
+ */
+export function ensureShares(force = false): Promise<void> {
+  const company = state.company;
+  if (!company) return Promise.resolve();
+  const fresh = state.shares !== null && Date.now() - sharesAt < SHARES_TTL;
+  if (!force && (sharesLoading || fresh)) return sharesLoading ?? Promise.resolve();
+  const mine = epoch;
+  sharesLoading = (async () => {
+    try {
+      const result = await contractsApi.shares.all();
+      if (epoch !== mine) return;
+      sharesAt = Date.now();
+      emit({ shares: result.contracts });
+    } catch {
+      /* «По сотрудникам» посчитает договоры целиком, как до долей */
+    } finally {
+      if (epoch === mine) sharesLoading = null;
+    }
+  })();
+  return sharesLoading;
+}
+
+/** Справочник старше этого - перечитывается при следующем выборе. */
 const STAFF_TTL = 20_000;
 let staffAt = 0;
 let staffLoading: Promise<void> | null = null;
 
 /**
- * Справочник ответственных — действующие сотрудники из личного кабинета.
+ * Справочник ответственных - действующие сотрудники из личного кабинета.
  *
  * Раньше он читался один раз за сессию и жил внутри `people`, а `people`
  * переписывался каждым полным чтением реестра: сотрудник, заведённый в
@@ -714,14 +898,14 @@ let staffLoading: Promise<void> | null = null;
  * после загрузки Excel пропадали все, кто ещё не стоял в договорах.
  */
 export function ensureStaff(force = false): Promise<void> {
-  // Смена компании сбрасывает `staff` в `null` — справочник читается заново.
+  // Смена компании или учётки сбрасывает `staff` в `null` - справочник читается заново.
   const fresh = state.staff !== null && Date.now() - staffAt < STAFF_TTL;
   if (!force && (staffLoading || fresh)) return staffLoading ?? Promise.resolve();
-  const company = state.company;
+  const mine = epoch;
   staffLoading = (async () => {
     try {
       const result = await contractsApi.people();
-      if (state.company !== company) return;
+      if (epoch !== mine) return;
       const people: Record<string, PersonRef> = { ...state.people };
       for (const person of result.people) people[person.id] = person;
       staffAt = Date.now();
@@ -729,7 +913,7 @@ export function ensureStaff(force = false): Promise<void> {
     } catch {
       /* выбор покажет тех, кто уже есть в договорах */
     } finally {
-      staffLoading = null;
+      if (epoch === mine) staffLoading = null;
     }
   })();
   return staffLoading;
@@ -741,7 +925,7 @@ const schemaBooks = new WeakMap<RegistrySchema, Map<string, RegistrySchema>>();
 const stateBooks = new WeakMap<RegistryState, Map<string, RegistryState>>();
 const scopedSchemas = new WeakSet<RegistrySchema>();
 
-/** Лист в книге `book`: `""` — реестр, `oneoff` — «Разовые». */
+/** Лист в книге `book`: `""` - реестр, `oneoff` - «Разовые». */
 export function inBook(view: { book?: string }, book: string): boolean {
   return (view.book ?? "") === book;
 }

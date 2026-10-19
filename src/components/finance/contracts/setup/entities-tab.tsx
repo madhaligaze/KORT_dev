@@ -1,13 +1,13 @@
 "use client";
 
 /**
- * «Наши юрлица»: кто в группе компаний — «мы». По ним сторона договора
- * читается как «наше юрлицо», по ним же листы отбирают «исполнитель — наше».
+ * «Наши юрлица»: кто в группе компаний - «мы». По ним сторона договора
+ * читается как «наше юрлицо», по ним же листы отбирают «исполнитель - наше».
  *
- * Расчётные счета — счета «Финансов», отмеченные за юрлицом. Счёт принадлежит
+ * Расчётные счета - счета «Финансов», отмеченные за юрлицом. Счёт принадлежит
  * одному юрлицу; занятый другим подписан в списке его кодом, чтобы перенос
  * счёта был виден до щелчка, а не после. Журнал, отчёты и права от этой
- * отметки не меняются — она нужна следующим этапам (оплаты по договорам).
+ * отметки не меняются - она нужна следующим этапам (оплаты по договорам).
  *
  * БИН и код набраны Martian Mono: их сверяют глазами посимвольно.
  */
@@ -72,7 +72,11 @@ export function EntitiesTab() {
 
   const setAccountsOf = async (entity: OwnEntity, ids: string[]) => {
     setOptimistic((value) => ({ ...value, [entity.id]: ids }));
-    await action.run(`accounts:${entity.id}`, () => contractsApi.setup.updateEntity(entity.id, { accounts: ids }));
+    const was = entity.accounts.map((item) => item.id);
+    await action.run(`accounts:${entity.id}`, () => contractsApi.setup.updateEntity(entity.id, { accounts: ids }), "schema", {
+      text: `Счета «${entity.code || entity.name}» изменены`,
+      revert: () => contractsApi.setup.updateEntity(entity.id, { accounts: was }),
+    });
     setOptimistic((value) => {
       const next = { ...value };
       delete next[entity.id];
@@ -83,7 +87,10 @@ export function EntitiesTab() {
   const add = async () => {
     const clean = name.trim();
     if (!clean) return;
-    const ok = await action.run("add", () => contractsApi.setup.addEntity({ name: clean }));
+    const ok = await action.run("add", () => contractsApi.setup.addEntity({ name: clean }), "schema", (made) => ({
+      text: `«${clean}» - наше юрлицо`,
+      revert: () => contractsApi.setup.updateEntity(made.id, { archived: true }),
+    }));
     if (ok) setName("");
   };
 
@@ -121,7 +128,10 @@ export function EntitiesTab() {
                 label={`Код юрлица «${entity.name}»`}
                 trace={action.trace(`code:${entity.id}`)}
                 onCommit={(next) =>
-                  void action.run(`code:${entity.id}`, () => contractsApi.setup.updateEntity(entity.id, { code: next }))
+                  void action.run(`code:${entity.id}`, () => contractsApi.setup.updateEntity(entity.id, { code: next }), "schema", {
+                    text: `Код «${entity.name}»: ${next || "без кода"}`,
+                    revert: () => contractsApi.setup.updateEntity(entity.id, { code: entity.code }),
+                  })
                 }
               />
             </span>
@@ -134,9 +144,10 @@ export function EntitiesTab() {
                 label={`Полное название «${entity.name}»`}
                 trace={action.trace(`full_name:${entity.id}`)}
                 onCommit={(next) =>
-                  void action.run(`full_name:${entity.id}`, () =>
-                    contractsApi.setup.updateEntity(entity.id, { full_name: next }),
-                  )
+                  void action.run(`full_name:${entity.id}`, () => contractsApi.setup.updateEntity(entity.id, { full_name: next }), "schema", {
+                    text: `Полное название «${entity.name}» изменено`,
+                    revert: () => contractsApi.setup.updateEntity(entity.id, { full_name: entity.full_name }),
+                  })
                 }
               />
             </span>
@@ -144,7 +155,7 @@ export function EntitiesTab() {
               <InlineText
                 value={entity.bin}
                 mono
-                placeholder="—"
+                placeholder="-"
                 allowEmpty
                 inputMode="numeric"
                 maxLength={12}
@@ -153,11 +164,14 @@ export function EntitiesTab() {
                 onCommit={(next) => {
                   const clean = next.replace(/\s+/g, "");
                   if (clean && !/^\d{12}$/.test(clean)) {
-                    setBinError((value) => ({ ...value, [entity.id]: "БИН — двенадцать цифр" }));
+                    setBinError((value) => ({ ...value, [entity.id]: "БИН - двенадцать цифр" }));
                     return;
                   }
                   setBinError((value) => ({ ...value, [entity.id]: "" }));
-                  void action.run(`bin:${entity.id}`, () => contractsApi.setup.updateEntity(entity.id, { bin: clean }));
+                  void action.run(`bin:${entity.id}`, () => contractsApi.setup.updateEntity(entity.id, { bin: clean }), "schema", {
+                    text: `БИН «${entity.name}» изменён`,
+                    revert: () => contractsApi.setup.updateEntity(entity.id, { bin: entity.bin }),
+                  });
                 }}
               />
             </span>
@@ -173,9 +187,10 @@ export function EntitiesTab() {
                   disabled={action.busy(`vat:${entity.id}`)}
                   onClick={() => {
                     if (entity.vat_payer === on) return;
-                    void action.run(`vat:${entity.id}`, () =>
-                      contractsApi.setup.updateEntity(entity.id, { vat_payer: on }),
-                    );
+                    void action.run(`vat:${entity.id}`, () => contractsApi.setup.updateEntity(entity.id, { vat_payer: on }), "schema", {
+                      text: `«${entity.code || entity.name}» ${on ? "- плательщик НДС" : "не платит НДС"}`,
+                      revert: () => contractsApi.setup.updateEntity(entity.id, { vat_payer: !on }),
+                    });
                   }}
                 >
                   {on ? "да" : "нет"}
@@ -183,7 +198,7 @@ export function EntitiesTab() {
               ))}
             </span>
             <span className="setup-eaccounts" data-label="Счета">
-              <span className="setup-eaccounts-list">{chosenLabels.length ? chosenLabels.join(", ") : "—"}</span>{" "}
+              <span className="setup-eaccounts-list">{chosenLabels.length ? chosenLabels.join(", ") : "-"}</span>{" "}
               {accounts ? (
                 accounts.length ? (
                   <MultiPop
@@ -258,8 +273,8 @@ export function EntitiesTab() {
         title={ask ? `Удалить «${ask.entity.name}» из наших юрлиц?` : ""}
         text={
           ask?.count
-            ? `За ним ${ask.count} ${plural(ask.count, "договор", "договора", "договоров")}: они останутся в реестре, но это юрлицо перестанет считаться нашим — договоры уйдут из листов по «нашему исполнителю» и получат замечание «ни одна сторона не наша». Вернуть — из корзины в личном кабинете.`
-            : "Договоров за ним нет. Как контрагент оно останется в справочнике; вернуть — из корзины в личном кабинете."
+            ? `За ним ${ask.count} ${plural(ask.count, "договор", "договора", "договоров")}: они останутся в реестре, но это юрлицо перестанет считаться нашим - договоры уйдут из листов по «нашему исполнителю» и получат замечание «ни одна сторона не наша». Вернуть - из корзины в личном кабинете.`
+            : "Договоров за ним нет. Как контрагент оно останется в справочнике; вернуть - из корзины в личном кабинете."
         }
         confirm="Удалить"
         danger
@@ -268,9 +283,10 @@ export function EntitiesTab() {
           if (!ask) return;
           const { entity } = ask;
           setAsk(null);
-          void action.run(`archive:${entity.id}`, () =>
-            contractsApi.setup.updateEntity(entity.id, { archived: true }),
-          );
+          void action.run(`archive:${entity.id}`, () => contractsApi.setup.updateEntity(entity.id, { archived: true }), "schema", {
+            text: `«${entity.code || entity.name}» больше не наше юрлицо`,
+            revert: () => contractsApi.setup.updateEntity(entity.id, { archived: false }),
+          });
         }}
       />
     </div>

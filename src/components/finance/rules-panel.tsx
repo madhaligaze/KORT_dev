@@ -28,13 +28,13 @@ const OP_TITLES: Record<string, string> = {
 /**
  * Автоправила разметки.
  *
- * Экран устроен от задачи, а не от сущности: сверху — «с чего начать»,
+ * Экран устроен от задачи, а не от сущности: сверху - «с чего начать»,
  * подсказки по неразмеченным операциям с суммами, и рядом кнопка, которая
  * превращает подсказку в правило одним нажатием. Список правил ниже.
  *
  * У каждого правила стоит счётчик срабатываний. Он важнее, чем кажется:
  * правило, не совпавшее ни разу, выглядит работающим, и человек уверен, что
- * разметка идёт, — а в отчёте продолжает расти «Без категории».
+ * разметка идёт, - а в отчёте продолжает расти «Без категории».
  */
 export function RulesPanel({
   dictionaries,
@@ -49,7 +49,7 @@ export function RulesPanel({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState("");
 
-  // Новое правило — черновик переживает перезагрузку (`session-state.tsx`).
+  // Новое правило - черновик переживает перезагрузку (`session-state.tsx`).
   const [keyword, setKeyword] = useSessionState("rules.new.keyword", "");
   const [field, setField] = useSessionState("rules.new.field", "comment");
   const [op, setOp] = useSessionState("rules.new.op", "contains");
@@ -70,22 +70,45 @@ export function RulesPanel({
     void load();
   }, [load]);
 
-  const create = async (name: string, value: string, categoryName: string) => {
+  /**
+   * `where` - условие правила. Подсказка «С чего начать» найдена по
+   * комментарию и заводит «комментарий содержит»; до 01.10.2026 она брала поле
+   * и условие из формы «Новое правило» ниже, и если там стоял «Контрагент»,
+   * правило молча выходило про контрагента и не срабатывало.
+   */
+  const create = async (
+    name: string,
+    value: string,
+    categoryName: string,
+    where: { field: string; op: string } = { field, op },
+  ): Promise<boolean> => {
     setBusy(true);
     setError("");
     try {
       await financeApi.createRule({
         name,
         match: "all",
-        conditions: [{ field, op, value }],
+        conditions: [{ field: where.field, op: where.op, value }],
         actions: { category: categoryName },
       });
-      setKeyword("");
       await load();
+      return true;
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Правило не завелось");
+      return false;
     } finally {
       setBusy(false);
+    }
+  };
+
+  /** «Выключить», «Удалить» у правила: отказ - текстом, а не молчанием. */
+  const act = async (work: () => Promise<unknown>, failed: string) => {
+    setError("");
+    try {
+      await work();
+      await load();
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : failed);
     }
   };
 
@@ -96,8 +119,8 @@ export function RulesPanel({
       const done = await financeApi.applyRules({ only_uncategorized: true });
       setResult(
         done.updated
-          ? `Разметили операций: ${done.updated} — ${Object.entries(done.by_rule)
-              .map(([name, count]) => `${name} — ${count}`)
+          ? `Разметили операций: ${done.updated} - ${Object.entries(done.by_rule)
+              .map(([name, count]) => `${name} - ${count}`)
               .join(", ")}`
           : "Ни одна операция не подошла под правила",
       );
@@ -143,8 +166,11 @@ export function RulesPanel({
                   defaultValue=""
                   onChange={async (event) => {
                     if (!event.target.value) return;
-                    await create(hint.keyword, hint.keyword, event.target.value);
-                    onChanged();
+                    const done = await create(hint.keyword, hint.keyword, event.target.value, {
+                      field: "comment",
+                      op: "contains",
+                    });
+                    if (done) onChanged();
                   }}
                 >
                   <PlaceholderOption>в статью…</PlaceholderOption>
@@ -225,7 +251,9 @@ export function RulesPanel({
             type="button"
             className="btn-primary"
             disabled={busy || !keyword.trim() || !category}
-            onClick={() => create(keyword.trim(), keyword.trim(), category)}
+            onClick={async () => {
+              if (await create(keyword.trim(), keyword.trim(), category)) setKeyword("");
+            }}
           >
             Завести правило
           </button>
@@ -282,20 +310,14 @@ export function RulesPanel({
                   <button
                     type="button"
                     className="fin-chip"
-                    onClick={async () => {
-                      await financeApi.toggleRule(rule.id, !rule.active);
-                      await load();
-                    }}
+                    onClick={() => void act(() => financeApi.toggleRule(rule.id, !rule.active), "Правило не переключилось")}
                   >
                     {rule.active ? "Выключить" : "Включить"}
                   </button>
                   <button
                     type="button"
                     className="fin-chip"
-                    onClick={async () => {
-                      await financeApi.deleteRule(rule.id);
-                      await load();
-                    }}
+                    onClick={() => void act(() => financeApi.deleteRule(rule.id), "Правило не удалилось")}
                   >
                     Удалить
                   </button>
@@ -309,7 +331,7 @@ export function RulesPanel({
   );
 }
 
-/** «1 операция», «4 операции», «12 операций» — число в строке подсказки. */
+/** «1 операция», «4 операции», «12 операций» - число в строке подсказки. */
 function operations(n: number): string {
   const mod10 = n % 10;
   const mod100 = n % 100;

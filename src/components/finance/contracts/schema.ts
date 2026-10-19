@@ -3,7 +3,7 @@
  * наше юрлицо и сторона, которая не наша.
  *
  * Порядок и названия полей приходят со схемы (админ их переименовывает), а не
- * из кода; скрытых полей в схеме нет вовсе — нет поля, нет колонки, нет строки
+ * из кода; скрытых полей в схеме нет вовсе - нет поля, нет колонки, нет строки
  * в карточке.
  */
 import type { Contract, ListValue, Party, RegistryField, RegistrySchema, RegistryView } from "@/components/finance/api";
@@ -27,8 +27,16 @@ export function listText(schema: RegistrySchema | null, field: string, id: unkno
   return listValue(schema, field, id)?.value ?? "";
 }
 
-export function departmentText(schema: RegistrySchema | null, id: unknown): string {
-  return schema?.departments.find((item) => item.id === id)?.code ?? "";
+/**
+ * Отделы кодами: «HR, ЮО». У договора отделов список (30.09.2026), у своего
+ * поля типа «отдел» - один идентификатор.
+ */
+export function departmentText(schema: RegistrySchema | null, value: unknown): string {
+  const ids = Array.isArray(value) ? value : value ? [value] : [];
+  return ids
+    .map((id) => schema?.departments.find((item) => item.id === id)?.code ?? "")
+    .filter(Boolean)
+    .join(", ");
 }
 
 export function phaseOf(schema: RegistrySchema | null, contract: Contract): string {
@@ -52,8 +60,8 @@ export function partyName(parties: Readonly<Record<string, Party>>, id: unknown)
 }
 
 /**
- * Заголовок договора — сторона, которая не наша. Обе наши — «BBC → BBCA».
- * Ни одна не наша — исполнитель. Сторон нет — пусто.
+ * Заголовок договора - сторона, которая не наша. Обе наши - «BBC → BBCA».
+ * Ни одна не наша - исполнитель. Сторон нет - пусто.
  */
 export function counterpartTitle(contract: Contract, parties: Readonly<Record<string, Party>>): string {
   const executor = parties[String(contract.values.executor ?? "")];
@@ -89,13 +97,13 @@ const PROVENANCE_WORDS: Record<string, string> = {
   status: "по статусу",
 };
 
-/** `{ по виду }` у подставленного значения; у заданного руками — ничего. */
+/** `{ по виду }` у подставленного значения; у заданного руками - ничего. */
 export function provenanceWord(contract: Contract, key: string): string {
   const source = contract.provenance?.[key];
   return source && source !== "manual" ? PROVENANCE_WORDS[source] ?? "" : "";
 }
 
-/** Порядок полей карточки по умолчанию — порядок заполнения из плана. */
+/** Порядок полей карточки по умолчанию - порядок заполнения из плана. */
 export const CARD_ORDER = [
   "type", "status", "executor", "customer", "billing", "economic_role", "amount", "amount_terms", "currency",
   "planned_end_at", "end_date", "subject", "department", "people", "number", "signed_at", "folder_url", "note",
@@ -123,13 +131,19 @@ export function viewCounts(
 }
 
 /**
- * Отдел, которым отобраны все листы книги, — его код: «Разовые» с условием
- * «отдел — ЮО» в каждой группе каждого блока — это «Разовые ЮО». Хоть один
- * блок без такого условия или отделы разные — пусто.
+ * Отдел, которым отобраны все листы книги, - его код: «Разовые» с условием
+ * «отдел - ЮО» в каждой группе каждого блока - это «Разовые ЮО». Хоть один
+ * блок без такого условия или отделы разные - пусто.
  */
 export function bookDepartment(schema: RegistrySchema | null, book: string): string {
+  const id = bookDepartmentId(schema, book);
+  return id ? departmentText(schema, id) : "";
+}
+
+/** То же, идентификатором отдела. Правило одно с сервером (`views.book_department`). */
+export function bookDepartmentId(schema: RegistrySchema | null, book: string): string {
   const views = (schema?.views ?? []).filter((view) => (view.book ?? "") === book);
-  if (!schema || !views.length) return "";
+  if (!schema || !book || !views.length) return "";
   let found: string | null = null;
   for (const view of views) {
     for (const block of view.blocks) {
@@ -145,7 +159,7 @@ export function bookDepartment(schema: RegistrySchema | null, book: string): str
       }
     }
   }
-  return found ? departmentText(schema, found) : "";
+  return found ?? "";
 }
 
 /** Подпись книги в колонке и заголовке: «Реестр», «Разовые ЮО». */
@@ -155,7 +169,7 @@ export function bookTitle(schema: RegistrySchema | null, book: string): string {
   return code ? `Разовые ${code}` : "Разовые";
 }
 
-/** Выбор значений поля в блоке листа (`choices`): id значений или `null` — весь список. */
+/** Выбор значений поля в блоке листа (`choices`): id значений или `null` - весь список. */
 export function blockChoices(schema: RegistrySchema | null, view: string | undefined, block: number | undefined, field: string): string[] | null {
   if (!schema || !view) return null;
   const found = schema.views.find((item) => item.key === view);
@@ -163,13 +177,13 @@ export function blockChoices(schema: RegistrySchema | null, view: string | undef
   return ids?.length ? ids : null;
 }
 
-/** Номер договора без «№» и пробелов по краям — для ссылки на него. */
+/** Номер договора без «№» и пробелов по краям - для ссылки на него. */
 export function bareNumberOf(contract: Contract): string {
   return String(contract.values.number ?? "").replace(/^\s*№\s*/, "").trim();
 }
 
 /**
- * Где договор стоит — «Исполнитель ГК · Разовые ЮО / до 2 мес»: листы, кроме
+ * Где договор стоит - «Исполнитель ГК · Разовые ЮО / до 2 мес»: листы, кроме
  * главного (он держит всё и места не называет), с книгой, если она не реестр.
  */
 export function placesText(schema: RegistrySchema | null, contract: Contract): string {

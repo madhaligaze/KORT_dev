@@ -1,13 +1,13 @@
 "use client";
 
 /**
- * «Настроить реестр» — шаблон реестра, который правит администратор
+ * «Настроить реестр» - шаблон реестра, который правит администратор
  * (фронт-план 6.6, сценарий 6 плана): поля, списки со смыслом, листы с
  * блоками и наши юрлица.
  *
  * Экран ничего не держит у себя: каждая правка уходит на сервер, после ответа
  * схема перечитывается в общем хранилище реестра, и лист, карточка и разбор
- * видят новое сразу — без отдельной синхронизации между экранами.
+ * видят новое сразу - без отдельной синхронизации между экранами.
  *
  * Открыт только владельцу и администратору: сервер отвечает отказом всем
  * остальным (`_require_setup`), а экран не делает вид, что можно.
@@ -15,7 +15,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 
 // Правила экрана лежат рядом с ним (префикс `setup-`), а не в globals.css:
-// общий файл сейчас правят параллельно. Перенос туда — дословно, с удалением
+// общий файл сейчас правят параллельно. Перенос туда - дословно, с удалением
 // этого импорта.
 import "@/components/finance/contracts/setup/setup.css";
 
@@ -24,23 +24,47 @@ import { boot, holdLive, useRegistry } from "@/components/finance/contracts/stor
 import { gsap, prefersReducedMotion } from "@/components/motion/gsap";
 import { EntitiesTab } from "@/components/finance/contracts/setup/entities-tab";
 import { FieldsTab } from "@/components/finance/contracts/setup/fields-tab";
-import { ListsTab } from "@/components/finance/contracts/setup/lists-tab";
 import { SummaryTab } from "@/components/finance/contracts/setup/summary-tab";
+import { TipLayer, tip } from "@/components/finance/contracts/setup/tip";
+import { clearUndo } from "@/components/finance/contracts/setup/undo";
+import { UndoLine } from "@/components/finance/contracts/setup/undo-line";
+import { revertLast } from "@/components/finance/contracts/setup/use-setup-action";
 import { ViewsTab } from "@/components/finance/contracts/setup/views-tab";
 import { useSessionState } from "@/components/session-state";
 
-type Tab = "fields" | "lists" | "views" | "entities" | "summary";
+type Tab = "fields" | "views" | "entities" | "summary";
 
-const TABS: { key: Tab; title: string }[] = [
-  { key: "fields", title: "Поля" },
-  { key: "lists", title: "Списки" },
-  { key: "views", title: "Листы" },
-  { key: "entities", title: "Наши юрлица" },
-  { key: "summary", title: "Сводка оплат" },
+/**
+ * Вкладки - по тому, что человек настраивает: колонки договора (со списками
+ * значений внутри), листы, свои юрлица, откуда оплата. «Списки» отдельной
+ * вкладкой были вторым входом в те же поля (28.09.2026 - объединены).
+ */
+const TABS: { key: Tab; title: string; tip: string }[] = [
+  {
+    key: "fields",
+    title: "Поля",
+    tip: "Колонки договора: название, тип, как заполнять, обязательность - и значения списков (статусы, виды, предметы).",
+  },
+  {
+    key: "views",
+    title: "Листы",
+    tip: "Листы реестра и «Разовых»: какие договоры попадают в лист, какие колонки в нём, что подставлять в новую строку и какие строки подсвечивать.",
+  },
+  {
+    key: "entities",
+    title: "Наши юрлица",
+    tip: "Юрлица группы: по ним договор понимает, какая сторона наша, а какая - клиент.",
+  },
+  {
+    key: "summary",
+    title: "Сводка оплат",
+    tip: "Книга Google, из которой «Разовые» берут «Оплачено» - по номеру договора и клиенту.",
+  },
 ];
 
 
-export function RegistrySetup({ onBack }: { onBack: () => void }) {
+/** `backLabel` - куда ведёт «назад»: реестр, из которого настройку открыли («Разовые ЮО» или «Реестр»). */
+export function RegistrySetup({ onBack, backLabel = "Реестр" }: { onBack: () => void; backLabel?: string }) {
   const phase = useRegistry((s) => s.phase);
   const error = useRegistry((s) => s.error);
   const schema = useRegistry((s) => s.schema);
@@ -48,16 +72,35 @@ export function RegistrySetup({ onBack }: { onBack: () => void }) {
   const me = useRegistry((s) => s.me);
   // Вкладка переживает перезагрузку страницы (`session-state.tsx`): админ,
   // который правит листы, после F5 должен оказаться там же, а не на «Полях».
-  // Запомненная вкладка, которой больше нет, — «Поля».
+  // Запомненная вкладка, которой больше нет, - «Поля».
   const [stored, setTab] = useSessionState<Tab>("setup.tab", "fields");
   const tab: Tab = TABS.some((item) => item.key === stored) ? stored : "fields";
   const [slow, setSlow] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
 
   // Счётчики «в договорах» и число договоров блока считаются по хранилищу;
   // опрос держит их свежими, пока экран открыт.
   useEffect(() => holdLive(), []);
 
-  // «Читаем реестр…» — только если чтение затянулось: на быстрой связи
+  // Ctrl+Z (⌘Z) вне поля ввода - вернуть последнюю правку настройки. В поле
+  // ввода клавиша остаётся браузеру: там она отменяет набранное. Стек отмен
+  // живёт, пока экран открыт (`setup/undo.ts`).
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey || event.code !== "KeyZ") return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      event.preventDefault();
+      void revertLast();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      clearUndo();
+    };
+  }, []);
+
+  // «Читаем реестр…» - только если чтение затянулось: на быстрой связи
   // подпись мелькнула бы на кадр и ничего не сказала.
   useEffect(() => {
     if (phase === "ready") return;
@@ -71,7 +114,7 @@ export function RegistrySetup({ onBack }: { onBack: () => void }) {
     <div className="creg-top setup-top">
       <button type="button" className="btn-ghost btn-sm setup-back" onClick={onBack}>
         <ArrowLeftIcon size={16} aria-hidden="true" />
-        Реестр
+        {backLabel}
       </button>
     </div>
   );
@@ -113,21 +156,22 @@ export function RegistrySetup({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <div className="setup-root">
+    <div className="setup-root" ref={root}>
+      <TipLayer root={root} />
       {top}
       <Tabs active={tab} onSelect={choose} />
       <div className="setup-body" role="tabpanel" id={`setup-panel-${tab}`} aria-labelledby={`setup-tab-${tab}`}>
         {tab === "fields" ? <FieldsTab /> : null}
-        {tab === "lists" ? <ListsTab /> : null}
         {tab === "views" ? <ViewsTab /> : null}
         {tab === "entities" ? <EntitiesTab /> : null}
         {tab === "summary" ? <SummaryTab /> : null}
       </div>
+      <UndoLine />
     </div>
   );
 }
 
-/** Вкладки с линией под выбранной: линия едет к новой вкладке — «выбрано это». */
+/** Вкладки с линией под выбранной: линия едет к новой вкладке - «выбрано это». */
 function Tabs({ active, onSelect }: { active: Tab; onSelect: (tab: Tab) => void }) {
   const root = useRef<HTMLDivElement>(null);
   const line = useRef<HTMLSpanElement>(null);
@@ -145,7 +189,7 @@ function Tabs({ active, onSelect }: { active: Tab; onSelect: (tab: Tab) => void 
     };
     place(!first.current);
     first.current = false;
-    // Смена размеров (шрифт догрузился, окно сузили) — перескок без движения.
+    // Смена размеров (шрифт догрузился, окно сузили) - перескок без движения.
     const observer = new ResizeObserver(() => place(false));
     if (host) observer.observe(host);
     return () => observer.disconnect();
@@ -174,6 +218,7 @@ function Tabs({ active, onSelect }: { active: Tab; onSelect: (tab: Tab) => void 
             aria-controls={`setup-panel-${item.key}`}
             tabIndex={item.key === active ? 0 : -1}
             className="creg-tab"
+            {...tip(item.tip)}
             onClick={() => onSelect(item.key)}
           >
             {item.title}

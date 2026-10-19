@@ -1,20 +1,23 @@
 "use client";
 
 /**
- * Вторая плита — карточка записи по центру окна.
+ * Вторая плита - карточка записи по центру окна.
  *
  * Не шторка справа: глаз не должен весь день уходить к правому краю за
  * главным, что сейчас на экране (фронт-план, правки после Claude Design).
  *
- * * над списком — модальная: затемнение, клик по нему закрывает, фокус заперт;
- * * над листом (`dock="bottom"`) — немодальная, внизу по центру: строка
- *   договора в листе остаётся видна, печатаешь в ячейке — карточка меняется;
- * * на телефоне — во весь экран.
+ * * модальная: затемнение, щелчок по нему закрывает, Esc закрывает, фокус
+ *   заперт - и над списком, и над листом;
+ * * на телефоне - во весь экран.
+ *
+ * Над листом до 29.09.2026 карточка стояла внизу без затемнения, чтобы
+ * правимая строка оставалась видна. На окне 1280×590 она закрывала почти весь
+ * лист, а закрыть её можно было только крестиком - щелчок мимо уходил в лист.
  *
  * Рендерится порталом в `document.body`: карточка не должна стать предком
  * листа Univer (transform на предке ломает `position: fixed` и замеры холста).
- * Появление — сдвиг на 28px и прозрачность, без масштаба: «вырастание из
- * точки» — дефолт модальных окон, а не движение «Сцены».
+ * Появление - сдвиг на 28px и прозрачность, без масштаба: «вырастание из
+ * точки» - дефолт модальных окон, а не движение «Сцены».
  */
 import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -25,16 +28,26 @@ import { lockScroll } from "@/components/use-scroll-lock";
 type Props = {
   open: boolean;
   onClose: () => void;
-  dock?: "center" | "bottom";
   label: string;
   children: ReactNode;
+  /** Своя ширина и раскладка плиты (поддержка); без него - карточка записи. */
+  className?: string;
 };
 
-export function CardLayer({ open, onClose, dock = "center", label, children }: Props) {
+export function CardLayer({ open, onClose, label, children, className }: Props) {
   const sheet = useRef<HTMLDivElement>(null);
   const scrim = useRef<HTMLDivElement>(null);
   const returnFocus = useRef<Element | null>(null);
-  const modal = dock === "center";
+  // Закрытие - по ссылке, а не зависимостью эффекта. Раздел передаёт
+  // `onClose` новой стрелкой на каждой перерисовке, и эффект снимался и
+  // ставился заново при открытой карточке - а снимаясь, возвращал фокус туда,
+  // где тот был до открытия. Над листом это редактор ячейки Univer: до
+  // 30.09.2026 опрос реестра перерисовывал раздел, и доля, которую набирали в
+  // карточке, теряла фокус после первой-второй цифры.
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -42,9 +55,9 @@ export function CardLayer({ open, onClose, dock = "center", label, children }: P
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !event.defaultPrevented) {
         event.preventDefault();
-        onClose();
+        closeRef.current();
       }
-      if (event.key === "Tab" && modal && sheet.current) {
+      if (event.key === "Tab" && sheet.current) {
         const focusable = sheet.current.querySelectorAll<HTMLElement>(
           'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])',
         );
@@ -61,17 +74,16 @@ export function CardLayer({ open, onClose, dock = "center", label, children }: P
       }
     };
     window.addEventListener("keydown", onKey);
-    const narrow = window.matchMedia("(max-width: 639px)").matches;
     // Общим замком: `overflow: hidden` на body страницу не держал (у `html`
     // стоит `overflow-x: clip`), и на телефоне список под карточкой ехал.
-    const unlock = modal || narrow ? lockScroll() : null;
+    const unlock = lockScroll();
     return () => {
       window.removeEventListener("keydown", onKey);
-      unlock?.();
+      unlock();
       const back = returnFocus.current;
       if (back instanceof HTMLElement && document.contains(back)) back.focus({ preventScroll: true });
     };
-  }, [open, onClose, modal]);
+  }, [open]);
 
   useGSAP(
     () => {
@@ -84,7 +96,19 @@ export function CardLayer({ open, onClose, dock = "center", label, children }: P
           ...(narrow ? { yPercent: 0 } : { y: 0, autoAlpha: 1 }),
           duration: 0.52,
           ease: "expo.out",
-          clearProps: "transform,opacity,visibility",
+          // Стили снимаются здесь, а не `clearProps` твина: снятие transform
+          // обнуляет прокрутку всего, что внутри плиты (Chromium), и переписка
+          // поддержки открывалась на начале ленты, а не на последних
+          // сообщениях (16.10.2026). Прокрученное запоминается и возвращается.
+          onComplete: () => {
+            const node = sheet.current;
+            if (!node) return;
+            const scrolled = Array.from(node.querySelectorAll<HTMLElement>("*"), (el) => [el, el.scrollTop] as const).filter(
+              ([, top]) => top > 0,
+            );
+            gsap.set(node, { clearProps: "transform,opacity,visibility" });
+            for (const [el, top] of scrolled) el.scrollTop = top;
+          },
         },
       );
       if (scrim.current) {
@@ -97,13 +121,12 @@ export function CardLayer({ open, onClose, dock = "center", label, children }: P
   if (!open || typeof document === "undefined") return null;
   return createPortal(
     <>
-      {modal ? <div ref={scrim} className="card-scrim" onClick={onClose} aria-hidden="true" /> : null}
+      <div ref={scrim} className="card-scrim" onClick={onClose} aria-hidden="true" />
       <div
         ref={sheet}
-        className="card-sheet"
-        data-dock={dock}
+        className={className ? `card-sheet ${className}` : "card-sheet"}
         role="dialog"
-        aria-modal={modal ? "true" : "false"}
+        aria-modal="true"
         aria-label={label}
       >
         {children}

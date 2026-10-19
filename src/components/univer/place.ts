@@ -1,10 +1,10 @@
 /**
- * Место на листе на время сессии — общее для всех таблиц продукта.
+ * Место на листе на время сессии - общее для всех таблиц продукта.
  *
  * Перезагрузка страницы возвращает лист туда же, где он был: тот же лист
  * книги, та же выбранная ячейка, та же прокрутка до пикселя и «На весь
  * экран», если лист был развёрнут. Хранится в `sessionStorage` через
- * `session-state.tsx` — живёт, пока открыта вкладка.
+ * `session-state.tsx` - живёт, пока открыта вкладка.
  *
  * Что не возвращается: текст, набранный в ячейке и ещё не принятый Enter.
  * Правка ячейки уходит на сервер по Enter, а открыть редактор Univer на
@@ -27,8 +27,13 @@ const MOVES = new Set([
 ]);
 
 export type PlaceKeeper = {
-  /** Вернуть лист на запомненное место; `true` — лист был развёрнут на весь экран. */
-  restore: () => boolean;
+  /**
+   * Вернуть лист на запомненное место. `full` - лист был развёрнут на весь
+   * экран; `moved` - человек до этого сам уходил с начала листа (прокрутил или
+   * выбрал ячейку ниже шапки): тогда место - его, и раздел не ставит лист на
+   * своё начальное место.
+   */
+  restore: () => { full: boolean; moved: boolean };
   /** Запомнить сейчас (развернули, свернули). */
   save: () => void;
   stop: () => void;
@@ -65,7 +70,7 @@ export function keepPlace(api: UniverApi, scope: string, key: string, isFull: ()
       };
       writeSession(scope, address, place);
     } catch {
-      /* лист снимают — запомнится в следующий раз */
+      /* лист снимают - запомнится в следующий раз */
     }
   };
   const later = () => {
@@ -82,13 +87,14 @@ export function keepPlace(api: UniverApi, scope: string, key: string, isFull: ()
   const restore = () => {
     const place = readSession(scope, address, NOWHERE);
     ready = true;
-    if (!place.sheet) return false;
+    if (!place.sheet) return { full: false, moved: false };
+    const moved = place.top > 0 || place.y > 0 || place.row > 2;
     try {
       const workbook = api.getActiveWorkbook?.();
       const target = workbook?.getSheetBySheetId?.(place.sheet);
       if (target && workbook.getActiveSheet?.()?.getSheetId?.() !== place.sheet) workbook.setActiveSheet(target);
       const ws = workbook?.getActiveSheet?.();
-      if (!ws || ws.getSheetId() !== place.sheet) return place.full;
+      if (!ws || ws.getSheetId() !== place.sheet) return { full: place.full, moved: false };
       const rows = Number(ws.getMaxRows?.() ?? 0);
       const columns = Number(ws.getMaxColumns?.() ?? 0);
       // Сначала выбор, потом прокрутка: выбор сам доводит лист до ячейки и
@@ -103,9 +109,10 @@ export function keepPlace(api: UniverApi, scope: string, key: string, isFull: ()
         offsetY: place.y,
       });
     } catch {
-      /* лист другой формы (пересобран с меньшим числом строк) — остаёмся в начале */
+      /* лист другой формы (пересобран с меньшим числом строк) - остаёмся в начале */
+      return { full: place.full, moved: false };
     }
-    return place.full;
+    return { full: place.full, moved };
   };
 
   return {

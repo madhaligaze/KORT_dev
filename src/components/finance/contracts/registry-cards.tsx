@@ -1,18 +1,27 @@
 "use client";
 
 /**
- * «Реестр» — список строк, а не плитки (фронт-план 6.1).
+ * «Реестр» - список строк, а не плитки (фронт-план 6.1).
  *
  * 460 договоров сравнивают по колонке: сумма под суммой, срок под сроком.
- * Сетка одинаковых карточек этому мешает — «приложенческий» вид здесь значит
+ * Сетка одинаковых карточек этому мешает - «приложенческий» вид здесь значит
  * список строк плюс карточка договора по центру.
  *
- * Вкладки — листы-отборы со счётчиками; при поиске счётчики показывают
+ * Вкладки - листы-отборы со счётчиками; при поиске счётчики показывают
  * найденное в каждом листе, и «где искать» видно без переключения. Строки не
  * исчезают под глазами: договор, ушедший из листа, стоит приглушённым до смены
- * вкладки. Цвет на экране в нормальном состоянии — только «N замечаний».
+ * вкладки. Цвет на экране в нормальном состоянии - только «N замечаний».
+ *
+ * «Все · Мои · С долями» - под «Новый договор» (30.09.2026). «С долями» -
+ * совместные договоры: двое исполнителей и больше или заданы доли. Владельцу,
+ * администратору и начальнику - все такие договоры (начальнику - своего
+ * отдела), сотруднику - только те, где он сам исполнитель, и в них только его
+ * доля. Что кому открыто, решает сервер (`/contracts/shares`): отбор - это
+ * «договор есть в его ответе». До 30.09 в ответ шли только договоры с
+ * введёнными суммами, а их на проде не было ни одного - отбор был пуст.
  */
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import {
   type Contract,
@@ -25,6 +34,8 @@ import {
 } from "@/components/finance/api";
 import { SearchIcon } from "@/components/icons";
 import { ContractCard, useCardRefresh } from "@/components/finance/contracts/contract-card";
+import { MineSwitch, type StaffPick, useMine } from "@/components/finance/contracts/mine";
+import { isAdmin } from "@/components/finance/access";
 import {
   bareNumber,
   contractMoney,
@@ -33,6 +44,8 @@ import {
   shortName,
 } from "@/components/finance/format";
 import {
+  bookDepartment,
+  bookDepartmentId,
   counterpartTitle,
   isClosed,
   listText,
@@ -41,8 +54,11 @@ import {
   roleLabels,
   viewCounts,
 } from "@/components/finance/contracts/schema";
+import { blockTally, bookAmount, bookShareOf, shareNote, wholeAmount } from "@/components/finance/contracts/book-share";
+import { AmountTitle, ShareAmount, TotalPreview } from "@/components/finance/contracts/total-preview";
 import {
   boot,
+  ensureShares,
   forgetDeparted,
   holdLive,
   inBook,
@@ -80,9 +96,11 @@ function writeSort(view: string, sort: { key: SortKey; dir: 1 | -1 } | null): vo
 export function useRegistryBoot(me: Me): void {
   const company = me.company?.id ?? null;
   const user = me.user?.id ?? null;
+  // Права на договоры: сменились - реестр читается заново (`boot`).
+  const scope = JSON.stringify([me.access?.contracts ?? null, me.contracts_scope ?? null]);
   useEffect(() => {
-    if (company) void boot(company, user);
-  }, [company, user]);
+    if (company) void boot(company, user, false, scope);
+  }, [company, user, scope]);
   useEffect(() => holdLive(), []);
 }
 
@@ -92,17 +110,32 @@ function emptyText(me: Me): string {
   if (scope?.rows === "own") return "Договоров, где вы ответственный, пока нет";
   if (scope?.rows === "department") {
     const code = me.employee?.department?.code;
-    return code ? `Договоров отдела ${code} пока нет` : "Отдела нет — договоров своего отдела не видно";
+    return code ? `Договоров отдела ${code} пока нет` : "Отдела нет - договоров своего отдела не видно";
   }
   if (scope?.entities?.length) return "Договоров ваших юрлиц пока нет";
   return "Договоров пока нет";
 }
 
 /**
- * `book` — книга листов: `""` — реестр, `oneoff` — «Разовые ЮО». Вкладки —
+ * `book` - книга листов: `""` - реестр, `oneoff` - «Разовые ЮО». Вкладки -
  * листы своей книги; поиск, отбор и черновик у каждой книги свои.
  */
-export function Registry({ me, onGo, book = "" }: { me: Me; onGo: (section: string) => void; book?: string }) {
+export function Registry({
+  me,
+  onGo,
+  book = "",
+  staff,
+}: {
+  me: Me;
+  onGo: (section: string) => void;
+  book?: string;
+  /**
+   * «По сотрудникам» у «Разовых» - четвёртым положением «Все · Мои · С
+   * долями»: верх (новый договор, отбор) остаётся, вместо вкладок и строк -
+   * `view`.
+   */
+  staff?: (StaffPick & { view: ReactNode }) | null;
+}) {
   useRegistryBoot(me);
   const phase = useRegistry((s) => s.phase);
   const error = useRegistry((s) => s.error);
@@ -114,6 +147,13 @@ export function Registry({ me, onGo, book = "" }: { me: Me; onGo: (section: stri
   const fresh = useRegistry((s) => s.fresh);
   const removed = useRegistry((s) => s.departed);
   const wasIn = useRegistry((s) => s.wasIn);
+  const shares = useRegistry((s) => s.shares);
+  // «С долями» - всем, у кого есть свои договоры или открыты все: сотруднику
+  // сервер отдаёт только его совместные договоры и только его долю.
+  const seesShares = isAdmin(me) || Boolean(me.employee?.id);
+  useEffect(() => {
+    if (seesShares) void ensureShares();
+  }, [seesShares]);
 
   // Только листы своей книги: у реестра и «Разовых» наборы листов разные.
   const views = useMemo(
@@ -123,12 +163,14 @@ export function Registry({ me, onGo, book = "" }: { me: Me; onGo: (section: stri
   const [viewKey, setViewKey] = useState<string>(() => readParam("v") ?? "main");
   const view = views.find((item) => item.key === viewKey) ?? views[0];
   // Поиск, отбор и начатый новый договор переживают перезагрузку
-  // (`session-state.tsx`); открытый договор — в адресе (`?id=`).
+  // (`session-state.tsx`); открытый договор - в адресе (`?id=`).
   const scope = book ? `registry.${book}` : "registry";
   const [query, setQuery] = useSessionState(`${scope}.query`, "");
   const [issuesOnly, setIssuesOnly] = useSessionState(`${scope}.issues`, false);
+  const [sharesPicked, setSharesOnly] = useSessionState(`${scope}.shares`, false);
+  const sharesOnly = sharesPicked && seesShares;
   // Сортировка своя у каждого листа и помнится в браузере. Выбранная здесь
-  // привязана к листу, на котором её выбрали; на другом листе — его память.
+  // привязана к листу, на котором её выбрали; на другом листе - его память.
   const [sortPick, setSortPick] = useState<{ view: string; sort: { key: SortKey; dir: 1 | -1 } | null } | null>(null);
   const [openId, setOpenId] = useState<string | null>(() => readParam("id"));
   const [draft, setDraft] = useSessionState<{ view?: string; block?: number } | null>(`${scope}.new`, null);
@@ -162,7 +204,7 @@ export function Registry({ me, onGo, book = "" }: { me: Me; onGo: (section: stri
     setDraft(null);
     writeParams({ id }, !!id);
   }, [setDraft]);
-  /** Стабильная — иначе `memo` строк не сработал бы ни разу. */
+  /** Стабильная - иначе `memo` строк не сработал бы ни разу. */
   const openRow = useCallback(
     (id: string) => {
       setCursor(id);
@@ -201,11 +243,18 @@ export function Registry({ me, onGo, book = "" }: { me: Me; onGo: (section: stri
   );
 
   const all = useMemo(() => order.map((id) => byId.get(id)).filter((item): item is Contract => !!item && !item.deleted), [order, byId]);
-  const counts = useMemo(() => viewCounts(views, all, needle ? matchesSearch : undefined), [views, all, needle, matchesSearch]);
+  // «Мои» у заголовка реестра: вкладки, счётчики и строки - по своим договорам.
+  const { only: mineOnly } = useMine(me, book);
+  const mineAll = useMemo(() => (mineOnly ? all.filter(mineOnly) : all), [all, mineOnly]);
+  const hasShares = useCallback((contract: Contract) => Boolean(shares?.[contract.id]), [shares]);
+  // «С долями» сужает всё - строки, счётчики вкладок и замечания: видно, в
+  // каких листах договоры с долями, не переключая их по одному.
+  const shownAll = useMemo(() => (sharesOnly ? mineAll.filter(hasShares) : mineAll), [mineAll, sharesOnly, hasShares]);
+  const counts = useMemo(() => viewCounts(views, shownAll, needle ? matchesSearch : undefined), [views, shownAll, needle, matchesSearch]);
 
   const rows = useMemo(() => {
     if (!view) return [] as { contract: Contract; block: number; departed?: string }[];
-    const inside = all
+    const inside = shownAll
       .filter((contract) => contract.views.some((place) => place.view === view.key))
       .filter(matchesSearch)
       .filter((contract) => !issuesOnly || contract.issues.some((issue) => !issue.acknowledged))
@@ -215,51 +264,58 @@ export function Registry({ me, onGo, book = "" }: { me: Me; onGo: (section: stri
         departed: undefined as string | undefined,
       }));
     // Ушедшие из листа строки остаются на месте приглушёнными до смены вкладки.
-    // «Ушедший» — только тот, кто перестал подходить под правило листа или
-    // убран. Отсеянный поиском или «замечаниями» не ушёл: его просто не ищут.
+    // «Ушедший» - только тот, кто перестал подходить под правило листа.
+    // Отсеянный поиском или «замечаниями» не ушёл: его просто не ищут.
+    // Удалённый (своей рукой или коллегой) уходит сразу: до 29.09.2026 он
+    // стоял «убран» до смены вкладки, и удаление выглядело несработавшим.
     const insideIds = new Set(inside.map((row) => row.contract.id));
     const leaving: { contract: Contract; block: number; departed?: string }[] = [];
-    const candidates = new Map<string, number>();
     for (const [id, places] of wasIn) {
-      const place = places.find((item) => item.view === view.key);
-      if (place) candidates.set(id, place.block);
-    }
-    for (const id of removed.keys()) {
-      const place = byId.get(id)?.views.find((item) => item.view === view.key);
-      if (place && !candidates.has(id)) candidates.set(id, place.block);
-    }
-    for (const [id, block] of candidates) {
-      if (insideIds.has(id)) continue;
+      const block = places.find((item) => item.view === view.key)?.block;
+      if (block === undefined || insideIds.has(id)) continue;
       const contract = byId.get(id);
-      if (!contract) continue;
-      if (!contract.deleted && contract.views.some((place) => place.view === view.key)) continue;
-      if (!matchesSearch(contract)) continue;
-      let text = "убран";
-      if (!contract.deleted) {
-        const target = views.find((other) => other.key !== view.key && !other.main && contract.views.some((place) => place.view === other.key));
-        text = target ? `ушёл в «${target.title}»` : "ушёл из листа";
-      } else if (removed.get(id)) text = removed.get(id) ?? text;
-      leaving.push({ contract, block, departed: text });
+      if (!contract || contract.deleted || removed.has(id)) continue;
+      if (contract.views.some((place) => place.view === view.key)) continue;
+      if (!matchesSearch(contract) || (mineOnly && !mineOnly(contract))) continue;
+      const target = views.find((other) => other.key !== view.key && !other.main && contract.views.some((place) => place.view === other.key));
+      leaving.push({ contract, block, departed: target ? `ушёл в «${target.title}»` : "ушёл из листа" });
     }
     const combined = [...inside, ...leaving];
     if (sort) {
-      combined.sort((a, b) => compare(a.contract, b.contract, sort.key, schema, parties, people) * sort.dir);
+      const department = bookDepartmentId(schema, book);
+      combined.sort((a, b) => compare(a.contract, b.contract, sort.key, schema, parties, people, department) * sort.dir);
     } else {
       // Лист из нескольких блоков показывает блоки подряд, как в файле:
-      // сначала номер блока, внутри — порядок реестра.
+      // сначала номер блока, внутри - порядок реестра.
       combined.sort((a, b) => a.block - b.block || a.contract.position - b.contract.position);
     }
     return combined;
-  }, [view, all, byId, matchesSearch, issuesOnly, sort, views, removed, wasIn, schema, parties, people]);
+  }, [view, shownAll, byId, matchesSearch, issuesOnly, sort, views, removed, wasIn, schema, parties, people, mineOnly, book]);
 
   const issueCount = useMemo(
     () =>
-      all
+      shownAll
         .filter((contract) => view && contract.views.some((place) => place.view === view.key))
         .filter(matchesSearch)
         .filter((contract) => contract.issues.some((issue) => !issue.acknowledged)).length,
-    [all, view, matchesSearch],
+    [shownAll, view, matchesSearch],
   );
+
+  // Сколько договоров с долями во всей книге - рядом с «Все» и «Мои».
+  const sharesCount = useMemo(() => {
+    const keys = new Set(views.map((item) => item.key));
+    return all.filter((contract) => contract.views.some((place) => keys.has(place.view)) && hasShares(contract)).length;
+  }, [all, views, hasShares]);
+  const sharesPick = seesShares
+    ? {
+        on: sharesOnly,
+        set: setSharesOnly,
+        count: sharesCount,
+        title: isAdmin(me)
+          ? "Совместные договоры: сотрудников несколько или заданы доли"
+          : "Ваши договоры с долями: сотрудников несколько или задана ваша доля",
+      }
+    : null;
 
   const ids = rows.filter((row) => !row.departed).map((row) => row.contract.id);
   const index = openId ? ids.indexOf(openId) : -1;
@@ -309,6 +365,27 @@ export function Registry({ me, onGo, book = "" }: { me: Me; onGo: (section: stri
       </div>
     );
   }
+  if (phase === "ready" && schema && !view) {
+    // Все листы книги убраны (в «Разовых» их убирают по одному из листа или
+    // настройки). До 01.10.2026 здесь стояло «Читаем реестр…» с нулевой
+    // прозрачностью - пустой экран навсегда; «Таблица» того же реестра уже
+    // говорила, в чём дело.
+    return (
+      <p className="creg-empty">
+        Листов в этой книге нет
+        {schema.access.setup ? (
+          <>
+            {" · "}
+            <button type="button" className="fin-link-btn" onClick={() => onGo("contracts-setup")}>
+              Настроить реестр
+            </button>
+          </>
+        ) : (
+          " - их заводит владелец или администратор"
+        )}
+      </p>
+    );
+  }
   if (phase !== "ready" || !schema || !view) {
     return <div className="creg-empty" style={{ opacity: slowPhase ? 1 : 0, transition: "opacity .3s" }}>Читаем реестр…</div>;
   }
@@ -319,14 +396,7 @@ export function Registry({ me, onGo, book = "" }: { me: Me; onGo: (section: stri
     setDraft({ view: view.main ? undefined : view.key, block: singleBlock });
   };
 
-  const menu = [
-    { label: "Загрузить Excel", hidden: !canSetup, onSelect: () => onGo("contracts-import") },
-    { label: "Настроить реестр", hidden: !canSetup, onSelect: () => onGo("contracts-setup") },
-    {
-      label: "Скачать .xlsx",
-      onSelect: () => (window.location.href = contractsApi.exportUrl(book ? views.map((item) => item.key) : undefined)),
-    },
-  ];
+  const menu = registryMenu(schema, book, onGo);
 
   if (!all.length && !needle) {
     return (
@@ -334,7 +404,9 @@ export function Registry({ me, onGo, book = "" }: { me: Me; onGo: (section: stri
         <div className="creg-top">
           <LiveLine />
           <div className="creg-top-actions">
-            <MenuPopover items={menu} />
+            <span className="only-mobile">
+              <MenuPopover items={menu} />
+            </span>
           </div>
         </div>
         {canSetup ? (
@@ -348,7 +420,7 @@ export function Registry({ me, onGo, book = "" }: { me: Me; onGo: (section: stri
           />
         ) : (
           <>
-            {/* При узкой области пусто не в реестре, а в том, что открыто, —
+            {/* При узкой области пусто не в реестре, а в том, что открыто, -
                 и сказать надо это: «Договоров пока нет» читалось как пустой
                 реестр, когда в нём сотни договоров. */}
             <p className="creg-empty">{emptyText(me)}</p>
@@ -375,91 +447,129 @@ export function Registry({ me, onGo, book = "" }: { me: Me; onGo: (section: stri
     <>
       <div className="creg-top">
         <LiveLine />
-        <div className="creg-top-actions">
-          {canEdit ? (
-            <button type="button" className="btn-primary only-desktop" onClick={newContract}>
-              Новый договор
-            </button>
-          ) : null}
-          <MenuPopover items={menu} />
+        <div className="creg-top-side">
+          <div className="creg-top-actions">
+            {canEdit ? (
+              <button type="button" className="btn-primary only-desktop" onClick={newContract}>
+                Новый договор
+              </button>
+            ) : null}
+            {/* На широком окне эти пункты - кнопками в строке заголовка
+                (`RegistryActions`); на телефоне строки заголовка нет. */}
+            <span className="only-mobile">
+              <MenuPopover items={menu} />
+            </span>
+          </div>
+          <MineSwitch me={me} book={book} shares={sharesPick} staff={staff} />
         </div>
       </div>
 
-      <div className="creg-bar">
-        <Tabs views={views} active={view.key} counts={counts} onSelect={selectView} />
-        <label className="creg-search">
-          <span className="creg-search-ico">
-            <SearchIcon size={15} />
-          </span>
-          <input
-            ref={search}
-            type="search"
-            value={query}
-            placeholder="Номер, контрагент или БИН"
-            aria-label="Поиск по реестру"
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.stopPropagation();
-                setQuery("");
-              }
-            }}
-          />
-        </label>
-      </div>
-      {issueCount > 0 ? (
-        <button
-          type="button"
-          className="creg-issues-btn"
-          aria-pressed={issuesOnly}
-          onClick={() => setIssuesOnly((value) => !value)}
-        >
-          {issueCount} {plural(issueCount, "замечание", "замечания", "замечаний")}
-        </button>
+      {staff?.on ? (
+        staff.view
       ) : (
-        <div style={{ height: "1.9rem" }} />
+        <>
+          <div className="creg-bar">
+            <Tabs views={views} active={view.key} counts={counts} onSelect={selectView} />
+            <label className="creg-search">
+              <span className="creg-search-ico">
+                <SearchIcon size={15} />
+              </span>
+              <input
+                ref={search}
+                type="search"
+                value={query}
+                placeholder="Номер, контрагент или БИН"
+                aria-label="Поиск по реестру"
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.stopPropagation();
+                    setQuery("");
+                  }
+                }}
+              />
+            </label>
+          </div>
+          <div className="creg-filters">
+            {/* Включённый отбор держит кнопку, даже когда замечаний не
+                осталось: до 01.10.2026 последнее «Учтено» прятало её, отбор
+                оставался включённым (и переживал перезагрузку), и лист
+                выглядел пустым - «В этом листе пока пусто», выключить нечем. */}
+            {issueCount > 0 || issuesOnly ? (
+              <button
+                type="button"
+                className="creg-issues-btn"
+                aria-pressed={issuesOnly}
+                onClick={() => setIssuesOnly((value) => !value)}
+              >
+                {issueCount} {plural(issueCount, "замечание", "замечания", "замечаний")}
+              </button>
+            ) : null}
+          </div>
+
+          {/* «Сумма» ↔ «Общая сумма» каждые три секунды, пока на экране
+              договор, где в «Сумме» доля отдела (`total-preview.tsx`); под
+              открытой карточкой круг стоит. */}
+          <TotalPreview paused={!!openId || !!draft}>
+            <div className="creg-list">
+              <Head
+                sort={sort}
+                onSort={(key) => {
+                  const next = !sort || sort.key !== key ? { key, dir: 1 as const } : sort.dir === 1 ? { key, dir: -1 as const } : null;
+                  setSortPick({ view: view.key, sort: next });
+                  writeSort(view.key, next);
+                }}
+              />
+              {rows.length === 0 ? (
+                <p className="creg-empty">
+                  {needle ? (
+                    <>
+                      Ничего не нашлось ·{" "}
+                      <button type="button" className="fin-link-btn" onClick={() => setQuery("")}>
+                        Сбросить поиск
+                      </button>
+                    </>
+                  ) : issuesOnly ? (
+                    <>
+                      Замечаний в этом листе нет ·{" "}
+                      <button type="button" className="fin-link-btn" onClick={() => setIssuesOnly(false)}>
+                        Показать все
+                      </button>
+                    </>
+                  ) : sharesOnly ? (
+                    <>
+                      {isAdmin(me) ? "В этом листе совместных договоров нет" : "В этом листе нет договоров, где у вас доля"} ·{" "}
+                      <button type="button" className="fin-link-btn" onClick={() => setSharesOnly(false)}>
+                        Показать все
+                      </button>
+                    </>
+                  ) : mineOnly ? (
+                    "Здесь нет договоров, где вы ответственный"
+                  ) : (
+                    "В этом листе пока пусто"
+                  )}
+                </p>
+              ) : (
+                <Rows
+                  view={view}
+                  rows={rows}
+                  grouped={view.blocks.length > 1 && !sort}
+                  openId={openId}
+                  fresh={fresh}
+                  needle={needle}
+                  onOpen={openRow}
+                />
+              )}
+            </div>
+          </TotalPreview>
+
+          {canEdit ? (
+            <button type="button" className="btn-primary creg-fab only-mobile" onClick={newContract} hidden={!!openId || !!draft}>
+              + Новый договор
+            </button>
+          ) : null}
+        </>
       )}
-
-      <div className="creg-list">
-        <Head
-          sort={sort}
-          onSort={(key) => {
-            const next = !sort || sort.key !== key ? { key, dir: 1 as const } : sort.dir === 1 ? { key, dir: -1 as const } : null;
-            setSortPick({ view: view.key, sort: next });
-            writeSort(view.key, next);
-          }}
-        />
-        {rows.length === 0 ? (
-          <p className="creg-empty">
-            {needle ? (
-              <>
-                Ничего не нашлось ·{" "}
-                <button type="button" className="fin-link-btn" onClick={() => setQuery("")}>
-                  Сбросить поиск
-                </button>
-              </>
-            ) : (
-              "В этом листе пока пусто"
-            )}
-          </p>
-        ) : (
-          <Rows
-            view={view}
-            rows={rows}
-            grouped={view.blocks.length > 1 && !sort}
-            openId={openId}
-            fresh={fresh}
-            needle={needle}
-            onOpen={openRow}
-          />
-        )}
-      </div>
-
-      {canEdit ? (
-        <button type="button" className="btn-primary creg-fab only-mobile" onClick={newContract} hidden={!!openId || !!draft}>
-          + Новый договор
-        </button>
-      ) : null}
 
       <ContractCard
         id={openId}
@@ -479,6 +589,43 @@ export function Registry({ me, onGo, book = "" }: { me: Me; onGo: (section: stri
         onNext={index >= 0 && index < ids.length - 1 ? () => openCard(ids[index + 1]) : undefined}
       />
     </>
+  );
+}
+
+/** Пункты реестра: загрузить файл и настроить - администратору, скачать - всем. */
+function registryMenu(schema: RegistrySchema, book: string, onGo: (section: string) => void) {
+  const canSetup = !!schema.access.setup;
+  const views = schema.views.filter((view) => inBook(view, book));
+  return [
+    { label: "Загрузить Excel", hidden: !canSetup, onSelect: () => onGo("contracts-import") },
+    { label: "Настроить реестр", hidden: !canSetup, onSelect: () => onGo("contracts-setup") },
+    {
+      label: "Скачать Excel",
+      onSelect: () => (window.location.href = contractsApi.exportUrl(book ? views.map((item) => item.key) : undefined)),
+    },
+  ];
+}
+
+/**
+ * «Загрузить Excel · Настроить реестр · Скачать Excel» - кнопками в строке
+ * заголовка справа, над «Новый договор», в «Карточках» и «Таблице» (30.09.2026:
+ * «неудобно постоянно кликать по троеточию»). На телефоне строки заголовка
+ * нет - там те же пункты под «⋯».
+ */
+export function RegistryActions({ book, onGo }: { book: string; onGo: (section: string) => void }) {
+  const schema = useRegistry((s) => s.schema);
+  const phase = useRegistry((s) => s.phase);
+  if (phase !== "ready" || !schema) return null;
+  return (
+    <div className="creg-actions" role="group" aria-label="Реестр: файл и настройка">
+      {registryMenu(schema, book, onGo)
+        .filter((item) => !item.hidden)
+        .map((item) => (
+          <button key={item.label} type="button" className="btn-ghost btn-sm" onClick={item.onSelect}>
+            {item.label}
+          </button>
+        ))}
+    </div>
   );
 }
 
@@ -584,7 +731,7 @@ function Head({ sort, onSort }: { sort: { key: SortKey; dir: 1 | -1 } | null; on
           aria-sort={sort?.key === column.key ? (sort.dir === 1 ? "ascending" : "descending") : "none"}
           onClick={() => onSort(column.key)}
         >
-          {column.title}
+          {column.key === "amount" ? <AmountTitle /> : column.title}
           {sort?.key === column.key ? (sort.dir === 1 ? " ↓" : " ↑") : ""}
         </button>
       ))}
@@ -613,24 +760,41 @@ function Rows({
   const schema = useRegistry((s) => s.schema);
   const parties = useRegistry((s) => s.parties);
   const people = useRegistry((s) => s.people);
+  const summary = useRegistry((s) => s.summary);
   const limit = useProgressive(rows.length, `${view.key}|${needle}|${grouped}`);
+  // «Разовые ЮО»: сумма строки - доля ЮО (`book-share.ts`).
+  const book = view.book ?? "";
+  const department = bookDepartmentId(schema, book);
+  const code = department ? bookDepartment(schema, book) : "";
   const out: React.ReactNode[] = [];
   let lastBlock = -1;
-  const blockCounts: Record<number, number> = {};
-  if (grouped) for (const row of rows) blockCounts[row.block] = (blockCounts[row.block] ?? 0) + 1;
+  // Итог части - по строкам, которые в ней стоят; ушедшая строка ещё видна,
+  // но в части её уже нет.
+  const blockRows = new Map<number, Contract[]>();
+  if (grouped) {
+    for (const row of rows) {
+      if (row.departed) continue;
+      const list = blockRows.get(row.block) ?? [];
+      list.push(row.contract);
+      blockRows.set(row.block, list);
+    }
+  }
   const shown = limit < rows.length ? rows.slice(0, limit) : rows;
   for (const row of shown) {
     if (grouped && row.block !== lastBlock) {
       lastBlock = row.block;
-      const title = view.blocks[row.block]?.title || `Блок ${row.block + 1}`;
+      const block = view.blocks[row.block];
+      const title = block?.title || `Блок ${row.block + 1}`;
+      const withRemaining = Boolean(block?.columns.some((column) => column.key === "summary_remaining"));
       out.push(
         <div key={`block-${row.block}`} className="creg-block-head" role="rowgroup">
           {title}
-          <span>{blockCounts[row.block]}</span>
+          <span>{blockTally(blockRows.get(row.block) ?? [], withRemaining, summary, department)}</span>
         </div>,
       );
     }
     const contract = row.contract;
+    const share = bookShareOf(contract, department);
     const personIds = Array.isArray(contract.values.people) ? (contract.values.people as string[]) : [];
     // Строке отдаются её стороны и люди, а не словари целиком: словари
     // пересобираются на каждый опрос с изменениями, и `memo` перерисовывал бы
@@ -649,6 +813,10 @@ function Rows({
         firstPerson={personIds[0] ? people[personIds[0]]?.name ?? "" : ""}
         peopleTitle={personIds.map((id) => people[id]?.name ?? "").join(", ")}
         peopleCount={personIds.length}
+        amount={bookAmount(contract, share) as string | number | null | undefined}
+        whole={wholeAmount(contract, share)}
+        amountNote={shareNote(contract, share, code)}
+        amountUnset={share?.kind === "unset"}
         onOpen={onOpen}
       />,
     );
@@ -659,7 +827,7 @@ function Rows({
 /**
  * Сколько строк списка уже нарисовано.
  *
- * Реестр на 10 000 договоров рисовался одним куском — 126 000 элементов и
+ * Реестр на 10 000 договоров рисовался одним куском - 126 000 элементов и
  * 20 с до первой строки в режиме разработки. Теперь сразу рисуются первые
  * `FIRST_ROWS`, остальные дописываются пачками в свободное время кадра: все
  * строки всё равно оказываются в DOM (поиск браузера и фокус по id работают),
@@ -667,7 +835,7 @@ function Rows({
  * начинает заново.
  */
 const FIRST_ROWS = 300;
-/** Пачка — такая, чтобы кадр не превращался в долгую задачу: по 1 200 строк
+/** Пачка - такая, чтобы кадр не превращался в долгую задачу: по 1 200 строк
  *  пачка шла полсекунды, и открытие карточки ждало её в очереди. */
 const NEXT_ROWS = 400;
 
@@ -678,7 +846,7 @@ function useProgressive(total: number, reset: string): number {
   useEffect(() => {
     if (limit >= total) return;
     const grow = () => setState((prev) => (prev.reset === reset ? { reset, limit: prev.limit + NEXT_ROWS } : prev));
-    // Safari до сих пор без requestIdleCallback — там кадр по таймеру.
+    // Safari до сих пор без requestIdleCallback - там кадр по таймеру.
     const idle = typeof window.requestIdleCallback === "function";
     const handle = idle ? window.requestIdleCallback(grow, { timeout: 200 }) : window.setTimeout(grow, 16);
     return () => {
@@ -701,11 +869,19 @@ type RowProps = {
   firstPerson: string;
   peopleTitle: string;
   peopleCount: number;
+  /** Сумма строки: в книге отдела - его доля (`book-share.ts`), иначе сумма договора. */
+  amount: string | number | null | undefined;
+  /** Вся сумма договора, если в `amount` доля меньше неё, - её по очереди с долей показывает `ShareAmount`. */
+  whole: number | null;
+  /** Откуда сумма, если это не весь договор одного отдела: «Доля ЮО - 30% от 348 000». */
+  amountNote: string;
+  /** Отделов несколько, доли отдела книги нет - стоит вся сумма, приглушённо. */
+  amountUnset: boolean;
   onOpen: (id: string) => void;
 };
 
 /** Строка реестра. Перерисовывается, только когда поменялся её договор или
- *  её стороны, — а не на каждое открытие карточки и чужую правку. */
+ *  её стороны, - а не на каждое открытие карточки и чужую правку. */
 const Row = memo(function Row({
   contract,
   departed,
@@ -718,21 +894,24 @@ const Row = memo(function Row({
   firstPerson,
   peopleTitle,
   peopleCount,
+  amount,
+  whole,
+  amountNote,
+  amountUnset,
   onOpen,
 }: RowProps) {
   const pair: Record<string, Party> = {};
   if (executor) pair[String(contract.values.executor)] = executor;
   if (customer) pair[String(contract.values.customer)] = customer;
-  const title = counterpartTitle(contract, pair) || "—";
+  const title = counterpartTitle(contract, pair) || "-";
   const own = ownSide(contract, pair);
   const roles = roleLabels(contract);
   const phase = phaseOf(schema, contract);
   const issues = contract.issues.filter((issue) => !issue.acknowledged).length;
   // Отмеченное «Учтено» не горит, но и не пропадает: строка помнит, что
-  // замечание было и его проверили, — открыть и посмотреть можно всегда.
+  // замечание было и его проверили, - открыть и посмотреть можно всегда.
   const settled = contract.issues.length - issues;
   const billing = String(contract.values.billing ?? "");
-  const amount = contract.values.amount;
   const terms = String(contract.values.amount_terms ?? "");
   const planned = String(contract.values.planned_end_at ?? "");
   const overdue = planned && planned < (schema?.today ?? "") && (phase === "active" || phase === "in_progress");
@@ -754,7 +933,7 @@ const Row = memo(function Row({
       }}
     >
       <span className="creg-num creg-col-num" title={String(contract.values.number ?? "")}>
-        {number || "—"}
+        {number || "-"}
       </span>
       <span className="creg-party" title={title}>
         <Highlight text={title} needle={needle} />
@@ -766,12 +945,14 @@ const Row = memo(function Row({
       <span className="creg-col-kind" title={kind}>
         {kind}
       </span>
-      <span className="creg-money" title={terms || undefined}>
-        {amount !== undefined ? (
-          <>
+      <span className="creg-money" title={[amountNote, terms].filter(Boolean).join("\n") || undefined}>
+        {whole !== null && amount !== undefined && amount !== null ? (
+          <ShareAmount part={amount} whole={whole} monthly={billing === "month"} />
+        ) : amount !== undefined && amount !== null ? (
+          <span className={amountUnset ? "fin-muted" : undefined}>
             {contractMoney(amount)}
             {billing === "month" ? <small> /мес</small> : null}
-          </>
+          </span>
         ) : terms ? (
           <span className="fin-muted">{terms}</span>
         ) : (
@@ -789,9 +970,9 @@ const Row = memo(function Row({
       {departed ? (
         <span className="creg-note">{departed}</span>
       ) : issues ? (
-        <span className="creg-issues">{`${issues} ${plural(issues, "замечание", "замечания", "замечаний")}`}</span>
+        <IssuesTag issues={contract.issues.filter((issue) => !issue.acknowledged)} />
       ) : (
-        <span className="creg-note" title={contract.readonly ? "Договор другого отдела — открыт на просмотр" : undefined}>
+        <span className="creg-note" title={contract.readonly ? "Договор другого отдела - открыт на просмотр" : undefined}>
           {[settled ? "учтено" : "", contract.readonly ? "просмотр" : ""].filter(Boolean).join(" · ")}
         </span>
       )}
@@ -802,6 +983,59 @@ const Row = memo(function Row({
     </div>
   );
 });
+
+const ISSUES_POP_W = 360;
+
+/**
+ * «1 замечание» в строке - наведение показывает, какое. До 29.09.2026 текст
+ * замечания был виден только в открытой карточке: отобрав «4 замечания»,
+ * человек открывал договоры по одному, чтобы понять, что с каждым не так.
+ *
+ * Слой - порталом в `body` и тем же обликом, что подсказка ячейки листа
+ * (`.creg-hint`): плита реестра обрезает всё, что шире неё (`overflow:
+ * clip`), и плашка у правого края строки пропадала бы молча.
+ */
+function IssuesTag({ issues }: { issues: { code: string; text: string }[] }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [spot, setSpot] = useState<{ left: number; top: number; above: boolean } | null>(null);
+  const show = () => {
+    const rect = ref.current?.getBoundingClientRect();
+    if (!rect) return;
+    const above = rect.bottom + 160 > window.innerHeight;
+    const left = Math.max(8, Math.min(rect.right - ISSUES_POP_W, window.innerWidth - ISSUES_POP_W - 8));
+    setSpot({ left: Math.round(left), top: Math.round(above ? rect.top : rect.bottom), above });
+  };
+  // Прокрутили - строка уехала из-под плашки.
+  useEffect(() => {
+    if (!spot) return;
+    const hide = () => setSpot(null);
+    window.addEventListener("scroll", hide, { capture: true, passive: true });
+    return () => window.removeEventListener("scroll", hide, { capture: true });
+  }, [spot]);
+  return (
+    <span ref={ref} className="creg-issues" onPointerEnter={show} onPointerLeave={() => setSpot(null)}>
+      {`${issues.length} ${plural(issues.length, "замечание", "замечания", "замечаний")}`}
+      {spot
+        ? createPortal(
+            <div
+              className="creg-hint creg-issues-pop"
+              role="tooltip"
+              style={{ left: spot.left, top: spot.top, width: ISSUES_POP_W, transform: spot.above ? "translateY(-100%)" : undefined }}
+            >
+              <div className="creg-hint-body">
+                {issues.map((issue) => (
+                  <p key={issue.code} className="creg-issues-line">
+                    {issue.text}
+                  </p>
+                ))}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </span>
+  );
+}
 
 function Highlight({ text, needle }: { text: string; needle: string }) {
   if (!needle) return <>{text}</>;
@@ -823,8 +1057,11 @@ function compare(
   schema: RegistrySchema | null,
   parties: Readonly<Record<string, Party>>,
   people: Readonly<Record<string, PersonRef>>,
+  /** Отдел книги: в «Разовых ЮО» сумма - доля ЮО, по ней и сортируется. */
+  department = "",
 ): number {
   const text = (value: string) => value.toLowerCase();
+  const amountOf = (contract: Contract) => Number(bookAmount(contract, bookShareOf(contract, department)) ?? -1);
   switch (key) {
     case "number":
       return text(bareNumber(a.values.number)).localeCompare(text(bareNumber(b.values.number)), "ru", { numeric: true });
@@ -835,7 +1072,7 @@ function compare(
     case "kind":
       return listText(schema, "type", a.values.type).localeCompare(listText(schema, "type", b.values.type), "ru");
     case "amount":
-      return Number(a.values.amount ?? -1) - Number(b.values.amount ?? -1);
+      return amountOf(a) - amountOf(b);
     case "term":
       return String(a.values.planned_end_at ?? "9999").localeCompare(String(b.values.planned_end_at ?? "9999"));
     case "status":

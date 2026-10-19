@@ -7,7 +7,7 @@
  * Ошибки разворачиваются в текст один раз здесь, а не в каждом экране. FastAPI
  * кладёт человеческое объяснение в `detail`, и оно бывает единственным, что
  * человек увидит: «счёт не найден», «операцию уже изменили». Показать вместо
- * него «Request failed with status 400» — значит потерять смысл отказа.
+ * него «Request failed with status 400» - значит потерять смысл отказа.
  */
 const API = "/api/backend/api/v1/finance";
 
@@ -18,7 +18,7 @@ export type Account = {
   name: string;
   kind: string;
   currency: string;
-  /** `null` — остатки человеку не открыты (право «Остатки и долги» или справочники). */
+  /** `null` - остатки человеку не открыты (право «Остатки и долги» или справочники). */
   starting_balance: Money | null;
   excluded_from_reports: boolean;
   /** Номер счёта в банке (IBAN). По нему выписка находит свой счёт. */
@@ -62,23 +62,61 @@ export type Me = {
    *  Для экранов, ещё не переведённых на `access`. */
   abilities?: string[];
   role?: MemberRole | null;
-  /** Раздел прав → уровень. Владельцу и администратору — всё «edit». */
+  /** Вид раздела по привычке учётки (`habits.ts`): группа → вид. */
+  habits?: Record<string, string>;
+  /** Раздел прав → уровень. Владельцу и администратору - всё «edit». */
   access?: Record<string, AccessLevel>;
   contracts_scope?: {
     rows: "all" | "department" | "own";
     entities: string[];
-    /** Отделы, договоры которых видны вдобавок к своим, — только просмотр. */
+    /** Отделы, договоры которых видны вдобавок к своим, - только просмотр. */
     departments?: string[];
     fields: Record<string, AccessLevel>;
   };
-  /** Открытые просьбы к администраторам — «N запросов» в раме. */
+  /**
+   * Чьих сотрудников человек видит и меняет правом «Сотрудники и права»:
+   * `department` - начальник отдела, только люди своего отдела.
+   */
+  people_scope?: { rows: "all" | "department"; department_id: string | null };
+  /** Открытые просьбы к администраторам - «N запросов» в раме. */
   pending_requests?: number;
+  /** Входы с новых устройств, ждущие решения этого человека (слабый пароль). */
+  pending_devices?: PendingDevice[];
   employee?: {
     id: string;
     full_name: string;
     job_title: string;
     department: { id: string; code: string; title: string } | null;
   } | null;
+  /** Переписка с поддержкой KORT: непрочитанные ответы и объявление дня. */
+  support?: SupportState;
+};
+
+/** Вход с нового устройства, ждущий подтверждения (слабый, но уже заданный пароль). */
+export type PendingDevice = {
+  id: string;
+  user_agent: string;
+  ip: string;
+  created_at: string | null;
+};
+
+/** Ответ входа, когда пароль подошёл, но устройство новое: нужно подтверждение. */
+export type DevicePending = { step: "approve_device" };
+
+/** Вход вернул ожидание устройства, а не `me`. */
+export function isDevicePending(value: Me | DevicePending): value is DevicePending {
+  return (value as DevicePending).step === "approve_device";
+}
+
+export type SupportState = {
+  /** Ответы поддержки, которые человек ещё не открыл. */
+  unread: number;
+  /** Самый свежий непрочитанный ответ - для напоминания внизу экрана. */
+  last_reply: { id: string; preview: string; at: string } | null;
+  /** «Больше не показывать» под объявлением о поддержке. */
+  notice_off: boolean;
+  /** День (по часам человека), когда объявление уже показано. */
+  notice_seen_on: string | null;
 };
 
 export type MemberRow = {
@@ -164,7 +202,7 @@ export type CashFlowRow = {
 
 export type BreakdownItem = {
   name: string;
-  /** Только факт. Ожидания живут отдельно — см. `planned` и `months_plan`. */
+  /** Только факт. Ожидания живут отдельно - см. `planned` и `months_plan`. */
   total: Money;
   planned: Money;
   months: Record<string, Money>;
@@ -296,7 +334,7 @@ export type Rule = {
   match: string;
   conditions: RuleCondition[];
   actions: Record<string, string>;
-  /** Сколько операций правило разметило. Ноль у включённого — условие не совпадает. */
+  /** Сколько операций правило разметило. Ноль у включённого - условие не совпадает. */
   applied_count: number;
   position: number;
 };
@@ -350,7 +388,7 @@ export type ImportQuestion = {
 /** Свой счёт из переводов выписки, которого нет в справочнике. */
 export type SuggestedAccount = { name: string; number: string; currency: string; rows: number };
 
-/** Ответ на вопросы разбора — копится, пока вопросов не останется. */
+/** Ответ на вопросы разбора - копится, пока вопросов не останется. */
 export type ImportAnswer = { date_order?: string; default_account?: string };
 
 /** Книга Google, открытая сервисному аккаунту программы. */
@@ -359,7 +397,7 @@ export type SheetTab = { title: string; sheet_id: number; rows: number; cols: nu
 
 /**
  * Сверка выписки с банком: что банк напечатал и что получилось из строк.
- * Есть у выписок любого формата, где банк печатает реквизиты и остатки —
+ * Есть у выписок любого формата, где банк печатает реквизиты и остатки -
  * PDF, Excel, выгрузка 1С.
  */
 export type BankCheck = {
@@ -370,7 +408,7 @@ export type BankCheck = {
   account_number: string;
   card_number: string;
   account: string | null;
-  /** Как выбран счёт: «number» — узнан по номеру, «human» — выбран человеком. */
+  /** Как выбран счёт: «number» - узнан по номеру, «human» - выбран человеком. */
   account_by?: string;
   owner?: string;
   bank_name?: string;
@@ -434,12 +472,20 @@ export class FinanceApiError extends Error {
  * Без них каждый экран разбирался сам: заблокированный сотрудник оставался в
  * кабинете со своим именем и красным «Войдите в «Финансы»» во вкладке, а
  * реестр после отзыва права минуту показывал все договоры с «Нет связи».
- * Рама на 401 уводит ко входу, на 403 — перечитывает права.
+ * Рама на 401 уводит ко входу, на 403 - перечитывает права.
  */
 export const AUTH_LOST_EVENT = "finance:auth-lost";
 export const FORBIDDEN_EVENT = "finance:forbidden";
-/** Двери входа отвечают 401 на неверный пароль — это не потеря сеанса. */
-const LOGIN_PATHS = /^\/auth\/(login|register|phone\/)/;
+/**
+ * Схема реестра сменилась - в том числе потому, что человеку поменяли право
+ * на договоры (сервер двигает номер схемы). Рама перечитывает `me` сразу, а не
+ * через 20 с: «Только мои» пропадает, как только область сузили до «где
+ * ответственный».
+ */
+export const SCHEMA_EVENT = "finance:schema";
+/** Двери входа отвечают 401 на неверный пароль, а подтверждение устройства -
+ *  202/403/404: это не потеря сеанса и не отбор прав, их разбирает сам экран. */
+const LOGIN_PATHS = /^\/auth\/(login|register|phone\/|device\/)/;
 
 function signal(status: number, path: string): void {
   if (typeof window === "undefined") return;
@@ -447,12 +493,25 @@ function signal(status: number, path: string): void {
   if (status === 403) window.dispatchEvent(new Event(FORBIDDEN_EVENT));
 }
 
+/** Что человек видит, когда до сервера не дошло ни одного байта. */
+export const OFFLINE_TEXT = "Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.";
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API}${path}`, {
-    credentials: "include",
-    headers: init?.body instanceof FormData ? undefined : { "Content-Type": "application/json" },
-    ...init,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API}${path}`, {
+      credentials: "include",
+      headers: init?.body instanceof FormData ? undefined : { "Content-Type": "application/json" },
+      ...init,
+    });
+  } catch (exc) {
+    // Сеть упала или фронт перезапускается: fetch бросает TypeError с
+    // английским «Failed to fetch», и до 01.10.2026 его текст стоял на входе,
+    // в кабинете и в журнале. Код 0 - «нет связи»: хранилище реестра по нему
+    // ставит правку в очередь, как и раньше.
+    if (exc instanceof DOMException && exc.name === "AbortError") throw exc;
+    throw new FinanceApiError(OFFLINE_TEXT, 0);
+  }
   if (!response.ok) {
     signal(response.status, path);
     let message = `Сервер ответил ${response.status}`;
@@ -466,7 +525,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         message = body.detail.map((item: { msg?: string }) => item?.msg ?? "").filter(Boolean).join("; ") || message;
       }
     } catch {
-      /* тело не JSON — оставляем код состояния */
+      /* тело не JSON - оставляем код состояния */
     }
     throw new FinanceApiError(message, response.status, payload);
   }
@@ -662,19 +721,31 @@ export const financeApi = {
   // ── Учётки ───────────────────────────────────────────────────────────────
   me: () => request<Me>("/auth/me"),
   login: (body: { email: string; password: string }) =>
-    request<Me>("/auth/login", { method: "POST", body: JSON.stringify(body) }),
+    request<Me | DevicePending>("/auth/login", { method: "POST", body: JSON.stringify(body) }),
   register: (body: { email: string; password: string; company: string; full_name?: string }) =>
     request<Me>("/auth/register", { method: "POST", body: JSON.stringify(body) }),
   logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
-  // Вход сотрудника по номеру: номер → «пароль» или «задайте пароль».
+  // Вход сотрудника по номеру: номер → «пароль», «задайте пароль» или
+  // «время задать пароль прошло» (`expired`).
   phoneStart: (phone: string) =>
-    request<{ step: "password" | "set_password" }>("/auth/phone/start", {
+    request<{ step: "password" | "set_password" | "expired" }>("/auth/phone/start", {
       method: "POST",
       body: JSON.stringify({ phone }),
     }),
+  /** «Забыли?» у входа по почте - просьба администраторам; ответ одинаковый всегда. */
+  emailForgot: (email: string) =>
+    request<{ ok: boolean }>("/auth/forgot", { method: "POST", body: JSON.stringify({ email }) }),
   phoneLogin: (body: { phone: string; password: string }) =>
-    request<Me>("/auth/phone/login", { method: "POST", body: JSON.stringify(body) }),
-  /** Задать пароль и сразу войти — ответ как у `me`. */
+    request<Me | DevicePending>("/auth/phone/login", { method: "POST", body: JSON.stringify(body) }),
+  /**
+   * Ждущий экран нового устройства опрашивает, подтвердили ли вход. 200 - `me`
+   * (вошли), 202 `{step:"pending"}` - ещё ждём, 403 - отклонили, 404 - устарело.
+   */
+  claimDevice: () => request<Me | { step: "pending" }>("/auth/device/claim", { method: "POST" }),
+  /** Подтвердить или отклонить вход с нового устройства - с того, где уже вошли. */
+  approveDevice: (id: string) => request<{ ok: boolean }>(`/auth/device/${id}/approve`, { method: "POST" }),
+  denyDevice: (id: string) => request<{ ok: boolean }>(`/auth/device/${id}/deny`, { method: "POST" }),
+  /** Задать пароль и сразу войти - ответ как у `me`. */
   phoneSetPassword: (body: { phone: string; password: string }) =>
     request<Me>("/auth/phone/set-password", { method: "POST", body: JSON.stringify(body) }),
   phoneForgot: (phone: string) =>
@@ -703,6 +774,12 @@ export const financeApi = {
     request<{ ok: boolean }>(`/auth/members/${userId}`, { method: "DELETE" }),
   changePassword: (body: { old_password: string; new_password: string }) =>
     request<{ ok: boolean }>("/auth/password", { method: "POST", body: JSON.stringify(body) }),
+  /** Передать владение компанией - только владелец, с паролем; сам остаётся `keep`. */
+  transferOwner: (body: { user_id: string; password: string; keep: "admin" | "employee" }) =>
+    request<{ ok: boolean }>("/auth/owner", { method: "POST", body: JSON.stringify(body) }),
+  /** Своя почта для входа - с текущим паролем. Сеансы остаются. */
+  changeEmail: (body: { email: string; password: string }) =>
+    request<{ id: string; email: string }>("/auth/email", { method: "POST", body: JSON.stringify(body) }),
   sessions: () => request<{ items: SessionRow[] }>("/auth/sessions"),
   revokeSession: (id: string) =>
     request<{ ok: boolean }>(`/auth/sessions/${id}`, { method: "DELETE" }),
@@ -716,7 +793,8 @@ export const financeApi = {
     request<Operation>("/operations", { method: "POST", body: JSON.stringify(body) }),
   patchOperation: (id: string, body: unknown) =>
     request<Operation>(`/operations/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  deleteOperation: (id: string) => request<{ ok: boolean }>(`/operations/${id}`, { method: "DELETE" }),
+  /** Удалить операцию; `undo` - запись истории, по ней «Вернуть» (`undo`). */
+  deleteOperation: (id: string) => request<{ ok: boolean; undo?: string }>(`/operations/${id}`, { method: "DELETE" }),
 
   grid: (params: Record<string, string | number | undefined>) =>
     request<GridPayload>(`/grid${qs(params)}`),
@@ -852,7 +930,7 @@ export const financeApi = {
  * они есть.
  *
  * Копейки прячутся не для красоты. В управленческом отчёте суммы семизначные,
- * и «1 680 000,00» против «1 680 000» — это шум в каждой строке таблицы,
+ * и «1 680 000,00» против «1 680 000» - это шум в каждой строке таблицы,
  * который мешает сравнивать порядки величин глазом. Там, где копейки есть, они
  * показываются: это не округление, а отсутствие ложной точности.
  */
@@ -887,12 +965,12 @@ export function formatMoney(
  *
  * Полоса шириной в палец, и полное число в ней либо обрезается, либо
  * набирается таким кеглем, что не читается. Точность здесь не нужна: это
- * взгляд «сколько всего», а точная цифра — в раскрытой панели.
+ * взгляд «сколько всего», а точная цифра - в раскрытой панели.
  */
 export function compactMoney(value: Money | number | null | undefined): string {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return "-";
   const number = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(number)) return "—";
+  if (!Number.isFinite(number)) return "-";
   const sign = number < 0 ? "−" : "";
   const abs = Math.abs(number);
   const round = (n: number) => n.toFixed(n < 10 ? 2 : n < 100 ? 1 : 0).replace(".", ",").replace(/,0+$/, "");
@@ -902,7 +980,7 @@ export function compactMoney(value: Money | number | null | undefined): string {
   return `${sign}${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(abs)}`;
 }
 
-/** «2026-09» → «сентябрь 2026»; для шапок таблиц — «сен 26». */
+/** «2026-09» → «сентябрь 2026»; для шапок таблиц - «сен 26». */
 export function formatMonth(month: string, short = false): string {
   const [year, index] = month.split("-").map(Number);
   const full = [
@@ -940,7 +1018,7 @@ export function todayIso(): string {
 
 // ── Реестр договоров ─────────────────────────────────────────────────────────
 //
-// Контракт — раздел «Контракт API для экранов» плана. Экраны не зовут fetch и
+// Контракт - раздел «Контракт API для экранов» плана. Экраны не зовут fetch и
 // не держат копий договоров: всё через `contractsApi` и хранилище
 // `finance/contracts/store.ts`.
 
@@ -953,16 +1031,16 @@ export type RegistryField = {
   type: FieldType;
   title: string;
   system: boolean;
-  /** Сервер уже урезал поля по правам: скрытых здесь нет, у видимых — можно ли править. */
+  /** Сервер уже урезал поля по правам: скрытых здесь нет, у видимых - можно ли править. */
   editable: boolean;
   required: boolean;
   hidden: boolean;
   position: number;
   choices?: { value: string; label: string }[];
   /**
-   * Как поле заполняют руками — только у полей со списком: `list` — только из
-   * списка, `hint` — из списка или своё, `own` — сторона только из наших
-   * юрлиц. Нет ключа — поле пишется как есть.
+   * Как поле заполняют руками - только у полей со списком: `list` - только из
+   * списка, `hint` - из списка или своё, `own` - сторона только из наших
+   * юрлиц. Нет ключа - поле пишется как есть.
    */
   fill?: FieldFill;
   /** Какие способы можно выбрать у этого поля в настройке. */
@@ -990,7 +1068,7 @@ export type PaymentItem = {
   counterparty: string;
   account: string;
   comment: string;
-  /** `auto` — разнесла система, `manual` — человек, `open` — спорный. */
+  /** `auto` - разнесла система, `manual` - человек, `open` - спорный. */
   how: "auto" | "manual" | "open";
 };
 
@@ -1011,14 +1089,14 @@ export type ListValue = {
     distinct?: string[];
   };
   position: number;
-  /** Более раннее похожее значение того же списка — возможный двойник. */
+  /** Более раннее похожее значение того же списка - возможный двойник. */
   similar?: string;
 };
 
 export type FilterCondition = { field: string; op: string; value: unknown };
 export type ViewFilter = { any: { all: FilterCondition[] }[] };
 
-/** Тон подсветки строки: `done` — «сделано» (строка «исполнен» в «Разовых»). */
+/** Тон подсветки строки: `done` - «сделано» (строка «исполнен» в «Разовых»). */
 export type RowTone = "done";
 
 export type ViewBlock = {
@@ -1027,10 +1105,10 @@ export type ViewBlock = {
   roles: { executor?: string; customer?: string; order?: ("executor" | "customer")[] };
   columns: { key: string; label: string; width?: number | null }[];
   defaults: Record<string, string>;
-  /** Что предлагает выбор списка в этом блоке: поле → значения. Нет ключа — весь список. */
+  /** Что предлагает выбор списка в этом блоке: поле → значения. Нет ключа - весь список. */
   choices?: Record<string, string[]>;
-  /** Подсветка строки по условию — условное форматирование листа. */
-  paint?: { when: FilterCondition; tone: RowTone }[];
+  /** Подсветка строки по правилу - условное форматирование листа. */
+  paint?: { filter: ViewFilter; tone: RowTone }[];
 };
 
 export type RegistryView = {
@@ -1038,7 +1116,7 @@ export type RegistryView = {
   key: string;
   title: string;
   main: boolean;
-  /** Книга листа: `""` — реестр (карточки и «Таблица»), `oneoff` — «Разовые». */
+  /** Книга листа: `""` - реестр (карточки и «Таблица»), `oneoff` - «Разовые». */
   book?: string;
   position: number;
   blocks: ViewBlock[];
@@ -1058,13 +1136,13 @@ export type OwnEntity = {
 export type RegistrySchema = {
   schema_rev: number;
   fields: RegistryField[];
-  /** Действующие значения — их предлагают выборы. */
+  /** Действующие значения - их предлагают выборы. */
   lists: Record<string, ListValue[]>;
-  /** Значения в архиве — только чтобы подписать договоры, где они стоят. */
+  /** Значения в архиве - только чтобы подписать договоры, где они стоят. */
   archived_values?: Record<string, ListValue[]>;
   departments: { id: string; code: string; title: string; position: number }[];
   views: RegistryView[];
-  /** Откуда «Оплачено (сводка)»; `null` — сводка не подключена. */
+  /** Откуда «Оплачено (сводка)»; `null` - сводка не подключена. */
   summary?: SummarySource | null;
   own_entities: OwnEntity[];
   mode_fields: string[];
@@ -1073,7 +1151,9 @@ export type RegistrySchema = {
   economic_roles: string[];
   status_phases: string[];
   today: string;
-  access: { edit: boolean; setup: boolean };
+  /** `payments` - открыты ли оплаты по выписке (нужен журнал); нет поля - старый сервер, спросить.
+   *  `admin` - владелец или администратор: только он убирает отдел из договора. */
+  access: { edit: boolean; setup: boolean; admin?: boolean; payments?: boolean };
 };
 
 /** Книга-сводка компании: откуда «Оплачено (сводка)» (`contracts/summary.py`). */
@@ -1090,8 +1170,8 @@ export type SummarySource = {
 };
 
 /**
- * Что сводка знает о договоре. `found` — строки нашлись; `missing` — номера
- * в сводке нет; `other_client` — номер есть, клиент другой; `ambiguous` —
+ * Что сводка знает о договоре. `found` - строки нашлись; `missing` - номера
+ * в сводке нет; `other_client` - номер есть, клиент другой; `ambiguous` -
  * подходят разные клиенты, и выбрать нельзя.
  */
 export type SummaryEntry = {
@@ -1117,15 +1197,21 @@ export type ContractIssue = {
 export type Contract = {
   id: string;
   seq: number;
-  /** Значения по ключу поля. Пустые сервер не отдаёт: нет ключа — пусто. */
+  /** Значения по ключу поля. Пустые сервер не отдаёт: нет ключа - пусто. */
   values: Record<string, unknown>;
   provenance: Record<string, string>;
   issues: ContractIssue[];
-  /** Листы и блоки договора; `tone` — подсветка строки в блоке (считает сервер). */
+  /** Листы и блоки договора; `tone` - подсветка строки в блоке (считает сервер). */
   views: { view: string; block: number; tone?: RowTone }[];
   roles?: { executor?: string; customer?: string };
   /** Договор «другого отдела»: виден, но не правится. */
   readonly?: boolean;
+  /** Кто вписал отдел договора: отдел → учётка. Сотрудник убирает только
+   *  вписанный им самим (и пока без доли); нет ключа - вписал не он. */
+  departments_by?: Record<string, string>;
+  /** Доля отдела книги («Разовые ЮО» - доля ЮО): отдел → сумма и процент.
+   *  Только отделы, которыми отобрана книга, и только заданные (`shares.py`). */
+  department_share?: Record<string, { amount: string | null; percent: string | null }>;
   file_snapshot: { paid?: string; remaining?: string; as_of?: string; file?: string };
   position: number;
   source: string;
@@ -1145,7 +1231,7 @@ export type ContractsAll = {
   people: Record<string, PersonRef>;
   seq: number;
   schema_rev: number;
-  /** По какой сводке посчитаны листы вроде «Остатки» (`""` — без сводки). */
+  /** По какой сводке посчитаны листы вроде «Остатки» (`""` - без сводки). */
   summary_rev?: string;
 };
 
@@ -1232,15 +1318,141 @@ export type ContractImportBatch = {
 
 const C = "/contracts";
 
+/** Доля - суммой (тенге) или процентом от суммы договора. */
+export type ShareUnit = "amount" | "percent";
+
+export type ShareSummary = {
+  given: number;
+  allocated_amount: string | null;
+  allocated_percent: string | null;
+  rest_amount: string | null;
+  rest_percent: string | null;
+  over: boolean;
+};
+
+export type PersonShare = {
+  employee_id: string;
+  name: string;
+  department: string;
+  amount: string | null;
+  percent: string | null;
+  entered: ShareUnit | null;
+  mine: boolean;
+};
+
+export type DepartmentShare = {
+  department_id: string;
+  code: string;
+  title: string;
+  amount: string | null;
+  percent: string | null;
+  entered: ShareUnit | null;
+};
+
+export type ContractShares = {
+  contract_id: string;
+  amount: string | null;
+  billing: string;
+  seq: number;
+  people: {
+    /** `all` - доли всех; `own` - только своя; `none` - ни одной. */
+    scope: "all" | "own" | "none";
+    can_edit: boolean;
+    count: number;
+    unit: ShareUnit | null;
+    rows: PersonShare[];
+    summary?: ShareSummary;
+  };
+  /** `null` - доли отделов этому человеку не открыты. Строки - это и поле
+   *  «Отдел» договора: главного отдела нет (30.09.2026). */
+  departments: {
+    can_edit: boolean;
+    /** Убрать отдел из договора - только владелец или администратор. */
+    can_remove: boolean;
+    unit: ShareUnit | null;
+    rows: DepartmentShare[];
+    summary: ShareSummary;
+    choices: { id: string; code: string; title: string }[];
+  } | null;
+};
+
+/** Доли людей одного договора: сотрудник → сумма и процент. */
+export type ShareMap = {
+  scope: "all" | "own";
+  people: Record<string, { amount: string | null; percent: string | null }>;
+};
+
+export type SheetChange = {
+  action:
+    | "delete_contracts"
+    | "add_column"
+    | "remove_column"
+    | "rename_column"
+    | "rename_block"
+    | "move_column"
+    | "rename_view"
+    | "archive_view"
+    | "order_views"
+    | "move_rows"
+    | "values_point"
+    | "created_point";
+  view?: string;
+  book?: string;
+  ids?: string[];
+  title?: string;
+  type?: string;
+  block?: number;
+  key?: string;
+  label?: string;
+  keys?: (string | null)[];
+  after?: (string | null)[];
+  before?: string | null;
+  items?: { id: string; keys: string[] }[];
+};
+
+export type PointRef = { id: string; title: string; kind: string };
+
+export type SheetChangeResult = {
+  point?: PointRef | null;
+  done?: string[];
+  failed?: { id: string; error: string }[];
+  key?: string;
+  removed?: string[];
+};
+
+export type RestorePointItem = {
+  id: string;
+  kind: string;
+  title: string;
+  /** Что вернётся словами: «договоры вернутся из корзины». */
+  returns: string;
+  book: string;
+  view: string;
+  created_at: string | null;
+  by: string;
+  mine: boolean;
+  restored_at: string | null;
+  restored_by: string;
+  can_restore: boolean;
+};
+
+export type RestoreResult = { title: string; done: string[]; skipped: string[]; kind: string };
+
 export const contractsApi = {
   schema: () => request<RegistrySchema>(`${C}/schema`),
   all: () => request<ContractsAll>(C),
   changes: (since: number) => request<ChangesBatch>(`${C}/changes${qs({ since })}`),
   one: (id: string) => request<OneContract>(`${C}/${id}`),
-  create: (values: Record<string, unknown>, ctx?: { view?: string; block?: number; source?: string }) =>
+  create: (values: Record<string, unknown>, ctx?: { view?: string; block?: number; source?: string; before?: string | null }) =>
     request<OneContract>(C, {
       method: "POST",
-      body: JSON.stringify({ values, view: ctx?.view, block: ctx?.block, source: ctx?.source ?? "app" }),
+      body: JSON.stringify({
+        values,
+        view: ctx?.view,
+        block: ctx?.block,
+        source: ctx?.source ?? "app",
+        before: ctx?.before ?? null,
+      }),
     }),
   patch: (id: string, values: Record<string, unknown>, knownSeq: number | null, mode?: ChangeMode | null) =>
     request<OneContract>(`${C}/${id}`, {
@@ -1268,7 +1480,7 @@ export const contractsApi = {
   },
   people: () => request<{ people: PersonRef[] }>(`${C}/people`),
   payments: {
-    /** «Оплачено/Остаток по выписке» видимых договоров; 403 — журнал не открыт. */
+    /** «Оплачено/Остаток по выписке» видимых договоров; 403 - журнал не открыт. */
     all: () => request<{ contracts: Record<string, PaymentSummary> }>(`${C}/payments`),
     of: (id: string) => request<ContractPayments>(`${C}/${id}/payments`),
     decide: (id: string, operationId: string, action: "link" | "unlink" | "auto") =>
@@ -1277,12 +1489,30 @@ export const contractsApi = {
         body: JSON.stringify({ operation_id: operationId, action }),
       }),
   },
-  /** «Оплачено/Остаток (сводка)» видимых договоров; `force` — перечитать книгу. */
+  /** «Оплачено/Остаток (сводка)» видимых договоров; `force` - перечитать книгу. */
   summary: (force = false) =>
     request<{ source: SummarySource | null; contracts: Record<string, SummaryEntry> }>(
       `${C}/summary${qs({ force: force ? "true" : undefined })}`,
     ),
   exportUrl: (views?: string[]) => `${API}${C}/export.xlsx${qs({ views: views?.join(",") })}`,
+  shares: {
+    /** Доли договора - только открытые этому человеку (`shares.py`). */
+    of: (id: string) => request<ContractShares>(`${C}/${id}/shares`),
+    /** Доли всех видимых договоров - для «По сотрудникам». */
+    all: () => request<{ contracts: Record<string, ShareMap> }>(`${C}/shares`),
+    setPeople: (id: string, unit: ShareUnit, items: { employee_id: string; value: string | null }[]) =>
+      request<ContractShares>(`${C}/${id}/shares/people`, { method: "PUT", body: JSON.stringify({ unit, items }) }),
+    setDepartments: (id: string, unit: ShareUnit, items: { department_id: string; value: string | null }[]) =>
+      request<ContractShares>(`${C}/${id}/shares/departments`, { method: "PUT", body: JSON.stringify({ unit, items }) }),
+  },
+  /** Изменение таблицы, о котором лист предупредил (`contracts/restore.py`). */
+  sheetChange: (body: SheetChange) =>
+    request<SheetChangeResult>(`${C}/sheet/change`, { method: "POST", body: JSON.stringify(body) }),
+  restorePoints: {
+    list: () => request<{ items: RestorePointItem[] }>(`${C}/restore-points`),
+    restore: (id: string) =>
+      request<RestoreResult>(`${C}/restore-points/${id}/restore`, { method: "POST" }),
+  },
   imports: {
     upload: (file: File) => {
       const form = new FormData();
@@ -1352,7 +1582,7 @@ export type Department = {
   employees: number;
 };
 
-/** `no_access` — человек в справочнике без входа (например, ответственный). */
+/** `no_access` - человек в справочнике без входа (например, ответственный). */
 export type AccountStatus = "no_access" | "blocked" | "pending" | "pending_expired" | "active";
 
 export type EmployeeRequest = {
@@ -1408,6 +1638,8 @@ export type AccessCatalog = {
   resources: AccessResource[];
   fields: { key: string; field: string; title: string; levels: AccessLevel[] }[];
   row_scopes: ("all" | "department" | "own")[];
+  /** «Сотрудники и права»: всех или своего отдела (начальник отдела). */
+  people_scopes?: ("all" | "department")[];
 };
 
 export type ContractScope = {
@@ -1415,10 +1647,14 @@ export type ContractScope = {
   entities?: string[];
   /** Отделы «только просмотр» вдобавок к своим договорам. */
   departments?: string[];
+  /** Личная запись «шире отдела» - пометка администратора, потолок отдела её не режет. */
+  beyond?: boolean;
+  /** У начальника («Сотрудники и права» своего отдела): `false` - доли отделов ему не показывать. */
+  shares?: boolean;
 };
 export type Grant = { level: AccessLevel; scope?: ContractScope };
 
-/** Права субъекта. У человека ещё права отдела и итог — для колонок «Отдел» и «Итог». */
+/** Права субъекта. У человека ещё права отдела и итог - для колонок «Отдел» и «Итог». */
 export type SubjectAccess = {
   subject: {
     kind: "department" | "employee";
@@ -1434,6 +1670,11 @@ export type SubjectAccess = {
   department_grants?: Record<string, Grant>;
   effective: Record<string, AccessLevel>;
   contracts_scope?: { rows: "all" | "department" | "own"; entities: string[] };
+  /** У отдела: люди со входом и кто из них начальник («Сотрудники и права» своего отдела). */
+  members?: { id: string; name: string; admin: boolean }[];
+  heads?: string[];
+  /** Начальники, которым администратор снял «видит доли отделов» (по умолчанию видят). */
+  heads_without_shares?: string[];
 };
 
 export type GrantChange = AccessLevel | { level: AccessLevel; scope?: ContractScope } | null;
@@ -1466,7 +1707,7 @@ export type AuditQuery = {
   department_id?: string;
   /** Через запятую: data,auth,admin,view,export,import. */
   category?: string;
-  /** `contract.*` — все события договоров. */
+  /** `contract.*` - все события договоров. */
   kind?: string;
   entity_id?: string;
   since?: string;
@@ -1500,11 +1741,16 @@ export const peopleApi = {
     /** Открыть вход человеку из справочника: учётка по номеру ждёт пароль 72 часа. */
     openAccount: (id: string, data: { phone?: string; role?: MemberRole }) =>
       request<EmployeeRow>(`${P}/employees/${id}/account`, { method: "POST", body: JSON.stringify(data) }),
-    reset: (id: string) => request<EmployeeRow>(`${P}/employees/${id}/reset`, { method: "POST" }),
+    /** Сброс пароля. У учётки по почте - `temporary_password`: передать лично, при входе его сменят. */
+    reset: (id: string) =>
+      request<EmployeeRow & { temporary_password?: string }>(`${P}/employees/${id}/reset`, { method: "POST" }),
     block: (id: string) => request<EmployeeRow>(`${P}/employees/${id}/block`, { method: "POST" }),
     unblock: (id: string) => request<EmployeeRow>(`${P}/employees/${id}/unblock`, { method: "POST" }),
     endSessions: (id: string) =>
       request<EmployeeRow & { sessions_closed?: number }>(`${P}/employees/${id}/end-sessions`, { method: "POST" }),
+    /** Закрыть один сеанс сотрудника - «Завершить» в строке его «Сеансов». */
+    endSession: (id: string, sessionId: string) =>
+      request<EmployeeRow>(`${P}/employees/${id}/sessions/${sessionId}`, { method: "DELETE" }),
     sessions: (id: string) => request<{ items: SessionRow[] }>(`${P}/employees/${id}/sessions`),
   },
   access: {
@@ -1532,9 +1778,13 @@ export const peopleApi = {
     endOtherSessions: () => request<{ closed: number }>("/auth/sessions/end-others", { method: "POST" }),
     changePassword: (body: { old_password: string; new_password: string }) =>
       request<{ ok: boolean; sessions_closed: number }>("/auth/password", { method: "POST", body: JSON.stringify(body) }),
-    /** Свои ФИО и телефон — только владельцу и администратору. */
+    /** Свои ФИО и телефон - только владельцу и администратору. Ответ - не
+     *  `Me`: после правки `me` перечитывают через `financeApi.me()`. */
     profile: (data: { full_name?: string; phone?: string }) =>
-      request<Me>("/auth/profile", { method: "PATCH", body: JSON.stringify(data) }),
+      request<{ id: string; full_name: string; phone: string }>("/auth/profile", {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
   },
 };
 
@@ -1549,7 +1799,7 @@ export type TrashItem = {
   id: string;
   title: string;
   deleted_at: string | null;
-  /** Кто удалил — из журнала действий; пусто, если там нет записи о записи. */
+  /** Кто удалил - из журнала действий; пусто, если там нет записи о записи. */
   by: string;
 };
 
@@ -1563,10 +1813,72 @@ export const trashApi = {
 
 // ── Личный вид листов ────────────────────────────────────────────────────────
 
-/** Вид листа — как его собирает `univer/look.ts`; сервер держит как есть. */
+/** Вид листа - как его собирает `univer/look.ts`; сервер держит как есть. */
 export const looksApi = {
   get: (key: string) => request<{ look: Record<string, unknown> }>(`/looks/${key}`),
   put: (key: string, look: unknown) =>
     request<{ ok: boolean }>(`/looks/${key}`, { method: "PUT", body: JSON.stringify({ look }) }),
   reset: (key: string) => request<{ ok: boolean }>(`/looks/${key}`, { method: "DELETE" }),
+};
+
+// ── Поддержка KORT ───────────────────────────────────────────────────────────
+
+export type SupportFile = {
+  id: string;
+  kind: "image" | "voice" | "file";
+  name: string;
+  mime: string;
+  size: number;
+  /** Длительность голосового, секунды. */
+  duration: number | null;
+};
+
+export type SupportItem = {
+  id: string;
+  author: "user" | "support";
+  body: string;
+  created_at: string;
+  files: SupportFile[];
+  /** Ответ поддержки уже открыт. */
+  read?: boolean;
+  /** Сообщение человека дошло до канала поддержки. */
+  delivered?: boolean;
+  /** Не дошло дольше пары минут - сказать об этом словами. */
+  late?: boolean;
+};
+
+export type SupportLimits = {
+  max_body: number;
+  max_files: number;
+  max_file_bytes: number;
+  max_total_bytes: number;
+  max_voice_seconds: number;
+};
+
+/**
+ * Переписка с поддержкой (`app/finance/support.py`). Отправка - своей
+ * функцией на XHR (`support/send.ts`): у `fetch` нет хода загрузки, а
+ * голосовое с десятком скриншотов на медленной сети грузится заметно.
+ */
+export const supportApi = {
+  thread: () => request<{ items: SupportItem[]; state: SupportState; limits: SupportLimits }>("/support"),
+  read: () => request<SupportState>("/support/read", { method: "POST" }),
+  notice: (body: { seen_on?: string; off?: boolean }) =>
+    request<SupportState>("/support/notice", { method: "POST", body: JSON.stringify(body) }),
+  fileUrl: (id: string) => `${API}/support/files/${id}`,
+  sendUrl: `${API}/support/messages`,
+};
+
+/**
+ * Привычки учётки (`app/finance/habits.py`): какой вид раздела у человека по
+ * умолчанию. `keepalive` - отчёт при закрытии вкладки долетает и после неё.
+ */
+export const habitsApi = {
+  prefer: () => request<{ prefer: Record<string, string> }>("/looks/habits/prefer"),
+  report: (group: string, body: { mode: string; minutes?: number; pick?: boolean }, keepalive = false) =>
+    request<{ prefer: Record<string, string> }>(`/looks/habits/${encodeURIComponent(group)}`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      keepalive,
+    }),
 };

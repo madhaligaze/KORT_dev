@@ -3,7 +3,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { readParam, writeParams } from "@/components/finance/address";
-import { type Me, FinanceApiError, financeApi } from "@/components/finance/api";
+import { type Me, FinanceApiError, financeApi, isDevicePending } from "@/components/finance/api";
 import { PHONE_NOT_MOBILE, PhoneInput, formatPhone, phoneDigits, phoneValue } from "@/components/finance/ui/phone-input";
 import { SplitReveal } from "@/components/motion/split-reveal";
 import { AuthStage, AuthWait } from "@/components/stage/auth-stage";
@@ -12,40 +12,51 @@ import { AuthStage, AuthWait } from "@/components/stage/auth-stage";
  * Вход и регистрация KORT.
  *
  * Компания регистрируется здесь сама, а не выдаётся администратором. Поэтому
- * первый экран — не «введите логин», а выбор между «войти» и
+ * первый экран - не «введите логин», а выбор между «войти» и
  * «зарегистрировать компанию», и второе стоит не мельче
- * первого: пока компаний мало, регистрация — главное действие экрана.
+ * первого: пока компаний мало, регистрация - главное действие экрана.
  *
- * Облик — страница книги (28.09.2026; прежний — «пилюли везде», регистрация
- * мелкой ссылкой в строке с переносом). Вход и регистрация — две двери:
+ * Облик - страница книги (28.09.2026; прежний - «пилюли везде», регистрация
+ * мелкой ссылкой в строке с переносом). Вход и регистрация - две двери:
  * «Вход» и «Регистрация» крупно, одна под другой, и под открытой раскрываются
- * её строки. Номеров у дверей нет — их сняли по просьбе владельца. Поля —
+ * её строки. Номеров у дверей нет - их сняли по просьбе владельца. Поля -
  * строки книги: подпись на полях слева, значение на линейке, без рамок.
  * Значения и кнопка стоят от одной вертикали (`--auth-axis` в globals.css),
- * подписи — слева от неё.
+ * подписи - слева от неё.
  *
  * Сотрудники входят по номеру телефона (фронт-план, 6.8): номер → «пароль»
  * или «придумайте пароль». Сервер отвечает «пароль» и на незнакомый номер,
  * поэтому экран для него выглядит так же, как для знакомого: вход не
- * выдаёт, кто зарегистрирован. «Запрос отправлен» — тоже одинаково всегда.
+ * выдаёт, кто зарегистрирован. «Запрос отправлен» - тоже одинаково всегда.
  *
  * Ошибку показываем текстом сервера, а не своим «что-то пошло не так»: сервер
  * различает «неверная почта или пароль», «пароль короче восьми символов» и
  * «почта уже зарегистрирована», и каждое из трёх говорит человеку, что делать.
  *
  * Что изменилось после проверки 26.09 («Асхат»):
- * - первое поле принимает и почту, и телефон — сотрудник, пришедший без
+ * - первое поле принимает и почту, и телефон - сотрудник, пришедший без
  *   ссылки, не ищет «Войти как сотрудник». Саму кнопку 28.09 сняли было
  *   совсем и в тот же день вернули строкой под «Войти»: без неё и владелец не
- *   увидел, как входят сотрудники, — подпись поля такое не объясняет;
+ *   увидел, как входят сотрудники, - подпись поля такое не объясняет;
  * - ссылка-приглашение `?phone=…` сразу спрашивает у сервера шаг и, если
  *   учётка ждёт пароль, открывает «Придумайте пароль»;
  * - шаг «пароль» у учётки, ждущей пароль, уводит к «Придумайте пароль»
  *   (сервер отвечает 409), а не пишет «неверный пароль» на пароль, которого нет;
- * - заданный пароль сразу впускает — третий ввод того же пароля ничего не
+ * - заданный пароль сразу впускает - третий ввод того же пароля ничего не
  *   охранял.
  */
-type Step = "email" | "register" | "phone" | "password" | "set" | "forgot" | "forgot-sent" | "forgot-email";
+type Step =
+  | "email"
+  | "register"
+  | "phone"
+  | "password"
+  | "set"
+  | "expired"
+  | "forgot"
+  | "forgot-sent"
+  | "forgot-email"
+  | "forgot-email-sent"
+  | "wait-device";
 
 /** Заголовок двери «Вход» на каждом шаге. Короткий: он набран крупно в узкой колонке. */
 const HEADINGS: Record<Step, string> = {
@@ -54,9 +65,12 @@ const HEADINGS: Record<Step, string> = {
   phone: "Вход сотрудника",
   password: "Вход сотрудника",
   set: "Новый пароль",
+  expired: "Время вышло",
   forgot: "Сброс пароля",
   "forgot-sent": "Запрос отправлен",
   "forgot-email": "Сброс пароля",
+  "forgot-email-sent": "Запрос отправлен",
+  "wait-device": "Новое устройство",
 };
 
 /** Куда ведёт «←» перед заголовком двери. У первого шага стрелки нет. */
@@ -64,9 +78,12 @@ const BACK: Partial<Record<Step, Step>> = {
   phone: "email",
   password: "phone",
   set: "phone",
+  expired: "phone",
   forgot: "phone",
   "forgot-sent": "phone",
   "forgot-email": "email",
+  "forgot-email-sent": "email",
+  "wait-device": "email",
 };
 
 /** Похоже на номер, а не на почту: цифры и знаки номера, и цифр не меньше десяти. */
@@ -90,12 +107,12 @@ function rememberMode(mode: "phone" | "email") {
   try {
     localStorage.setItem(MODE_KEY, mode);
   } catch {
-    /* не запомнится — ничего страшного */
+    /* не запомнится - ничего страшного */
   }
 }
 
 /**
- * Первое поле открытой двери — в фокус, когда дверь открыли рукой. Только там,
+ * Первое поле открытой двери - в фокус, когда дверь открыли рукой. Только там,
  * где есть мышь: на телефоне фокус поднял бы клавиатуру поверх раскрытия.
  */
 function focusFirstField(bodyId: string) {
@@ -141,10 +158,23 @@ export function AuthGate({ onReady, notice = "" }: { onReady: (me: Me) => void; 
     }
   };
 
-  /** Первый шаг по номеру: сервер говорит, есть ли пароль. */
+  /**
+   * Первый шаг по номеру: сервер говорит, есть ли пароль. `expired` - окно
+   * задать пароль прошло (01.10.2026): сразу экран «Попросить
+   * администратора», а не два набора пароля впустую.
+   */
   const startPhone = async (tenDigits: string) => {
     const { step: next } = await financeApi.phoneStart(phoneValue(tenDigits));
-    setStep(next === "set_password" ? "set" : "password");
+    setStep(next === "set_password" ? "set" : next === "expired" ? "expired" : "password");
+  };
+
+  /** Отказ 410 - окно задать пароль прошло: к «Попросить администратора». */
+  const expiredInstead = (exc: unknown): boolean => {
+    if (exc instanceof FinanceApiError && exc.status === 410) {
+      setStep("expired");
+      return true;
+    }
+    return false;
   };
 
   useEffect(() => {
@@ -164,26 +194,74 @@ export function AuthGate({ onReady, notice = "" }: { onReady: (me: Me) => void; 
     // eslint-disable-next-line react-hooks/exhaustive-deps -- адрес читается один раз при входе
   }, []);
 
+  // Ждущий экран нового устройства: опрашиваем, подтвердили ли вход на том
+  // устройстве, где человек уже вошёл. Подтвердили - входим; отклонили или
+  // вышло время - назад с объяснением.
+  useEffect(() => {
+    if (step !== "wait-device") return;
+    let alive = true;
+    let timer = 0;
+    const back = readMode() === "phone" ? "password" : "email";
+    const tick = async () => {
+      try {
+        const res = await financeApi.claimDevice();
+        if (!alive) return;
+        if ("authenticated" in res) {
+          onReady(res);
+          return;
+        }
+        timer = window.setTimeout(tick, 2500);
+      } catch (exc) {
+        if (!alive) return;
+        if (exc instanceof FinanceApiError && exc.status === 403) {
+          setStepState(back);
+          setError("Вход отклонён на другом устройстве");
+          return;
+        }
+        if (exc instanceof FinanceApiError && exc.status === 404) {
+          setStepState(back);
+          setError("Время подтверждения вышло - войдите снова");
+          return;
+        }
+        // Нет связи или сбой - пробуем ещё, не роняя ожидание.
+        timer = window.setTimeout(tick, 2500);
+      }
+    };
+    timer = window.setTimeout(tick, 1500);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- запускается сменой шага
+  }, [step]);
+
   const phone = phoneValue(digits);
   const phoneReady = digits.length === 10 && digits[0] === "7";
   const mismatch = again.length > 0 && (againTouched || again.length >= password.length) && again !== password;
 
-  /** Вход по номеру с паролем. Учётка ждёт пароль (409) — к «Придумайте пароль». */
+  /** Вход по номеру с паролем. Учётка ждёт пароль (409) - к «Придумайте пароль». */
   const loginByPhone = async (tenDigits: string, secret: string) => {
     try {
-      const me = await financeApi.phoneLogin({ phone: phoneValue(tenDigits), password: secret });
+      const res = await financeApi.phoneLogin({ phone: phoneValue(tenDigits), password: secret });
       rememberMode("phone");
-      onReady(me);
+      // Слабый пароль с нового устройства: пароль подошёл, но нужен кивок с
+      // устройства, где человек уже вошёл.
+      if (isDevicePending(res)) {
+        setStep("wait-device");
+        return;
+      }
+      onReady(res);
     } catch (exc) {
       if (exc instanceof FinanceApiError && exc.status === 409) {
         setStep("set");
         return;
       }
+      if (expiredInstead(exc)) return;
       throw exc;
     }
   };
 
-  /** «Забыли?» у первого шага: в поле номер — сброс по номеру, иначе — кто сбрасывает пароль по почте. */
+  /** «Забыли?» у первого шага: в поле номер - сброс по номеру, иначе - кто сбрасывает пароль по почте. */
   const forgotFromEmail = () => {
     const fromField = looksLikePhone(email) ? phoneDigits(email) : "";
     if (fromField.length === 10 && fromField[0] === "7") {
@@ -213,14 +291,14 @@ export function AuthGate({ onReady, notice = "" }: { onReady: (me: Me) => void; 
       case "email":
         return run(async () => {
           if (looksLikePhone(email)) {
-            // Сотрудник ввёл номер в первое поле — дальше дорога по номеру.
+            // Сотрудник ввёл номер в первое поле - дальше дорога по номеру.
             const fromField = phoneDigits(email);
             if (fromField.length !== 10 || fromField[0] !== "7") throw new Error(PHONE_NOT_MOBILE);
             setDigits(fromField);
             const typed = password;
             const { step: next } = await financeApi.phoneStart(phoneValue(fromField));
-            if (next === "set_password") {
-              setStep("set");
+            if (next === "set_password" || next === "expired") {
+              setStep(next === "expired" ? "expired" : "set");
               return;
             }
             if (!typed) {
@@ -231,9 +309,13 @@ export function AuthGate({ onReady, notice = "" }: { onReady: (me: Me) => void; 
             await loginByPhone(fromField, typed);
             return;
           }
-          const me = await financeApi.login({ email, password });
+          const res = await financeApi.login({ email, password });
           rememberMode("email");
-          onReady(me);
+          if (isDevicePending(res)) {
+            setStep("wait-device");
+            return;
+          }
+          onReady(res);
         });
       case "register":
         if (fullName.trim().length < 2) {
@@ -252,12 +334,20 @@ export function AuthGate({ onReady, notice = "" }: { onReady: (me: Me) => void; 
           return;
         }
         return run(async () => {
-          const me = await financeApi.phoneSetPassword({ phone, password });
-          rememberMode("phone");
-          onReady(me);
+          try {
+            const me = await financeApi.phoneSetPassword({ phone, password });
+            rememberMode("phone");
+            onReady(me);
+          } catch (exc) {
+            if (expiredInstead(exc)) return;
+            throw exc;
+          }
         });
+      case "expired":
       case "forgot":
         if (!phoneReady) return;
+        // Окно прошло - та же просьба, что «Забыли?»: администратор видит её
+        // в «Ждут решения» и открывает вход снова.
         return run(async () => {
           await financeApi.phoneForgot(phone);
           setStep("forgot-sent");
@@ -266,12 +356,21 @@ export function AuthGate({ onReady, notice = "" }: { onReady: (me: Me) => void; 
         setStep("phone");
         return;
       case "forgot-email":
+        if (!email.trim()) {
+          setError("Впишите почту, с которой входите");
+          return;
+        }
+        return run(async () => {
+          await financeApi.emailForgot(email.trim());
+          setStep("forgot-email-sent");
+        });
+      case "forgot-email-sent":
         setStep("email");
         return;
     }
   };
 
-  /** Регистрация открыта — дверь «Вход» свёрнута на своём первом шаге. */
+  /** Регистрация открыта - дверь «Вход» свёрнута на своём первом шаге. */
   const registering = step === "register";
   const inStep: Step = registering ? "email" : step;
   const back = BACK[inStep];
@@ -409,27 +508,71 @@ export function AuthGate({ onReady, notice = "" }: { onReady: (me: Me) => void; 
               </>
             ) : null}
 
+            {inStep === "expired" ? (
+              <>
+                {numberRow}
+                <p className="auth-say">
+                  Время задать пароль прошло. Попросите администратора открыть вход снова - запрос уйдёт ему в
+                  кабинет.
+                </p>
+              </>
+            ) : null}
+
+            {/* Вход по почте: просьба администраторам (01.10.2026). Раньше здесь
+                было только «пароль сбрасывает владелец», и попросить было нечем. */}
             {inStep === "forgot-email" ? (
+              <>
+                <Row label="Почта" htmlFor="auth-forgot-email">
+                  <input
+                    id="auth-forgot-email"
+                    className="auth-input"
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="buh@company.kz"
+                    autoComplete="username"
+                    required
+                  />
+                </Row>
+                <p className="auth-say">
+                  Запрос уйдёт администраторам компании. Пароль владельца восстанавливается только на сервере.
+                </p>
+              </>
+            ) : null}
+            {inStep === "forgot-email-sent" ? (
               <p className="auth-say">
-                Пароль администратора сбрасывает владелец компании в личном кабинете. Пароль владельца
-                восстанавливается только на сервере.
+                Когда пароль сбросят, вам передадут временный пароль - войдите с ним, и программа попросит задать свой.
               </p>
             ) : null}
             {inStep === "forgot-sent" ? (
-              <p className="auth-say">Когда пароль сбросят, введите номер снова — система попросит придумать новый.</p>
+              <p className="auth-say">Когда пароль сбросят, введите номер снова - система попросит придумать новый.</p>
+            ) : null}
+            {inStep === "wait-device" ? (
+              <p className="auth-say" aria-live="polite">
+                Вход с нового устройства. Подтвердите его там, где вы уже вошли в KORT: на том экране
+                появится «Вход с нового устройства - Разрешить». Как только разрешите, этот экран войдёт сам.
+              </p>
             ) : null}
 
             {registering ? null : failLine}
 
-            <Go
-              busy={busy}
-              disabled={
-                ((inStep === "phone" || inStep === "forgot") && !phoneReady) ||
-                (inStep === "set" && (password.length === 0 || again.length === 0))
-              }
-            >
-              {ACTIONS[inStep]}
-            </Go>
+            {inStep === "wait-device" ? (
+              <button type="button" className="auth-more" onClick={() => goBack(back ?? "email")}>
+                Отмена
+                <Arrow back />
+              </button>
+            ) : (
+              <Go
+                busy={busy}
+                disabled={
+                  ((inStep === "phone" || inStep === "forgot" || inStep === "expired") && !phoneReady) ||
+                  (inStep === "set" && (password.length === 0 || again.length === 0)) ||
+                  (inStep === "forgot-email" && !email.trim())
+                }
+              >
+                {ACTIONS[inStep]}
+              </Go>
+            )}
 
             {inStep === "email" ? (
               <button type="button" className="auth-more" onClick={toEmployee}>
@@ -508,25 +651,28 @@ const ACTIONS: Record<Step, string> = {
   phone: "Далее",
   password: "Войти",
   set: "Задать пароль и войти",
+  expired: "Попросить администратора",
   forgot: "Отправить запрос",
   "forgot-sent": "Ко входу",
-  "forgot-email": "Ко входу",
+  "forgot-email": "Отправить запрос",
+  "forgot-email-sent": "Ко входу",
+  "wait-device": "Ждём…",
 };
 
-/** Сколько сворачивается дверь (`.auth-door-body` в globals.css) — с запасом. */
+/** Сколько сворачивается дверь (`.auth-door-body` в globals.css) - с запасом. */
 const DOOR_FOLD_MS = 700;
 
 /**
- * Дверь: заголовок крупно, под ним — её строки.
+ * Дверь: заголовок крупно, под ним - её строки.
  *
- * Закрытая дверь — одна строка: заголовок приглушён, строки свёрнуты.
+ * Закрытая дверь - одна строка: заголовок приглушён, строки свёрнуты.
  * Открывается по щелчку в любом месте строки. Открытую не закрыть: одна из
- * двух открыта всегда. На шагах глубже первого перед заголовком — стрелка
+ * двух открыта всегда. На шагах глубже первого перед заголовком - стрелка
  * назад.
  *
  * Строки закрытой двери снимаются, как только она свернулась: иначе на
  * странице два поля пароля сразу, и менеджер паролей волен заполнить
- * спрятанное. Пока сворачивается — `inert`, ни фокуса, ни ввода.
+ * спрятанное. Пока сворачивается - `inert`, ни фокуса, ни ввода.
  */
 function Door({
   title,
@@ -547,7 +693,7 @@ function Door({
   children: ReactNode;
 }) {
   const [present, setPresent] = useState(open);
-  // Открылась — строки нужны в этом же кадре, а не после эффекта: иначе
+  // Открылась - строки нужны в этом же кадре, а не после эффекта: иначе
   // фокус в первое поле некуда поставить.
   if (open && !present) setPresent(true);
   useEffect(() => {
@@ -575,7 +721,7 @@ function Door({
               if (!open) onOpen();
             }}
           >
-            {/* Текст под SplitText на месте не меняется — новый заголовок новым элементом. */}
+            {/* Текст под SplitText на месте не меняется - новый заголовок новым элементом. */}
             <SplitReveal key={title} by="words" duration={0.8}>
               {title}
             </SplitReveal>
@@ -590,8 +736,8 @@ function Door({
 }
 
 /**
- * Строка книги: подпись на полях, значение на линейке, справа — короткое
- * («Забыли?», «от 8 символов», «Изменить»). Отказ — под значением, цветом.
+ * Строка книги: подпись на полях, значение на линейке, справа - короткое
+ * («Забыли?», «от 8 символов», «Изменить»). Отказ - под значением, цветом.
  */
 function Row({
   label,
@@ -632,7 +778,7 @@ function Row({
   );
 }
 
-/** Главное действие — плита от вертикали значений до края, со стрелкой. */
+/** Главное действие - плита от вертикали значений до края, со стрелкой. */
 function Go({ busy, disabled, children }: { busy: boolean; disabled?: boolean; children: ReactNode }) {
   return (
     <button type="submit" className="auth-go" disabled={busy || disabled} aria-busy={busy || undefined}>
@@ -690,9 +836,12 @@ function PasswordInput({
  *
  * Стоит между входом и разделом: пока пароль временный, сервер отказывает во
  * всём, кроме чтения и самой смены. Показывать вместо этого раздел, в котором
- * ничего не сохраняется, — худший из вариантов.
+ * ничего не сохраняется, - худший из вариантов.
+ *
+ * «Выйти» - с 01.10.2026: до того уйти с экрана можно было только очисткой
+ * cookie (вошли не той учёткой, компьютер общий, временный пароль не помнят).
  */
-export function PasswordChangeGate({ onDone }: { onDone: () => void }) {
+export function PasswordChangeGate({ onDone, onLogout }: { onDone: () => void; onLogout: () => void }) {
   const [oldPassword, setOld] = useState("");
   const [newPassword, setNew] = useState("");
   const [busy, setBusy] = useState(false);
@@ -744,6 +893,10 @@ export function PasswordChangeGate({ onDone }: { onDone: () => void }) {
                   </p>
                 ) : null}
                 <Go busy={busy}>Сменить пароль</Go>
+                <button type="button" className="auth-more" onClick={onLogout} disabled={busy}>
+                  Выйти
+                  <Arrow />
+                </button>
               </form>
             </div>
           </div>
@@ -758,7 +911,7 @@ export function PasswordChangeGate({ onDone }: { onDone: () => void }) {
  *
  * Не афишей: следом почти всегда идёт форма входа, и афиша, собранная дважды
  * за полсекунды (сначала здесь, потом в форме), читалась бы как рывок.
- * Подпись проявляется с задержкой — при обычной проверке её не видно вовсе.
+ * Подпись проявляется с задержкой - при обычной проверке её не видно вовсе.
  */
 export function AuthLoading() {
   return <AuthWait>Проверяем доступ…</AuthWait>;

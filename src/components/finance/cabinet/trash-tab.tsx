@@ -1,22 +1,22 @@
 "use client";
 
 /**
- * Корзина: всё удалённое в «Финансах» — договоры, операции, юрлица, поля,
+ * Корзина: всё удалённое в «Финансах» - договоры, операции, юрлица, поля,
  * значения списков, листы, отделы, сотрудники, записи справочников.
  *
  * До 27.09.2026 удалённое уходило «в архив», которого нигде не было видно.
- * Здесь его видно целиком: что это, где жило, когда и кем удалено. Вернуть —
+ * Здесь его видно целиком: что это, где жило, когда и кем удалено. Вернуть -
  * «Восстановить» (встаёт туда же, откуда ушло). «Удалить насовсем» стирает из
  * базы; справочник, на который ещё ссылаются живые записи, сервер насовсем не
- * отдаёт и говорит почему — такая причина пишется под строкой.
+ * отдаёт и говорит почему - такая причина пишется под строкой.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { type TrashItem, trashApi } from "@/components/finance/api";
+import { FilterChips } from "@/components/finance/cabinet/filter-chips";
 import { reloadAll } from "@/components/finance/contracts/store";
 import { formatDay, formatTime, plural } from "@/components/finance/format";
 import { ConfirmDialog } from "@/components/finance/ui/confirm-dialog";
-import { SelectLine } from "@/components/finance/ui/select-line";
 
 const ALL = "all";
 
@@ -63,7 +63,7 @@ export function TrashTab() {
     try {
       if (what === "restore") {
         const result = await trashApi.restore(item.kind, item.id);
-        setDone(`«${result.title}» восстановлено — ${result.where}`);
+        setDone(`«${result.title}» восстановлено - ${result.where}`);
       } else {
         await trashApi.purge(item.kind, item.id);
         setDone(`«${item.title}» удалено насовсем`);
@@ -94,12 +94,11 @@ export function TrashTab() {
   return (
     <div className="cab-trash">
       {kinds.length > 2 ? (
-        <SelectLine
+        <FilterChips
           items={kinds.map((item) => ({ key: item.key, label: item.label, count: item.count }))}
           value={kind}
           onChange={setKind}
           label="Что показать"
-          className="cab-people-tabs"
         />
       ) : null}
       {done ? (

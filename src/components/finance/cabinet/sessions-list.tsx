@@ -8,12 +8,22 @@ import { ago, deviceOf, when } from "@/components/finance/cabinet/status";
 /**
  * Сеансы: устройство, адрес, последнее действие, «Завершить» (фронт-план, 6.9).
  *
- * Свои (`employeeId` пуст) — текущий помечен « · этот», и «Завершить» у него
- * нет: выйти можно кнопкой «Выйти». Сеансы сотрудника — у каждого
- * «Завершить», и один «Завершить все» для всех разом (сервер закрывает все
- * сеансы человека в компании).
+ * Свои (`employeeId` пуст) - текущий помечен « · этот», и «Завершить» у него
+ * нет: выйти можно кнопкой «Выйти». Сеансы сотрудника - у каждого
+ * «Завершить», закрывает он только свою строку; все разом - «Завершить
+ * сеансы» в карточке. До 01.10.2026 «Завершить» в строке закрывало все сеансы
+ * человека, и кнопки стояли и у того, кому менять человека нельзя.
  */
-export function SessionsList({ employeeId, onChanged }: { employeeId?: string; onChanged?: () => void }) {
+export function SessionsList({
+  employeeId,
+  canEnd = true,
+  onChanged,
+}: {
+  employeeId?: string;
+  /** Можно ли закрывать чужие сеансы: у сотрудника - если его можно менять. */
+  canEnd?: boolean;
+  onChanged?: () => void;
+}) {
   const [items, setItems] = useState<SessionRow[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -52,25 +62,31 @@ export function SessionsList({ employeeId, onChanged }: { employeeId?: string; o
   const others = items.filter((item) => !item.current);
   return (
     <div className="cab-list">
+      <div className="cab-row cab-session cab-list-head">
+        <span className="eyebrow">Устройство</span>
+        <span className="eyebrow">Адрес</span>
+        <span className="eyebrow">Когда</span>
+        <span />
+      </div>
       {items.map((item) => (
         <div key={item.id} className="cab-row cab-session">
           <span className="cab-row-main">
             {deviceOf(item.user_agent)}
             {item.current ? <span className="fin-soft"> · этот</span> : null}
           </span>
-          <span className="fin-mono fin-soft cab-session-ip">{item.ip || "—"}</span>
+          <span className="fin-mono fin-soft cab-session-ip">{item.ip || "-"}</span>
           <span className="cab-row-note fin-soft">
             {item.last_seen_at ? `последнее действие ${ago(item.last_seen_at)}` : `вход ${when(item.created_at)}`}
           </span>
           <span className="cab-row-act">
-            {item.current ? null : (
+            {item.current || !canEnd ? null : (
               <button
                 type="button"
                 className="btn-ghost btn-sm"
                 disabled={busy !== null}
                 onClick={() =>
                   run(item.id, () =>
-                    employeeId ? peopleApi.employees.endSessions(employeeId) : financeApi.revokeSession(item.id),
+                    employeeId ? peopleApi.employees.endSession(employeeId, item.id) : financeApi.revokeSession(item.id),
                   )
                 }
               >

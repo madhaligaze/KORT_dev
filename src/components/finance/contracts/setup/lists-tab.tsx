@@ -1,26 +1,28 @@
 "use client";
 
 /**
- * «Списки»: значения статуса, вида, предмета, хозяйственного смысла и своих
- * полей-списков — со смыслом, который за ними стоит.
+ * Значения поля-списка - статуса, вида, предмета, хозяйственного смысла и
+ * своих полей-списков - со смыслом, который за ними стоит. С 28.09.2026 не
+ * отдельная вкладка «Списки», а раскрытие поля во вкладке «Поля»: вкладок было
+ * две на одно и то же, и было непонятно, где что править.
  *
- * Смысл — то, что система делает со значением: у статуса фаза («действует»,
- * «расторгнут») или «передача бухгалтеру»; у вида и предмета — начисление,
+ * Смысл - то, что система делает со значением: у статуса фаза («действует»,
+ * «расторгнут») или «передача бухгалтеру»; у вида и предмета - начисление,
  * хозяйственный смысл и подписи сторон; у своего значения хозяйственного
- * смысла — к какому из четырёх системных оно относится. Статус без смысла
+ * смысла - к какому из четырёх системных оно относится. Статус без смысла
  * набран розой: у договоров с ним горит замечание «статус без смысла», и это
  * отказ, а не оформление.
  *
  * Что можно убрать, решает сервер, а экран показывает его отказ у действия:
  * значение системного списка, стоящее в договорах, в архив не уходит (его
  * сводят с другим); базовые четыре смысла не убираются, не меняют смысл и не
- * сводятся в другое. Значение своего списка уходит в архив свободно — подпись
+ * сводятся в другое. Значение своего списка уходит в архив свободно - подпись
  * в договорах держится `archived_values` схемы.
  *
- * «Похоже на …» — двойник, найденный сервером («Абонентское обслуживаниее»
+ * «Похоже на …» - двойник, найденный сервером («Абонентское обслуживаниее»
  * рядом с «Абонентское обслуживание»): в «списке или своём» новое значение
- * заводится из напечатанного, и опечатка делит отчёт надвое. Свести — тем же
- * сведением, что по отметкам; «разные» — пара больше не подсказывается.
+ * заводится из напечатанного, и опечатка делит отчёт надвое. Свести - тем же
+ * сведением, что по отметкам; «разные» - пара больше не подсказывается.
  */
 import { useMemo, useState } from "react";
 
@@ -30,6 +32,7 @@ import { plural } from "@/components/finance/format";
 import { ConfirmDialog } from "@/components/finance/ui/confirm-dialog";
 import { InlineText } from "@/components/finance/contracts/setup/inline-text";
 import { ChoicePop, type PopOption } from "@/components/finance/contracts/setup/popover";
+import { tip } from "@/components/finance/contracts/setup/tip";
 import { useSetupAction, type SetupAction } from "@/components/finance/contracts/setup/use-setup-action";
 import { useSessionState } from "@/components/session-state";
 import {
@@ -54,58 +57,37 @@ function contractsWord(count: number): string {
   return `${count} ${plural(count, "договоре", "договорах", "договорах")}`;
 }
 
-export function ListsTab() {
-  const schema = useRegistry((s) => s.schema);
-  // Выбранный список переживает перезагрузку (`session-state.tsx`).
-  const [current, setCurrent] = useSessionState("setup.list", "status");
-
-  const listFields = useMemo(() => {
-    if (!schema) return [] as RegistryField[];
-    const system = SYSTEM_LISTS.map((key) => schema.fields.find((item) => item.key === key)).filter(
-      (item): item is RegistryField => !!item,
-    );
-    const own = schema.fields
-      .filter((item) => !item.system && (item.type === "list" || item.type === "multi_list"))
-      .sort((a, b) => a.position - b.position);
-    return [...system, ...own];
-  }, [schema]);
-
-  if (!schema) return null;
-  const field = listFields.find((item) => item.key === current) ?? listFields[0];
-
-  return (
-    <div className="setup-split">
-      <nav className="setup-side" aria-label="Списки">
-        {listFields.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            className="setup-side-item"
-            aria-current={item.key === field?.key ? "true" : undefined}
-            onClick={() => setCurrent(item.key)}
-          >
-            <span className="setup-side-title">{item.title}</span>
-            <span className="setup-side-count">
-              {schema.lists[item.key]?.length ?? 0}
-              {twins(schema.lists[item.key]) ? ` · похожих ${twins(schema.lists[item.key])}` : ""}
-            </span>
-          </button>
-        ))}
-      </nav>
-      {field ? <ValuesPane key={field.key} field={field} /> : null}
-    </div>
-  );
+/** Поле со своими значениями: системные четыре и свои поля-списки. */
+export function isListField(field: RegistryField): boolean {
+  return SYSTEM_LISTS.includes(field.key) || (!field.system && (field.type === "list" || field.type === "multi_list"));
 }
 
-function twins(values: ListValue[] | undefined): number {
+/** Сколько значений списка похожи на другое - возможные двойники. */
+export function twins(values: ListValue[] | undefined): number {
   return (values ?? []).filter((item) => item.similar).length;
 }
+
+/** Сколько значений статуса без смысла - у договоров с ними горит замечание. */
+export function unmeant(field: RegistryField, values: ListValue[] | undefined): number {
+  if (field.key === "status") return (values ?? []).filter((item) => !item.meaning.phase && !item.meaning.handover).length;
+  if (field.key === "economic_role") return (values ?? []).filter((item) => !item.meaning.system).length;
+  return 0;
+}
+
+const HEAD_TIPS: Record<string, string> = {
+  Значение: "Как значение написано в листе и карточке. Щёлкните, чтобы переименовать - в договорах подпись сменится сама.",
+  Смысл: "Что система делает с договором в этом статусе: считает ли его действующим, исполненным, расторгнутым. Статус без смысла горит замечанием.",
+  Стороны: "Как подписаны стороны у договоров этого вида: «Арендодатель → Арендатор» вместо «Исполнитель → Заказчик».",
+  Начисление: "Как считать деньги по договору: в месяц, всей суммой или по условию.",
+  "Системный смысл": "К какому из четырёх смыслов относится значение: выручка, расход, финансирование, внутри группы. На нём держатся отчёты.",
+  "В договорах": "Сколько договоров сейчас стоят с этим значением.",
+};
 
 type Ask =
   | { kind: "merge"; keep: ListValue; drop: ListValue; count: number }
   | { kind: "archive"; value: ListValue; count: number };
 
-function ValuesPane({ field }: { field: RegistryField }) {
+export function ValuesPane({ field }: { field: RegistryField }) {
   const schema = useRegistry((s) => s.schema);
   const byId = useRegistry((s) => s.byId);
   const action = useSetupAction();
@@ -124,7 +106,7 @@ function ValuesPane({ field }: { field: RegistryField }) {
   // Четыре базовых значения хозяйственного смысла сервер не даёт убрать,
   // перевести на другой смысл или свести в другое (`setup._base_economic`:
   // первое по порядку значение с каждым системным смыслом). Здесь это знание
-  // нужно только чтобы не открывать диалог «В архив?» ради заведомого отказа —
+  // нужно только чтобы не открывать диалог «В архив?» ради заведомого отказа -
   // сам отказ и его текст приходят с сервера.
   const protectedIds = useMemo(() => {
     if (shape !== "economic") return new Set<string>();
@@ -142,8 +124,13 @@ function ValuesPane({ field }: { field: RegistryField }) {
 
   const pickedValues = picked.map((id) => values.find((item) => item.id === id)).filter((item): item is ListValue => !!item);
 
+  /** Смысл значения; «Вернуть» ставит прежний смысл целиком. */
   const setMeaning = (value: ListValue, meaning: ListValue["meaning"], slot: string) => {
-    void action.run(`${slot}:${value.id}`, () => contractsApi.setup.updateValue(value.id, { meaning }));
+    const previous = value.meaning;
+    void action.run(`${slot}:${value.id}`, () => contractsApi.setup.updateValue(value.id, { meaning }), "schema", {
+      text: `Смысл «${value.value}» изменён`,
+      revert: () => contractsApi.setup.updateValue(value.id, { meaning: previous }),
+    });
   };
 
   const add = async () => {
@@ -155,7 +142,10 @@ function ValuesPane({ field }: { field: RegistryField }) {
       return;
     }
     const meaning = shape === "economic" ? { system: draftSystem } : undefined;
-    const ok = await action.run("add", () => contractsApi.setup.addValue(field.key, clean, meaning));
+    const ok = await action.run("add", () => contractsApi.setup.addValue(field.key, clean, meaning), "schema", (made) => ({
+      text: `«${clean}» добавлено в «${field.title}»`,
+      revert: () => contractsApi.setup.updateValue(made.id, { archived: true }),
+    }));
     if (ok) {
       setDraft("");
       setDraftSystem("");
@@ -172,7 +162,7 @@ function ValuesPane({ field }: { field: RegistryField }) {
   ];
   const billingOptions: PopOption[] = [
     ...(schema?.billing_kinds ?? Object.keys(BILLING_WORDS)).map((kind) => ({ value: kind, label: BILLING_WORDS[kind] ?? kind })),
-    { value: "", label: "—" },
+    { value: "", label: "-" },
   ];
   const economicOptions: PopOption[] = (schema?.economic_roles ?? Object.keys(ECONOMIC_WORDS)).map((role) => ({
     value: role,
@@ -181,19 +171,19 @@ function ValuesPane({ field }: { field: RegistryField }) {
 
   return (
     <section className="setup-pane" aria-label={field.title}>
-      <div className="setup-vrow setup-vhead" data-shape={shape} aria-hidden="true">
+      <div className="setup-vrow setup-vhead" data-shape={shape}>
         <span />
-        <span className="eyebrow">Значение</span>
-        {shape === "status" ? <span className="eyebrow">Смысл</span> : null}
+        <span className="eyebrow" {...tip(HEAD_TIPS["Значение"])}>Значение</span>
+        {shape === "status" ? <span className="eyebrow" {...tip(HEAD_TIPS["Смысл"])}>Смысл</span> : null}
         {shape === "deal" ? (
           <>
-            <span className="eyebrow">Стороны</span>
-            <span className="eyebrow">Начисление</span>
-            <span className="eyebrow">Смысл</span>
+            <span className="eyebrow" {...tip(HEAD_TIPS["Стороны"])}>Стороны</span>
+            <span className="eyebrow" {...tip(HEAD_TIPS["Начисление"])}>Начисление</span>
+            <span className="eyebrow" {...tip(HEAD_TIPS["Системный смысл"])}>Смысл</span>
           </>
         ) : null}
-        {shape === "economic" ? <span className="eyebrow">Системный смысл</span> : null}
-        <span className="eyebrow setup-num">В договорах</span>
+        {shape === "economic" ? <span className="eyebrow" {...tip(HEAD_TIPS["Системный смысл"])}>Системный смысл</span> : null}
+        <span className="eyebrow setup-num" {...tip(HEAD_TIPS["В договорах"])}>В договорах</span>
         <span />
       </div>
 
@@ -209,7 +199,7 @@ function ValuesPane({ field }: { field: RegistryField }) {
         const roles = value.meaning.roles ?? {};
         return (
           <div key={value.id} className="setup-vrow" data-shape={shape}>
-            <span className="setup-vcheck">
+            <span className="setup-vcheck" {...tip("Отметьте два значения, чтобы свести их в одно: договоры второго получат первое.", "Свести")}>
               <input
                 type="checkbox"
                 aria-label={`Отметить «${value.value}» для сведения`}
@@ -225,7 +215,10 @@ function ValuesPane({ field }: { field: RegistryField }) {
                 label="Значение"
                 trace={action.trace(`name:${value.id}`)}
                 onCommit={(next) =>
-                  void action.run(`name:${value.id}`, () => contractsApi.setup.updateValue(value.id, { value: next }))
+                  void action.run(`name:${value.id}`, () => contractsApi.setup.updateValue(value.id, { value: next }), "schema", {
+                    text: `«${value.value}» теперь «${next}»`,
+                    revert: () => contractsApi.setup.updateValue(value.id, { value: value.value }),
+                  })
                 }
               />
             </span>
@@ -259,10 +252,17 @@ function ValuesPane({ field }: { field: RegistryField }) {
                     label="Первая сторона"
                     trace={action.trace(`roles-executor:${value.id}`)}
                     onCommit={(next) =>
-                      void action.run(`roles-executor:${value.id}`, () =>
-                        contractsApi.setup.updateValue(value.id, {
-                          meaning: { ...value.meaning, roles: { ...roles, executor: next } },
-                        }),
+                      void action.run(
+                        `roles-executor:${value.id}`,
+                        () =>
+                          contractsApi.setup.updateValue(value.id, {
+                            meaning: { ...value.meaning, roles: { ...roles, executor: next } },
+                          }),
+                        "schema",
+                        {
+                          text: `Первая сторона «${value.value}»: «${next || slots.executor}»`,
+                          revert: () => contractsApi.setup.updateValue(value.id, { meaning: value.meaning }),
+                        },
                       )
                     }
                   />
@@ -276,10 +276,17 @@ function ValuesPane({ field }: { field: RegistryField }) {
                     label="Вторая сторона"
                     trace={action.trace(`roles-customer:${value.id}`)}
                     onCommit={(next) =>
-                      void action.run(`roles-customer:${value.id}`, () =>
-                        contractsApi.setup.updateValue(value.id, {
-                          meaning: { ...value.meaning, roles: { ...roles, customer: next } },
-                        }),
+                      void action.run(
+                        `roles-customer:${value.id}`,
+                        () =>
+                          contractsApi.setup.updateValue(value.id, {
+                            meaning: { ...value.meaning, roles: { ...roles, customer: next } },
+                          }),
+                        "schema",
+                        {
+                          text: `Вторая сторона «${value.value}»: «${next || slots.customer}»`,
+                          revert: () => contractsApi.setup.updateValue(value.id, { meaning: value.meaning }),
+                        },
                       )
                     }
                   />
@@ -296,7 +303,7 @@ function ValuesPane({ field }: { field: RegistryField }) {
                 <span className="setup-veconomic" data-label="Смысл">
                   <ChoicePop
                     value={value.meaning.economic_role ?? ""}
-                    options={[...economicOptions, { value: "", label: "—" }]}
+                    options={[...economicOptions, { value: "", label: "-" }]}
                     label={`Хозяйственный смысл «${value.value}»`}
                     disabled={action.busy(`economic:${value.id}`)}
                     onPick={(next) => setMeaning(value, { ...value.meaning, economic_role: next }, "economic")}
@@ -324,10 +331,11 @@ function ValuesPane({ field }: { field: RegistryField }) {
               <button
                 type="button"
                 className="fin-link-btn setup-quiet"
+                {...tip(count > 0 ? "Значение уйдёт из выбора. В договорах, где оно стоит, подпись останется." : "Значение уйдёт в корзину. Вернуть - из корзины в личном кабинете.")}
                 disabled={action.busy(`archive:${value.id}`)}
                 onClick={() => {
                   // Заведомый отказ (базовый смысл, используемое значение
-                  // системного списка) — без диалога: запрос сразу, и под
+                  // системного списка) - без диалога: запрос сразу, и под
                   // строкой встаёт объяснение сервера.
                   if (protectedIds.has(value.id) || (systemList && count > 0)) {
                     void action.run(`archive:${value.id}`, () =>
@@ -352,6 +360,7 @@ function ValuesPane({ field }: { field: RegistryField }) {
                 <button
                   type="button"
                   className="fin-link-btn"
+                  {...tip(`Договоры с «${value.value}» получат «${twin.value}», а «${value.value}» уйдёт из списка.`)}
                   disabled={action.busy("merge")}
                   onClick={() => setAsk({ kind: "merge", keep: twin, drop: value, count })}
                 >
@@ -361,6 +370,7 @@ function ValuesPane({ field }: { field: RegistryField }) {
                 <button
                   type="button"
                   className="fin-link-btn"
+                  {...tip("Это действительно разные значения - пара больше не подсказывается.")}
                   disabled={action.busy(`distinct:${value.id}`)}
                   onClick={() =>
                     void action.run(`distinct:${value.id}`, () => contractsApi.setup.updateValue(value.id, { distinct: twin.id }))
@@ -456,7 +466,7 @@ function ValuesPane({ field }: { field: RegistryField }) {
         text={
           ask?.kind === "archive" && ask.count > 0
             ? `Значение стоит в ${contractsWord(ask.count)}: там его подпись останется, а для выбора его больше не будет.`
-            : "Значение ни в одном договоре не стоит и уйдёт из списка в корзину. Вернуть — из корзины в личном кабинете."
+            : "Значение ни в одном договоре не стоит и уйдёт из списка в корзину. Вернуть - из корзины в личном кабинете."
         }
         confirm="Удалить"
         onCancel={() => setAsk(null)}
@@ -464,7 +474,10 @@ function ValuesPane({ field }: { field: RegistryField }) {
           if (ask?.kind !== "archive") return;
           const { value } = ask;
           setAsk(null);
-          void action.run(`archive:${value.id}`, () => contractsApi.setup.updateValue(value.id, { archived: true }));
+          void action.run(`archive:${value.id}`, () => contractsApi.setup.updateValue(value.id, { archived: true }), "schema", {
+            text: `«${value.value}» удалено из «${field.title}»`,
+            revert: () => contractsApi.setup.updateValue(value.id, { archived: false }),
+          });
         }}
       />
     </section>
@@ -490,7 +503,7 @@ function MergeBar({
       {picked.length === 1 ? (
         <span className="fin-soft">Отметьте второе значение, чтобы свести их в одно.</span>
       ) : picked.length > 2 ? (
-        <span className="fin-soft">Сводятся два значения за раз — отмечено {picked.length}.</span>
+        <span className="fin-soft">Сводятся два значения за раз - отмечено {picked.length}.</span>
       ) : (
         <>
           <span>Свести в одно:</span>
