@@ -546,6 +546,42 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+/**
+ * Файл с сервера - с именем из `Content-Disposition` и отказом словами
+ * сервера, как у `request`. Ссылка `<a download>` отказ сохранила бы файлом.
+ */
+async function requestFile(path: string): Promise<{ blob: Blob; name: string }> {
+  let response: Response;
+  try {
+    response = await fetch(`${API}${path}`, { credentials: "include" });
+  } catch (exc) {
+    if (exc instanceof DOMException && exc.name === "AbortError") throw exc;
+    throw new FinanceApiError(OFFLINE_TEXT, 0);
+  }
+  if (!response.ok) {
+    signal(response.status, path);
+    let message = statusText(response.status);
+    try {
+      const body = await response.json();
+      if (typeof body?.detail === "string") message = body.detail;
+    } catch {
+      /* тело не JSON - оставляем код состояния */
+    }
+    throw new FinanceApiError(message, response.status);
+  }
+  const header = response.headers.get("content-disposition") ?? "";
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header)?.[1];
+  let name = "file";
+  if (encoded) {
+    try {
+      name = decodeURIComponent(encoded);
+    } catch {
+      /* битое имя - остаётся «file» */
+    }
+  }
+  return { blob: await response.blob(), name };
+}
+
 const qs = (params: Record<string, string | number | undefined | null>) => {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -581,10 +617,12 @@ export type InvoiceSide = { total: string; open: string; overdue: string };
 /** Группа невыставленного счёта - по словам книги в колонке «Счет». */
 export type BillGroup = "overdue" | "soon" | "early" | "undated";
 
-/** Строка книги-сводки без галочки «Счет»: договор за месяц (`contracts/bills.py`). */
+/** Строка книги-сводки: договор за месяц (`contracts/bills.py`); `issued` - «Счет» = TRUE. */
 export type Bill = {
+  /** Постоянный адрес карточки: ссылка из канала - `?s=invoices&bill=<id>`. */
+  id: string;
   line: number;
-  group: BillGroup;
+  group: BillGroup | "issued";
   /** Что написано в «Счет» - как есть: «Просрочка более 5 дней». */
   text: string;
   own: string;
@@ -596,10 +634,79 @@ export type Bill = {
   department: string;
   amount: string | null;
   period_from: string | null;
+  period_to: string | null;
   /** «Факт Оплата»: деньги уже пришли - целиком или частью. */
   paid: "" | "paid" | "part";
   status: string;
   note: string;
+  /** Поля счёта - как их показывает книга: «312», «22.10.2026». */
+  bill_no: string;
+  bill_date: string;
+  bill_period: string;
+  /** Как клиент назван в 1С - по этому названию выставляют счёт. */
+  onec_name: string;
+  /** «Дата заключения Договора» - как в книге. */
+  signed_at: string;
+};
+
+/** Что со строкой загруженного шаблона: записать, уже в книге, не заполнена, отказ. */
+export type BillsTemplateStatus = "ready" | "same" | "empty" | "error";
+
+/** Строка загруженного шаблона Excel (`contracts/bill_template.py`): какой это счёт и что с ним делать. */
+export type BillsTemplateRow = {
+  sheet: string;
+  row: number;
+  /** Адрес счёта - для записи `saveBill`; `null` - счёт не узнан. */
+  id: string | null;
+  own: string;
+  customer: string;
+  number: string;
+  month: string;
+  period_from: string | null;
+  period_to: string | null;
+  amount: string | null;
+  status: BillsTemplateStatus;
+  /** Почему строку не записать (`error`). */
+  problem: string;
+  /** Что уже стоит в книге (`same`). */
+  note: string;
+  /** Что записать: № и дата (ISO), если вписаны - «Счет за Период» и комментарий. */
+  values: Partial<Record<BillField, string>>;
+  /** Что дописать, только если в книге пусто: «Счет за Период», как подставляет карточка. */
+  defaults: Partial<Record<BillField, string>>;
+};
+
+export type BillsTemplateRead = {
+  rows: BillsTemplateRow[];
+  counts: Record<BillsTemplateStatus, number>;
+};
+
+/** Поля карточки, которые KORT пишет в книгу юрлица. */
+export type BillField = "bill_no" | "bill_date" | "bill_period" | "note";
+
+/** Строка книги юрлица, где счёт отмечают (`contracts/bill_book.py`). */
+export type BillBook = {
+  place: { book: string; tab: string; row: number; url: string };
+  /** Как поля показывает книга сейчас - их же карточка шлёт назад в `expect`. */
+  fields: Record<BillField, string>;
+  /** «Счет» в книге: TRUE или слова формулы. */
+  state: string;
+  /** Поля, куда писать нельзя, - с причиной. */
+  blocked: Partial<Record<BillField, string>>;
+};
+
+export type BillCard = {
+  bill: Bill;
+  book: BillBook | null;
+  /** Почему книги юрлица нет - карточка открыта, записать нельзя. */
+  problem: string;
+  can_edit: boolean;
+};
+
+export type BillSaved = {
+  book: BillBook;
+  changed: BillField[];
+  warning: string;
 };
 
 export type BillsBoard = {
@@ -612,9 +719,13 @@ export type BillsBoard = {
     error: string;
   } | null;
   items: Bill[];
+  /** Выставленные за прошлый и текущий месяц - свежие первыми. */
+  issued: Bill[];
   counts: (Record<BillGroup, number> & { overdue_total: string; soon_total: string }) | null;
   /** Канал бота счетов, если он читает книгу этой компании; `hours` - часы напоминаний по Астане. */
   channel: { title: string; url: string; hours: number[] } | null;
+  /** Право «Счета: правка» - загрузить шаблон и записать из него в книги. */
+  can_edit?: boolean;
 };
 
 export type Recurrence = {
@@ -809,6 +920,28 @@ export const financeApi = {
   voidInvoice: (id: string) => request<{ ok: boolean }>(`/invoices/${id}/void`, { method: "POST" }),
   /** «Не выставлены» - из книги-сводки; `refresh` - «Обновить». */
   bills: (refresh = false) => request<BillsBoard>(`/bills${refresh ? "?refresh=true" : ""}`),
+  bill: (id: string) => request<BillCard>(`/bills/${encodeURIComponent(id)}`),
+  /**
+   * Записать поля счёта в книгу юрлица. `expect` - какими поля показала
+   * карточка (иначе отказ, а не затёртая чужая правка); `defaults` - что
+   * дописать, только если в книге пусто.
+   */
+  saveBill: (
+    id: string,
+    body: {
+      values: Partial<Record<BillField, string>>;
+      expect: Partial<Record<BillField, string>>;
+      defaults?: Partial<Record<BillField, string>>;
+    },
+  ) => request<BillSaved>(`/bills/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify(body) }),
+  /** Шаблон счетов Excel - файлом: счета постов бота, «№ Счета» и дату заполнить. */
+  billsTemplate: () => requestFile("/bills/template"),
+  /** Заполненный шаблон - в строки: что с каждой делать. В книги не пишет. */
+  readBillsTemplate: (file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    return request<BillsTemplateRead>("/bills/template", { method: "POST", body });
+  },
 
   // ── Повторяющиеся операции ──
   recurrences: () => request<{ items: Recurrence[]; horizon_days: number }>("/recurrences"),
