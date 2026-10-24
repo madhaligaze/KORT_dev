@@ -4947,3 +4947,171 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
   .sup-strip-text { display: none; }
   .sup-strip-main { justify-content: space-between; }
 }
+
+/* ─── «Участники» (ядро, фаза 1): список, двойники, БИН из источников, досье ───
+   Язык реестра: строки с чертой снизу, номер - Martian, выбранное - весом и
+   рамкой тушью, не заливкой. Цвет - только отказу (CLAUDE.md). */
+.party-screen { display: flex; flex-direction: column; gap: 0.75rem; }
+.party-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
+/* `.creg-search` у реестра прижат вправо и на узком окне уходит третьим рядом -
+   здесь поиск главный: первым и растёт. */
+.creg-search.party-search { flex: 1 1 22rem; max-width: 34rem; margin: 0; order: 0; }
+.party-bar > .btn-ghost { margin-left: auto; }
+.party-harvest, .party-bar-error { flex: 1 1 100%; }
+.party-error { margin: 0; font-size: 0.8125rem; color: var(--fin-fail); }
+
+.party-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--fin-line); transition: opacity 0.2s ease; }
+.party-list[aria-busy="true"] { opacity: 0.55; }
+.party-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 11.5rem 7.5rem;
+  align-items: center;
+  column-gap: 1rem;
+  width: 100%;
+  min-height: var(--fin-row-h);
+  padding: 0.55rem 0.75rem;
+  border: none;
+  border-bottom: 1px solid var(--fin-line);
+  background: none;
+  color: var(--fin-text);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+}
+.party-row:hover, .party-row:focus-visible { background: var(--fin-hover); outline: none; }
+.party-main { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.party-name { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 0.6rem; font-size: 0.875rem; font-weight: 450; overflow-wrap: anywhere; }
+.party-sub { font-size: 0.75rem; color: var(--fin-text-soft); overflow-wrap: anywhere; }
+.party-sub[data-empty="true"] { color: var(--text-muted); }
+.party-bin {
+  font-family: var(--font-martian), ui-monospace, monospace;
+  font-variation-settings: "wdth" 87.5;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.party-bin small { font-family: var(--font-geologica), ui-sans-serif, system-ui, sans-serif; font-size: 0.6875rem; color: var(--text-muted); }
+.party-count { text-align: right; color: var(--fin-text-soft); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.party-more { margin: 0.25rem 0.75rem 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
+@media (max-width: 639px) {
+  .party-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.25rem; padding: 0.6rem 0.25rem; }
+  .party-main { grid-column: 1 / -1; }
+}
+
+/* Двойники: участок с волосяной рамкой на группу; остающийся - весом имени. */
+.party-twins { display: grid; gap: 0.75rem; }
+.party-twin { padding: 0.75rem 1rem 0.875rem; border: 1px solid var(--fin-line); border-radius: var(--radius-card); }
+.party-twin-why { margin: 0 0 0.25rem; font-size: 0.75rem; color: var(--fin-text-soft); }
+.party-twin-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 9.5rem 11rem 6.5rem;
+  align-items: baseline;
+  column-gap: 1rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--fin-line);
+  font-size: 0.8125rem;
+}
+.party-twin-name { text-align: left; overflow-wrap: anywhere; }
+.party-twin-row[data-keep="true"] .party-twin-name { font-weight: 600; }
+.party-keep {
+  justify-self: end;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--fin-text-soft);
+  cursor: pointer;
+  text-decoration: underline dotted var(--fin-dotted);
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
+.party-keep[aria-pressed="true"] { color: var(--fin-text); font-weight: 600; text-decoration: none; cursor: default; }
+.party-keep:disabled { cursor: default; }
+.party-twin-acts { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+@media (max-width: 639px) {
+  .party-twin { padding: 0.75rem; }
+  .party-twin-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.2rem; }
+  .party-twin-name { grid-column: 1 / -1; }
+  .party-twin-row .party-count { text-align: left; }
+}
+
+/* БИН из источников: номер, откуда он, «Записать · Не тот». */
+.party-proposals .card-section { margin-top: 0.5rem; }
+.party-proposal { padding: 0.5rem 0; border-bottom: 1px solid var(--fin-line); font-size: 0.8125rem; }
+.party-proposal-name { font-size: 0.875rem; font-weight: 450; text-align: left; }
+.party-proposal-number { display: grid; grid-template-columns: 11.5rem minmax(0, 1fr) auto; align-items: baseline; column-gap: 1rem; margin-top: 0.35rem; }
+.party-evidence { font-size: 0.75rem; color: var(--fin-text-soft); overflow-wrap: anywhere; }
+.party-row-acts { display: inline-flex; align-items: baseline; justify-content: flex-end; gap: 0.6rem; white-space: nowrap; }
+@media (max-width: 639px) {
+  .party-proposal-number { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.2rem; }
+  .party-proposal-number .party-evidence { grid-column: 1 / -1; grid-row: 2; }
+}
+
+/* Сведённое за этот заход - строкой с «Вернуть». */
+.party-done { display: grid; gap: 0.25rem; font-size: 0.8125rem; color: var(--fin-text); }
+.party-done p { margin: 0; }
+.party-harvest { display: grid; gap: 0.75rem; padding: 0.875rem 1rem; }
+.party-harvest-acts { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+/* Досье. `.ifield-value` задаёт `font: inherit` позже `.fin-mono` и снимал бы
+   моноширинный шрифт - у БИН свой класс ниже обоих. */
+.party-card-full { margin: 0.5rem 0 0; font-size: 0.875rem; color: var(--fin-text-soft); }
+.ifield-value.party-mono, .ifield-input.party-mono {
+  font-family: var(--font-martian), ui-monospace, monospace;
+  font-variation-settings: "wdth" 87.5;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.875rem;
+}
+.party-found { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.75rem; }
+.party-found .party-evidence { flex-basis: 100%; }
+.party-issue-error { flex-basis: 100%; font-size: 0.75rem; }
+.party-alias { overflow-wrap: anywhere; }
+.party-none { margin: 0.25rem 0 0; font-size: 0.8125rem; color: var(--text-muted); }
+.party-group + .party-group { margin-top: 0.875rem; }
+.party-group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; padding: 0.25rem 0; font-size: 0.875rem; font-weight: 500; }
+.party-group-full { font-size: 0.75rem; font-weight: 400; color: var(--fin-text-soft); }
+.party-group-count { margin-left: auto; font-size: 0.75rem; font-weight: 400; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.party-contract {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr) 7.5rem 8.5rem;
+  grid-template-areas: "num what status money";
+  align-items: baseline;
+  column-gap: 0.75rem;
+  width: 100%;
+  padding: 0.45rem 0.25rem;
+  border: none;
+  border-bottom: 1px solid var(--fin-line);
+  background: none;
+  color: var(--fin-text);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+}
+.party-contract:hover, .party-contract:focus-visible { background: var(--fin-hover); outline: none; }
+.party-contract > * { min-width: 0; overflow-wrap: anywhere; }
+.party-contract > .creg-num { grid-area: num; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.party-contract > .party-contract-what { grid-area: what; display: flex; flex-direction: column; gap: 0.1rem; }
+.party-contract > .creg-status { grid-area: status; }
+.party-contract > .creg-money { grid-area: money; }
+.party-contract-who { font-weight: 450; }
+.party-contract-what .annot { margin-left: 0.5rem; }
+/* Телефон: номер и состояние - первой строкой, что и сумма - второй. */
+@media (max-width: 639px) {
+  .party-contract { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "num status" "what money"; row-gap: 0.2rem; }
+}
+.party-line { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 1rem; padding: 0.45rem 0; border-bottom: 1px solid var(--fin-line); font-size: 0.8125rem; }
+.party-line > span:first-child { overflow-wrap: anywhere; }
+.party-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-top: 0.75rem; }
+.party-form .input-field { width: auto; flex: 1 1 14rem; padding: 0.45rem 0.7rem; font-size: 0.8125rem; }
+.party-form .choice { flex: 0 1 14.5rem; }
+.party-form .choice > select.input-field { width: 100%; }
+.party-form .input-field.party-date { flex: 0 0 8.5rem; }
+.party-form-acts { display: inline-flex; align-items: center; gap: 0.75rem; }
+.party-form-error { flex-basis: 100%; margin: 0; }
+.party-check { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8125rem; color: var(--fin-text); white-space: nowrap; cursor: pointer; }
+.party-check input { margin: 0; accent-color: var(--fin-text); }
+.party-check:has(input:disabled) { color: var(--text-muted); cursor: default; }

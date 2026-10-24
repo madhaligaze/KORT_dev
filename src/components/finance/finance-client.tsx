@@ -31,6 +31,7 @@ import {
   ScaleIcon,
   ListIcon,
   OneoffIcon,
+  PartiesIcon,
   RefreshIcon,
   TableIcon,
   TargetIcon,
@@ -87,6 +88,8 @@ import { DesktopBars } from "@/components/desktop/desktop-bars";
 import { OneoffStaff, SummaryLine } from "@/components/finance/contracts/oneoff";
 import { RegistryImport } from "@/components/finance/contracts/import/registry-import";
 import { RegistrySetup } from "@/components/finance/contracts/setup/registry-setup";
+import { PARTICIPANT_EVENT } from "@/components/finance/core/open";
+import { ParticipantsScreen } from "@/components/finance/core/participants";
 import { readParam, writeParams } from "@/components/finance/address";
 import { forgetLooks } from "@/components/finance/look-store";
 import { habitsOwner, pickMode, preferOf, useModeTracker } from "@/components/finance/habits";
@@ -234,6 +237,7 @@ type Section =
   | "contracts-oneoff-cards"
   | "contracts-import"
   | "contracts-setup"
+  | "participants"
   | "journal"
   | "table"
   | "calendar"
@@ -288,9 +292,12 @@ const GROUPS: { title: string; items: SectionItem[] }[] = [
     // свой реестр со своими листами (28.09.2026: разделить «Реестр ·
     // Таблица · Разовые» на два пункта). Подпись второго - из правила книги
     // («отдел - ЮО»), см. `bookTitle`.
+    // «Участники» - стороны договоров одним списком: клиент по любому
+    // написанию и БИН, его договоры у всех наших юрлиц (ядро, фаза 1).
     items: [
       { key: "contracts", title: "Реестр", icon: ContractIcon, resource: "contracts" },
       { key: "contracts-oneoff-cards", title: "Разовые", icon: OneoffIcon, resource: "contracts" },
+      { key: "participants", title: "Участники", icon: PartiesIcon, resource: "contracts" },
     ],
   },
   {
@@ -644,7 +651,23 @@ export function FinanceClient() {
     writeMode(key);
     // Запись открытого договора, лист и вкладки кабинета принадлежат своему
     // экрану - при смене раздела они уходят из адреса.
-    writeParams({ s: key, id: null, v: null, t: null, d: null, bill: null }, true);
+    writeParams({ s: key, id: null, v: null, t: null, d: null, bill: null, p: null }, true);
+  }, []);
+  /**
+   * Досье участника из любого места - из стороны в карточке договора:
+   * раздел «Участники» с досье по `p`. Назад - туда, откуда пришли (запись
+   * истории новая).
+   */
+  useEffect(() => {
+    const onParticipant = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      if (!id) return;
+      setSectionState("participants");
+      writeLast("participants");
+      writeParams({ s: "participants", p: id, id: null, v: null, t: null, d: null, bill: null }, true);
+    };
+    window.addEventListener(PARTICIPANT_EVENT, onParticipant);
+    return () => window.removeEventListener(PARTICIPANT_EVENT, onParticipant);
   }, []);
   /**
    * «Карточки · Таблица»: явный выбор - голос в привычку учётки и выбор этой
@@ -686,7 +709,7 @@ export function FinanceClient() {
     if (back) setSection(back);
     else {
       setSectionState(null);
-      writeParams({ s: null, id: null, v: null, t: null, d: null, bill: null }, true);
+      writeParams({ s: null, id: null, v: null, t: null, d: null, bill: null, p: null }, true);
     }
   }, [cameFrom, visible, home, setSection]);
   /**
@@ -700,7 +723,7 @@ export function FinanceClient() {
   }, [section, home, leaveCabinet, setSection]);
   const openContract = useCallback((id: string) => {
     setSectionState("contracts");
-    writeParams({ s: "contracts", id, v: null, t: null, d: null, bill: null }, true);
+    writeParams({ s: "contracts", id, v: null, t: null, d: null, bill: null, p: null }, true);
   }, []);
   const [pending, setPending] = useState(0);
   useEffect(() => {
@@ -906,7 +929,7 @@ export function FinanceClient() {
     // главным экраном (28.09.2026). Раздел и адрес - с чистого листа.
     setSectionState(null);
     setCameFrom(null);
-    writeParams({ s: null, id: null, v: null, t: null, d: null, bill: null }, false);
+    writeParams({ s: null, id: null, v: null, t: null, d: null, bill: null, p: null }, false);
     setMe(null);
     window.setTimeout(dropAllSessions, 300);
   }, [setMe]);
@@ -1020,6 +1043,8 @@ export function FinanceClient() {
         );
       case "contracts-setup":
         return <SetupScreen me={me} onBack={() => setSection(setupBack)} backLabel={setupBackTitle} />;
+      case "participants":
+        return <ParticipantsScreen me={me} />;
       default:
         break;
     }

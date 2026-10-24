@@ -2174,6 +2174,171 @@ export const supportApi = {
   sendUrl: `${API}/support/messages`,
 };
 
+// ── Ядро: участники, наши юрлица, налоговые годы ────────────────────────────
+
+export type ParticipantKind = "org" | "person" | "ip" | "";
+export type AliasSource = "registry" | "bank" | "1c" | "manual";
+
+export type ParticipantHit = {
+  id: string;
+  name: string;
+  full_name: string;
+  bin: string;
+  kind: ParticipantKind;
+  /** Код нашего юрлица, если участник - наше юрлицо. */
+  own: string | null;
+  contracts: number;
+  /** У нашего юрлица - режим на сегодня; `null` - режим не записан. */
+  regime?: TaxPeriod | null;
+};
+
+export type ParticipantsShow = "all" | "own" | "no_bin";
+
+export type ParticipantsOverview = {
+  all: number;
+  own: number;
+  no_bin: number;
+  twins: number;
+  proposals: number;
+  /** Прочитана ли книга-сводка: без неё БИН из строк банка ещё не предложены. */
+  book: boolean;
+  access: { edit: boolean; setup: boolean };
+};
+
+export type ParticipantAlias = { id: string; name: string; source: AliasSource; source_title: string };
+
+export type DossierContract = {
+  id: string;
+  number: string;
+  signed_at: string | null;
+  role: "customer" | "executor";
+  type: { id: string; value: string; meaning: Record<string, unknown> } | null;
+  subject: { id: string; value: string; meaning: Record<string, unknown> } | null;
+  status: { id: string; value: string; meaning: { phase?: string } & Record<string, unknown> } | null;
+  billing: string;
+  amount: string | null;
+  end_date: string | null;
+  departments: string[];
+};
+
+export type DossierGroup = {
+  party_id: string | null;
+  name: string;
+  full_name: string;
+  own: boolean;
+  contracts: DossierContract[];
+};
+
+export type TaxPeriod = {
+  id: string;
+  valid_from: string;
+  regime: "general" | "simplified" | "other";
+  regime_title?: string;
+  vat_payer: boolean;
+  note: string;
+};
+
+export type BinProposal = {
+  party_id: string;
+  name: string;
+  numbers: { bin: string; kind: ParticipantKind; evidence: string[]; taken_by: { id: string; name: string } | null }[];
+  clear: boolean;
+};
+
+export type TwinGroup = {
+  key: string;
+  why: string[];
+  keep: string;
+  members: { id: string; name: string; bin: string; own: boolean; contracts: number; aliases: number }[];
+};
+
+export type Dossier = {
+  id: string;
+  name: string;
+  full_name: string;
+  bin: string;
+  kind: ParticipantKind;
+  role: string;
+  aliases: ParticipantAlias[];
+  groups: DossierGroup[];
+  contracts: number;
+  issues: { code: string; text: string; group?: TwinGroup }[];
+  proposals: BinProposal[];
+  own: {
+    code: string;
+    full_name: string;
+    archived: boolean;
+    tax: TaxPeriod[];
+    accounts: { id: string; name: string; number: string }[];
+    bases: { id: string; title: string; url: string; state: string }[];
+  } | null;
+  /** Участник сведён в другого - досье того. */
+  merged_into?: string;
+};
+
+export type HarvestResult = {
+  rows: number;
+  matched: number;
+  aliases: Partial<Record<AliasSource, number>>;
+  codes: { entity_id: string; name: string; code: string; rows: number; how: "name" | "rows" | "majority" }[];
+  conflicts: { code: string; entities: { id: string; name: string; rows: number }[] }[];
+  applied: boolean;
+};
+
+export type TaxYear = {
+  year: number;
+  mrp: string;
+  threshold_mrp: number;
+  threshold: string;
+  vat_rate: string;
+  forecast: boolean;
+  source: string;
+};
+
+export const coreApi = {
+  list: (q: string, show: ParticipantsShow = "all", init?: RequestInit) =>
+    request<{ items: ParticipantHit[]; total: number }>(
+      `/core/participants?q=${encodeURIComponent(q)}&show=${show}`,
+      init,
+    ),
+  overview: () => request<ParticipantsOverview>("/core/participants-overview"),
+  duplicates: () => request<{ groups: TwinGroup[] }>("/core/participants/duplicates"),
+  proposals: () => request<{ items: BinProposal[]; book: boolean }>("/core/participants/proposals"),
+  dossier: (id: string) => request<Dossier>(`/core/participants/${id}`),
+  setBin: (id: string, bin: string, source: AliasSource = "manual") =>
+    request<{ id: string; bin: string; kind: ParticipantKind }>(`/core/participants/${id}/bin`, {
+      method: "PUT",
+      body: JSON.stringify({ bin, source }),
+    }),
+  rejectBin: (id: string, bin: string) =>
+    request<{ ok: boolean }>(`/core/participants/${id}/bin/reject`, { method: "POST", body: JSON.stringify({ bin }) }),
+  update: (id: string, body: { full_name?: string }) =>
+    request<{ id: string; full_name: string }>(`/core/participants/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  addAlias: (id: string, name: string, source: AliasSource = "manual") =>
+    request<{ aliases: ParticipantAlias[] }>(`/core/participants/${id}/aliases`, {
+      method: "POST",
+      body: JSON.stringify({ name, source }),
+    }),
+  removeAlias: (id: string, aliasId: string) =>
+    request<{ aliases: ParticipantAlias[] }>(`/core/participants/${id}/aliases/${aliasId}`, { method: "DELETE" }),
+  merge: (keep: string, drop: string) =>
+    request<{ keep: string; moved: Record<string, number>; point: string; title: string }>("/core/participants/merge", {
+      method: "POST",
+      body: JSON.stringify({ keep, drop }),
+    }),
+  distinct: (ids: string[]) =>
+    request<{ ok: boolean }>("/core/participants/distinct", { method: "POST", body: JSON.stringify({ ids }) }),
+  harvestPreview: () => request<HarvestResult>("/core/participants-harvest"),
+  harvestApply: () => request<HarvestResult>("/core/participants-harvest", { method: "POST" }),
+  addTaxPeriod: (entityId: string, body: { valid_from: string; regime: TaxPeriod["regime"]; vat_payer: boolean; note?: string }) =>
+    request<{ periods: TaxPeriod[] }>(`/core/entities/${entityId}/tax`, { method: "POST", body: JSON.stringify(body) }),
+  removeTaxPeriod: (entityId: string, periodId: string) =>
+    request<{ periods: TaxPeriod[] }>(`/core/entities/${entityId}/tax/${periodId}`, { method: "DELETE" }),
+  taxYears: () => request<{ items: TaxYear[] }>("/core/tax-years"),
+  setTaxYear: (year: number, body: { mrp: string; threshold_mrp: number; vat_rate: string; forecast?: boolean; note?: string }) =>
+    request<TaxYear>(`/core/tax-years/${year}`, { method: "PUT", body: JSON.stringify(body) }),
+};
+
 /**
  * Привычки учётки (`app/finance/habits.py`): какой вид раздела у человека по
  * умолчанию. `keepalive` - отчёт при закрытии вкладки долетает и после неё.

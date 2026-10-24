@@ -50,6 +50,7 @@ import {
   useRegistry,
 } from "@/components/finance/contracts/store";
 import { contractMoney, formatDay, parseDay } from "@/components/finance/format";
+import { openParticipant } from "@/components/finance/core/open";
 import { CardLayer } from "@/components/finance/ui/card-layer";
 import { ConfirmDialog } from "@/components/finance/ui/confirm-dialog";
 import { DateInput } from "@/components/finance/ui/date-picker";
@@ -406,18 +407,28 @@ function PartiesLine({ contractId }: { contractId: string }) {
   const parties = useRegistry((s) => s.parties);
   const schema = useRegistry((s) => s.schema);
   if (!contract) return null;
-  const executor = parties[String(contract.values.executor ?? "")];
-  const customer = parties[String(contract.values.customer ?? "")];
+  const executorId = String(contract.values.executor ?? "");
+  const customerId = String(contract.values.customer ?? "");
+  const executor = parties[executorId];
+  const customer = parties[customerId];
   if (!executor && !customer) return null;
   const roles = roleLabels(contract);
   const sense = economicText(schema, contract);
-  const name = (party: typeof executor) => (party ? (party.own && party.code ? party.code : party.name) : "-");
+  // Сторона - дорога в досье участника: все его договоры у всех наших юрлиц.
+  const name = (id: string, party: typeof executor) =>
+    party ? (
+      <button type="button" className="fin-link-btn" title="Досье участника" onClick={() => openParticipant(id)}>
+        {party.own && party.code ? party.code : party.name}
+      </button>
+    ) : (
+      "-"
+    );
   return (
     <>
       <div className="parties-line">
         <span>
           {!roles.plain ? <small>{roles.executor}</small> : null}
-          {name(executor)}
+          {name(executorId, executor)}
         </span>
         <svg viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true">
           <line x1="0" y1="5" x2="97" y2="5" stroke="currentColor" strokeWidth="1" vectorEffect="non-scaling-stroke" />
@@ -425,7 +436,7 @@ function PartiesLine({ contractId }: { contractId: string }) {
         </svg>
         <span>
           {!roles.plain ? <small>{roles.customer}</small> : null}
-          {name(customer)}
+          {name(customerId, customer)}
         </span>
       </div>
       {sense ? (
@@ -513,7 +524,8 @@ export function OtherContracts({ ids, onOpen }: { ids: string[]; onOpen: (id: st
   );
 }
 
-function Section({ title, count, end, children }: { title: string; count?: number; end?: React.ReactNode; children: React.ReactNode }) {
+/** Раздел карточки: подпись, число и черта до края. Им же размечено досье участника. */
+export function Section({ title, count, end, children }: { title: string; count?: number; end?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section>
       <div className="card-section">

@@ -405,6 +405,16 @@ export function OneoffIcon(props: IconProps) {
   );
 }
 
+/** «Участники» - два здания: стороны договоров - организации, а не люди команды. */
+export function PartiesIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 20.5V8.5l6-3v15M9.5 20.5V10.5l6-2.5v12.5M15.5 20.5V11l5 2v7.5" />
+      <path d="M2.5 20.5h19M6 11.5h1M6 14.5h1M6 17.5h1M12 13.5h1M12 16.5h1M18 15.5h.5" />
+    </Svg>
+  );
+}
+
 export function SearchIcon(props: IconProps) {
   return (
     <Svg {...props}>
