@@ -405,6 +405,17 @@ export function OneoffIcon(props: IconProps) {
   );
 }
 
+/** «Сверка» - два листа рядом и черта между: KORT против книги. */
+export function CompareIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3" y="4.5" width="7.5" height="15" rx="1" />
+      <rect x="13.5" y="4.5" width="7.5" height="15" rx="1" />
+      <path d="M5.5 9h2.5M5.5 12h2.5M16 9h2.5M16 12h2.5M5.5 15h2.5M16 15h1" />
+    </Svg>
+  );
+}
+
 /** «Участники» - два здания: стороны договоров - организации, а не люди команды. */
 export function PartiesIcon(props: IconProps) {
   return (

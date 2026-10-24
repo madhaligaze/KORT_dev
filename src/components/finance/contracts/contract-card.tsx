@@ -50,6 +50,8 @@ import {
   useRegistry,
 } from "@/components/finance/contracts/store";
 import { contractMoney, formatDay, parseDay } from "@/components/finance/format";
+import { Section } from "@/components/finance/contracts/section";
+import { Accruals } from "@/components/finance/core/accruals";
 import { openParticipant } from "@/components/finance/core/open";
 import { CardLayer } from "@/components/finance/ui/card-layer";
 import { ConfirmDialog } from "@/components/finance/ui/confirm-dialog";
@@ -250,6 +252,7 @@ export function ContractCard({
 
         {contract ? (
           <>
+            <Accruals contractId={contract.id} seq={contract.seq} />
             <Shares contractId={contract.id} seq={contract.seq} />
             <Amendments contractId={contract.id} seq={contract.seq} />
             <SourceText contractId={contract.id} seq={contract.seq} />
@@ -521,23 +524,6 @@ export function OtherContracts({ ids, onOpen }: { ids: string[]; onOpen: (id: st
         </span>
       ) : null}
     </span>
-  );
-}
-
-/** Раздел карточки: подпись, число и черта до края. Им же размечено досье участника. */
-export function Section({ title, count, end, children }: { title: string; count?: number; end?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <section>
-      <div className="card-section">
-        <span>
-          {title}
-          {count ? <span className="fin-muted" style={{ fontWeight: 400 }}> {count}</span> : null}
-        </span>
-        <span className="card-section-line" />
-        {end ? <span className="card-section-end">{end}</span> : null}
-      </div>
-      {children}
-    </section>
   );
 }
 

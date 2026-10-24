@@ -5115,3 +5115,65 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .party-check { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8125rem; color: var(--fin-text); white-space: nowrap; cursor: pointer; }
 .party-check input { margin: 0; accent-color: var(--fin-text); }
 .party-check:has(input:disabled) { color: var(--text-muted); cursor: default; }
+
+/* ─── «Начисления» в карточке договора (ядро, фаза 2) ───
+   Месяц строкой: месяц и период, сумма KORT, книга (счёт, оплата, АВР),
+   расхождение словами - цветом отказа, это то, что надо поправить. */
+.acc-why { margin: 0 0 0.5rem; font-size: 0.8125rem; color: var(--fin-text-soft); }
+.card-grid.acc-terms { margin: 0 0 0.75rem; }
+.acc-proposals { display: grid; gap: 0.35rem; margin: 0 0 0.75rem; font-size: 0.8125rem; color: var(--fin-fail); }
+.acc-proposal { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; }
+.acc-proposal .fin-link-btn { color: var(--fin-text); }
+.acc-note, .shadow-note { margin: 0 0 0.5rem; font-size: 0.8125rem; color: var(--fin-text); }
+.acc-row {
+  display: grid;
+  grid-template-columns: 8.5rem 8rem minmax(0, 1fr) minmax(0, 9rem) auto;
+  align-items: baseline;
+  column-gap: 0.75rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--fin-line);
+  font-size: 0.8125rem;
+}
+.acc-row > * { min-width: 0; }
+.acc-month { display: flex; flex-direction: column; }
+.acc-month small, .acc-amount small { font-size: 0.75rem; color: var(--fin-text-soft); }
+.acc-amount { display: flex; flex-direction: column; text-align: right; font-variant-numeric: tabular-nums; }
+.acc-book { color: var(--fin-text-soft); overflow-wrap: anywhere; }
+.acc-codes { color: var(--fin-fail); font-size: 0.75rem; }
+.acc-acts { white-space: nowrap; text-align: right; }
+.acc-form { margin: 0.25rem 0 0.5rem; }
+.party-form .input-field.acc-form-amount { flex: 0 0 9rem; }
+@media (max-width: 639px) {
+  .acc-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.2rem; }
+  .acc-book, .acc-codes { grid-column: 1 / -1; }
+  .acc-acts { grid-column: 1 / -1; text-align: left; }
+}
+
+/* ─── «Сверка» с книгой-сводкой ─── */
+.shadow-screen { display: flex; flex-direction: column; gap: 0.75rem; }
+.fin-mine.shadow-what { margin: 0; justify-content: flex-start; }
+.shadow-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
+.shadow-source { flex: 1 1 20rem; margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
+.shadow-groups { display: grid; gap: 0.25rem; }
+.shadow-group .card-section { margin-top: 1rem; }
+.shadow-proposal {
+  display: grid;
+  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--fin-line);
+  font-size: 0.8125rem;
+}
+.shadow-contract { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.6rem; min-width: 0; }
+.shadow-contract .creg-num { text-align: left; }
+.shadow-client { overflow-wrap: anywhere; }
+.shadow-text { min-width: 0; overflow-wrap: anywhere; }
+.shadow-acts { display: inline-flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-end; gap: 0 0.25rem; white-space: nowrap; }
+.shadow-error { flex-basis: 100%; font-size: 0.75rem; color: var(--fin-fail); white-space: normal; }
+.shadow-codes { flex-wrap: wrap; row-gap: 0.5rem; }
+.shadow-table td { vertical-align: top; }
+@media (max-width: 767px) {
+  .shadow-proposal { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.25rem; }
+  .shadow-text { grid-column: 1 / -1; grid-row: 2; }
+}

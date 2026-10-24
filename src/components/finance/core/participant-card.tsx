@@ -23,7 +23,7 @@ import {
   type TwinGroup,
   coreApi,
 } from "@/components/finance/api";
-import { Section } from "@/components/finance/contracts/contract-card";
+import { Section } from "@/components/finance/contracts/section";
 import { REGIMES, binWord, kindWord } from "@/components/finance/core/words";
 import { bareNumber, contractMoney, formatDay, parseDay } from "@/components/finance/format";
 import { CardLayer } from "@/components/finance/ui/card-layer";

@@ -2295,6 +2295,141 @@ export type TaxYear = {
   source: string;
 };
 
+/** Начисление месяца (`core/accruals.py`): считается из условий договора, не хранится. */
+export type AccrualOut = {
+  month: string;
+  period_from: string;
+  period_to: string | null;
+  /** По условиям договора; `null` - доначисление поправкой или сумма не задана. */
+  base: string | null;
+  /** С поправкой; `null` - «не начислять» или суммы нет. */
+  amount: string | null;
+  executor_id: string | null;
+  skipped: boolean;
+  adjustment: { id: string; amount: string | null; skip: boolean; reason: string } | null;
+};
+
+/** Строки книги-сводки договора за месяц. Деньги (`paid`, `act_sum`) - только с правом на них. */
+export type BookMonthOut = {
+  rows: number;
+  line: number;
+  amount: string | null;
+  period_from: string | null;
+  period_to: string | null;
+  code: string;
+  entity_id: string | null;
+  bill_no: string;
+  bill_date: string | null;
+  act_no: string;
+  act_date: string | null;
+  accepted: string;
+  esf_date: string | null;
+  status: string;
+  paid?: string | null;
+  act_sum?: string | null;
+  closing?: string | null;
+};
+
+export type ShadowCode = "amount" | "period" | "executor" | "no_kort" | "no_book";
+
+export type ShadowLine = {
+  contract_id: string;
+  month: string;
+  codes: ShadowCode[];
+  kort: AccrualOut | null;
+  book: BookMonthOut | null;
+};
+
+export type ShadowProposalKind =
+  | "billing"
+  | "period_day"
+  | "billing_from"
+  | "amount_from"
+  | "amount_before"
+  | "amount_fix"
+  | "executor_from"
+  | "executor_before"
+  | "adjust"
+  | "pause"
+  | "stop"
+  | "end";
+
+export type ShadowProposal = {
+  key: string;
+  contract_id: string;
+  kind: ShadowProposalKind;
+  value: Record<string, unknown>;
+  text: string;
+  months: string[];
+  /** Вопрос: «from»/«month» - с этого месяца или только этот; «end»/«pause» - закончился или стоит. */
+  options: string[];
+};
+
+export type ShadowContract = {
+  id: string;
+  number: string;
+  customer: string;
+  executor: string;
+  billing: string;
+  period_day: number | null;
+  start: string | null;
+  why: string;
+  paused: string[];
+  clean: boolean;
+};
+
+export type ShadowUnknown = {
+  key: string;
+  own: string;
+  customer: string;
+  number: string;
+  state: "missing" | "other_client" | "ambiguous";
+  months: string[];
+  amount: string | null;
+  lines: number[];
+  candidates: { id: string; number: string; customer: string }[];
+};
+
+export type ShadowView = {
+  book: { title: string; worksheet: string; read_at: string; url: string; drift: string } | null;
+  error: string;
+  window: string[];
+  counts: Partial<Record<"contracts" | "clean" | "months" | "same" | ShadowCode | "unknown" | "proposals", number>>;
+  contracts: Record<string, ShadowContract>;
+  lines: ShadowLine[];
+  proposals: ShadowProposal[];
+  unknown: ShadowUnknown[];
+};
+
+export type BillsShadowCode = "group" | "no_kort" | "no_book" | "kort_issued";
+export type BillGroupKey = "overdue" | "soon" | "early" | "undated";
+
+/** «Не выставлены» KORT против книги (`core/billing.py`), по договору и месяцу. */
+export type BillsShadow = {
+  book: ShadowView["book"];
+  error: string;
+  window: string[];
+  counts: Partial<Record<"same" | "kort_waits" | "book_waits" | BillsShadowCode, number>>;
+  lines: {
+    contract_id: string;
+    month: string;
+    code: BillsShadowCode;
+    kort: { group: BillGroupKey | null; due: string; amount: string | null; bill: { source: string; number: string } | null } | null;
+    book: { group: BillGroupKey | null; text: string; due: string | null; amount: string | null } | null;
+  }[];
+  contracts: Record<string, { id: string; number: string; customer: string; executor: string }>;
+  codes: Record<BillsShadowCode, string>;
+  groups: Record<BillGroupKey, string>;
+};
+
+export type ContractMonths = {
+  schedule: { kind: "month" | "total" | ""; start: string | null; period_day: number | null; why: string; paused: string[] };
+  months: { month: string; kort: AccrualOut | null; book: BookMonthOut | null; codes: ShadowCode[]; paused: boolean }[];
+  book: boolean;
+  window: string[];
+  proposals: ShadowProposal[];
+};
+
 export const coreApi = {
   list: (q: string, show: ParticipantsShow = "all", init?: RequestInit) =>
     request<{ items: ParticipantHit[]; total: number }>(
@@ -2337,6 +2472,24 @@ export const coreApi = {
   taxYears: () => request<{ items: TaxYear[] }>("/core/tax-years"),
   setTaxYear: (year: number, body: { mrp: string; threshold_mrp: number; vat_rate: string; forecast?: boolean; note?: string }) =>
     request<TaxYear>(`/core/tax-years/${year}`, { method: "PUT", body: JSON.stringify(body) }),
+  shadow: () => request<ShadowView>("/core/shadow"),
+  shadowBills: () => request<BillsShadow>("/core/shadow/bills"),
+  apply: (body: { contract_id: string; kind: ShadowProposalKind; value: Record<string, unknown>; option?: string }) =>
+    request<{ ok: boolean; text: string }>("/core/shadow/apply", { method: "POST", body: JSON.stringify(body) }),
+  applyAll: (kind: "billing" | "period_day" | "billing_from") =>
+    request<{ done: number; skipped: string[]; point: { id: string; title: string; kind: string } | null }>(
+      "/core/shadow/apply-all",
+      { method: "POST", body: JSON.stringify({ kind }) },
+    ),
+  createFromBook: (key: string) =>
+    request<{ id: string; number: string }>("/core/shadow/create", { method: "POST", body: JSON.stringify({ key }) }),
+  months: (contractId: string) => request<ContractMonths>(`/core/contracts/${contractId}/months`),
+  setAdjustment: (contractId: string, body: { month: string; amount?: string | null; skip?: boolean; reason: string }) =>
+    request<{ id: string }>(`/core/contracts/${contractId}/adjustments`, { method: "POST", body: JSON.stringify(body) }),
+  removeAdjustment: (contractId: string, documentId: string) =>
+    request<{ ok: boolean }>(`/core/contracts/${contractId}/adjustments/${documentId}`, { method: "DELETE" }),
+  statusFrom: (contractId: string, body: { status_id: string; effective_from: string; summary?: string }) =>
+    request<{ id: string }>(`/core/contracts/${contractId}/status-from`, { method: "POST", body: JSON.stringify(body) }),
 };
 
 /**

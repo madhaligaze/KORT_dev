@@ -18,6 +18,7 @@ import {
   ChevronRightIcon,
   ClockIcon,
   CloseIcon,
+  CompareIcon,
   ContractGridIcon,
   ContractIcon,
   FileTextIcon,
@@ -90,6 +91,7 @@ import { RegistryImport } from "@/components/finance/contracts/import/registry-i
 import { RegistrySetup } from "@/components/finance/contracts/setup/registry-setup";
 import { PARTICIPANT_EVENT } from "@/components/finance/core/open";
 import { ParticipantsScreen } from "@/components/finance/core/participants";
+import { ShadowScreen } from "@/components/finance/core/shadow-screen";
 import { readParam, writeParams } from "@/components/finance/address";
 import { forgetLooks } from "@/components/finance/look-store";
 import { habitsOwner, pickMode, preferOf, useModeTracker } from "@/components/finance/habits";
@@ -238,6 +240,7 @@ type Section =
   | "contracts-import"
   | "contracts-setup"
   | "participants"
+  | "shadow"
   | "journal"
   | "table"
   | "calendar"
@@ -298,6 +301,8 @@ const GROUPS: { title: string; items: SectionItem[] }[] = [
       { key: "contracts", title: "Реестр", icon: ContractIcon, resource: "contracts" },
       { key: "contracts-oneoff-cards", title: "Разовые", icon: OneoffIcon, resource: "contracts" },
       { key: "participants", title: "Участники", icon: PartiesIcon, resource: "contracts" },
+      // Начисления KORT против книги-сводки - пока правда в книге (ядро, фаза 2).
+      { key: "shadow", title: "Сверка", icon: CompareIcon, resource: "contracts" },
     ],
   },
   {
@@ -448,8 +453,9 @@ function writeMode(section: Section): void {
     /* вид не запомнится - откроются карточки */
   }
 }
-/** Загрузка и настройка реестра меняют шаблон компании - владелец и администратор. */
-const ADMIN_SECTIONS = new Set<Section>(["contracts-import", "contracts-setup"]);
+/** Загрузка и настройка реестра меняют шаблон компании - владелец и администратор.
+ *  Сверка с книгой - работа того, кто переводит учёт в KORT, - тоже. */
+const ADMIN_SECTIONS = new Set<Section>(["contracts-import", "contracts-setup", "shadow"]);
 
 /**
  * Мера раздела (`.fin-body[data-measure]` в globals.css): до какой ширины
@@ -1045,6 +1051,8 @@ export function FinanceClient() {
         return <SetupScreen me={me} onBack={() => setSection(setupBack)} backLabel={setupBackTitle} />;
       case "participants":
         return <ParticipantsScreen me={me} />;
+      case "shadow":
+        return <ShadowScreen me={me} />;
       default:
         break;
     }
