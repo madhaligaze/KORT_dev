@@ -5173,6 +5173,67 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .shadow-error { flex-basis: 100%; font-size: 0.75rem; color: var(--fin-fail); white-space: normal; }
 .shadow-codes { flex-wrap: wrap; row-gap: 0.5rem; }
 .shadow-table td { vertical-align: top; }
+
+/* ─── «Порог НДС» (ядро, фаза 7) ───
+   Полоса оборота одной тушью: факт - полный тон, прогноз до конца года -
+   тише, порог - вертикальная черта. Цвета нет: переход порога - событие
+   учёта, а не отказ. */
+.vat-screen { display: flex; flex-direction: column; gap: 0.75rem; }
+.vat-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
+.vat-bar .fin-mine { margin: 0; }
+.vat-facts { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); font-variant-numeric: tabular-nums; }
+.vat-list { display: grid; gap: 0.75rem; }
+.vat-entity { padding: 0.875rem 1rem 1rem; border: 1px solid var(--fin-line); border-radius: var(--radius-card); }
+.vat-entity-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; }
+.vat-entity-name { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.6rem; background: none; border: none; padding: 0; font: inherit; color: var(--fin-text); cursor: pointer; text-align: left; }
+.vat-code { font-size: 1rem; font-weight: 500; }
+.vat-regime { margin-right: auto; font-size: 0.8125rem; color: var(--fin-text-soft); }
+.vat-track { position: relative; display: block; height: 6px; margin: 0.75rem 0 0.625rem; background: var(--fin-line); }
+.vat-track-forecast, .vat-track-fact { position: absolute; left: 0; top: 0; bottom: 0; }
+.vat-track-forecast { background: color-mix(in srgb, var(--fin-text) 30%, transparent); }
+.vat-track-fact { background: var(--fin-text); }
+.vat-track-limit { position: absolute; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: var(--fin-text); }
+.vat-numbers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem 1rem; margin: 0; }
+.vat-numbers div { min-width: 0; }
+.vat-numbers dt { font-size: 0.75rem; color: var(--fin-text-soft); }
+.vat-numbers dd { margin: 0.15rem 0 0; font-size: 0.9375rem; font-variant-numeric: tabular-nums; color: var(--fin-text); }
+.vat-months { margin-top: 0.75rem; }
+@media (max-width: 767px) { .vat-numbers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.vat-move-form { margin-top: 1rem; }
+.vat-move-form .choice { flex: 0 1 14rem; }
+.vat-preview { display: grid; gap: 0.25rem; margin-bottom: 0.75rem; font-size: 0.8125rem; }
+/* Низ окна перевода прилипает: отметив договор в длинном списке, видно, что
+   станет с оборотом, и «Перевести» - без прокрутки наверх. */
+.vat-move-foot {
+  position: sticky;
+  bottom: -2rem;
+  margin: 1rem -2rem -2rem;
+  padding: 0.75rem 2rem 1.25rem;
+  background: var(--fin-card-bg);
+  border-top: 1px solid var(--fin-line);
+}
+@media (max-width: 639px) {
+  .vat-move-foot { bottom: -2rem; margin: 1rem -1rem -2rem; padding: 0.75rem 1rem 1.25rem; }
+}
+.vat-preview-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; }
+.vat-preview-row strong { font-weight: 600; }
+.vat-clients { display: grid; margin-top: 1rem; border-top: 1px solid var(--fin-line); }
+.vat-client {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  column-gap: 0.75rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--fin-line);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.vat-client input { margin: 0; accent-color: var(--fin-text); align-self: center; }
+.vat-client-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.6rem; min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 639px) {
+  .vat-client { grid-template-columns: auto minmax(0, 1fr); row-gap: 0.15rem; }
+  .vat-client .fin-num { grid-column: 2; }
+}
 @media (max-width: 767px) {
   .shadow-proposal { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.25rem; }
   .shadow-text { grid-column: 1 / -1; grid-row: 2; }

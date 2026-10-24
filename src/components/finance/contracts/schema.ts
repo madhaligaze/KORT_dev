@@ -112,8 +112,8 @@ export const CARD_ORDER = [
 export const OWN_BLOCKS = new Set([
   "amendments_text", "amendments_summary_text", "paid_snapshot", "remaining_snapshot", "end_kind", "currency",
   "paid", "remaining", "summary_paid", "summary_remaining", "age_months",
-  // День периода и «начислять с» - в «Начислениях», рядом с месяцами (`core/accruals.tsx`).
-  "period_day", "billing_from",
+  // День периода, «начислять с» и НДС - в «Начислениях», рядом с месяцами (`core/accruals.tsx`).
+  "period_day", "billing_from", "vat_mode",
 ]);
 export const WIDE_FIELDS = new Set(["subject", "note", "amount_terms", "folder_url"]);
 

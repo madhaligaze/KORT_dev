@@ -405,6 +405,18 @@ export function OneoffIcon(props: IconProps) {
   );
 }
 
+/** «Порог НДС» - полоса оборота и черта порога поперёк. */
+export function ThresholdIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3 15.5h11" strokeWidth={3} />
+      <path d="M14 15.5h7" />
+      <path d="M17 6v14" />
+      <path d="M3 9.5h6M3 6.5h3" />
+    </Svg>
+  );
+}
+
 /** «Сверка» - два листа рядом и черта между: KORT против книги. */
 export function CompareIcon(props: IconProps) {
   return (

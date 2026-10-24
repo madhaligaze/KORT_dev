@@ -2422,6 +2422,53 @@ export type BillsShadow = {
   groups: Record<BillGroupKey, string>;
 };
 
+/** Оборот нашего юрлица к порогу НДС за год (`core/vat.py`). Суммы - без НДС. */
+export type VatEntity = {
+  entity_id: string;
+  code: string;
+  name: string;
+  regime: string;
+  payer_now: boolean;
+  payer_since: string | null;
+  /** Начислено с начала года по текущий месяц включительно. */
+  fact: string;
+  /** Весь год: начислено и прогноз по условиям договоров до декабря. */
+  forecast: string;
+  vat: string;
+  remaining: string;
+  /** Месяц, в котором оборот с начала года превысит порог; `null` - не превысит. */
+  crossing: string | null;
+  months: { month: string; net: string; vat: string; acts: string | null; forecast: boolean; contracts: number }[];
+};
+
+export type VatYearView = { year: TaxYear; today: string; entities: VatEntity[] };
+
+export type VatClient = {
+  contract_id: string;
+  number: string;
+  customer_id: string | null;
+  customer: string;
+  monthly: string;
+  rest: string;
+  next: string;
+};
+
+export type VatMove = { contract_id: string; target: string; since: string };
+
+export type VatPreview = {
+  entities: {
+    entity_id: string;
+    code: string;
+    name: string;
+    before: string;
+    after: string;
+    crossing_before: string | null;
+    crossing_after: string | null;
+  }[];
+  /** Чей это предпросмотр - выбор, для которого считали (клиент). */
+  key?: string;
+};
+
 export type ContractMonths = {
   schedule: { kind: "month" | "total" | ""; start: string | null; period_day: number | null; why: string; paused: string[] };
   months: { month: string; kort: AccrualOut | null; book: BookMonthOut | null; codes: ShadowCode[]; paused: boolean }[];
@@ -2474,6 +2521,16 @@ export const coreApi = {
     request<TaxYear>(`/core/tax-years/${year}`, { method: "PUT", body: JSON.stringify(body) }),
   shadow: () => request<ShadowView>("/core/shadow"),
   shadowBills: () => request<BillsShadow>("/core/shadow/bills"),
+  vat: (year: number) => request<VatYearView>(`/core/vat?year=${year}`),
+  vatClients: (year: number, entity: string) =>
+    request<{ items: VatClient[] }>(`/core/vat/clients?year=${year}&entity=${encodeURIComponent(entity)}`),
+  vatPreview: (year: number, moves: VatMove[]) =>
+    request<VatPreview>("/core/vat/preview", { method: "POST", body: JSON.stringify({ year, moves }) }),
+  vatTransfer: (year: number, moves: VatMove[]) =>
+    request<{ done: number; skipped: string[]; point: { id: string; title: string; kind: string } | null }>(
+      "/core/vat/transfer",
+      { method: "POST", body: JSON.stringify({ year, moves }) },
+    ),
   apply: (body: { contract_id: string; kind: ShadowProposalKind; value: Record<string, unknown>; option?: string }) =>
     request<{ ok: boolean; text: string }>("/core/shadow/apply", { method: "POST", body: JSON.stringify(body) }),
   applyAll: (kind: "billing" | "period_day" | "billing_from") =>

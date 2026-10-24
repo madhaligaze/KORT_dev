@@ -95,6 +95,8 @@ export function Accruals({ contractId, seq }: { contractId: string; seq: number 
   const billing = String(contract?.values.billing ?? "");
   const periodField = billing === "month" ? fieldOf(schema, "period_day") : undefined;
   const fromField = billing === "month" || billing === "total" ? fieldOf(schema, "billing_from") : undefined;
+  // НДС договора - когда исполнитель плательщик НДС (`core/vat.py`); пусто - «в сумме».
+  const vatField = billing === "month" || billing === "total" ? fieldOf(schema, "vat_mode") : undefined;
   const { schedule } = value;
   const summary =
     schedule.kind === "month"
@@ -110,10 +112,11 @@ export function Accruals({ contractId, seq }: { contractId: string; seq: number 
   return (
     <Section title="Начисления" end={summary ? <span className="fin-muted">{summary}</span> : null}>
       {schedule.why ? <p className="acc-why">{schedule.why}</p> : null}
-      {periodField || fromField ? (
+      {periodField || fromField || vatField ? (
         <div className="card-grid acc-terms">
           {periodField ? <InlineField contractId={contractId} field={periodField} /> : null}
           {fromField ? <InlineField contractId={contractId} field={fromField} /> : null}
+          {vatField ? <InlineField contractId={contractId} field={vatField} /> : null}
         </div>
       ) : null}
       {value.proposals.length && canEdit ? (

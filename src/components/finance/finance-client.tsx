@@ -36,6 +36,7 @@ import {
   RefreshIcon,
   TableIcon,
   TargetIcon,
+  ThresholdIcon,
   TrendIcon,
   UploadIcon,
   WalletIcon,
@@ -92,6 +93,7 @@ import { RegistrySetup } from "@/components/finance/contracts/setup/registry-set
 import { PARTICIPANT_EVENT } from "@/components/finance/core/open";
 import { ParticipantsScreen } from "@/components/finance/core/participants";
 import { ShadowScreen } from "@/components/finance/core/shadow-screen";
+import { VatScreen } from "@/components/finance/core/vat-screen";
 import { readParam, writeParams } from "@/components/finance/address";
 import { forgetLooks } from "@/components/finance/look-store";
 import { habitsOwner, pickMode, preferOf, useModeTracker } from "@/components/finance/habits";
@@ -241,6 +243,7 @@ type Section =
   | "contracts-setup"
   | "participants"
   | "shadow"
+  | "vat"
   | "journal"
   | "table"
   | "calendar"
@@ -328,6 +331,8 @@ const GROUPS: { title: string; items: SectionItem[] }[] = [
       { key: "statement", title: "Выписка по счёту", icon: FileTextIcon, resource: "reports.statement" },
       { key: "projects", title: "Проекты", icon: FolderIcon, resource: "reports.projects" },
       { key: "plan", title: "План / Факт", icon: TargetIcon, resource: "reports.plan" },
+      // Оборот наших юрлиц к порогу НДС и перевод клиентов (ядро, фаза 7).
+      { key: "vat", title: "Порог НДС", icon: ThresholdIcon, resource: "reports.summary" },
     ],
   },
   {
@@ -454,8 +459,9 @@ function writeMode(section: Section): void {
   }
 }
 /** Загрузка и настройка реестра меняют шаблон компании - владелец и администратор.
- *  Сверка с книгой - работа того, кто переводит учёт в KORT, - тоже. */
-const ADMIN_SECTIONS = new Set<Section>(["contracts-import", "contracts-setup", "shadow"]);
+ *  Сверка с книгой - работа того, кто переводит учёт в KORT, - тоже; порог
+ *  НДС и перевод клиентов между юрлицами - решение владельца. */
+const ADMIN_SECTIONS = new Set<Section>(["contracts-import", "contracts-setup", "shadow", "vat"]);
 
 /**
  * Мера раздела (`.fin-body[data-measure]` в globals.css): до какой ширины
@@ -1053,6 +1059,8 @@ export function FinanceClient() {
         return <ParticipantsScreen me={me} />;
       case "shadow":
         return <ShadowScreen me={me} />;
+      case "vat":
+        return <VatScreen />;
       default:
         break;
     }
