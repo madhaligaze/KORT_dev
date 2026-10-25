@@ -1807,6 +1807,15 @@ label.auth-row-label { cursor: pointer; }
 /* ─── Группы разделов в колонке ─── */
 .fin-nav-group { display: flex; flex-direction: column; gap: 0.1rem; }
 .fin-nav-group + .fin-nav-group { margin-top: 0.6rem; }
+/* «Ещё»: разделы без данных - свёрнуто, тише; «закрепить» - словом справа. */
+.fin-nav-more .fin-nav-item { color: var(--fin-text-soft); }
+.fin-nav-soft { font-weight: 400; color: var(--fin-text-soft); }
+.fin-nav-quiet { display: flex; align-items: center; gap: 0.25rem; min-width: 0; }
+.fin-nav-quiet .fin-nav-item { flex: 1; min-width: 0; }
+.fin-nav-pin { flex: none; font-size: 0.6875rem; white-space: nowrap; }
+@media (min-width: 768px) {
+  .fin-aside:not(:hover):not([data-open="true"]):not(:has(:focus-visible)) .fin-nav-pin { display: none; }
+}
 .fin-nav-head {
   padding: 0 0.5rem 0.2rem;
   font-size: 0.6875rem;
@@ -3328,6 +3337,39 @@ html:has(.usheet) { overscroll-behavior-x: none; }
     padding-bottom: var(--safe-b, 0px);
   }
 }
+/* «Найти или сделать» (Ctrl+K): плита у верхней трети, строка ввода и список.
+   Выбранная строка - чертой слева и весом, не заливкой. */
+.card-sheet.find-sheet { top: 14vh; translate: -50% 0; width: min(40rem, calc(100vw - 48px)); max-height: 70vh; }
+@media (max-width: 639px) { .card-sheet.find-sheet { top: 0; translate: none; width: 100%; max-height: none; } }
+.find-box { display: flex; align-items: center; gap: 0.6rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--fin-line); flex: none; }
+.find-icon { display: inline-flex; color: var(--fin-text-soft); }
+.find-input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font: inherit; font-size: 1rem; color: var(--fin-text); }
+.find-input::placeholder { color: var(--fin-text-soft); }
+.find-busy { font-size: 0.75rem; }
+.find-results { overflow: auto; padding: 0.25rem 0 0.5rem; overscroll-behavior: contain; }
+.find-group { margin: 0.6rem 1rem 0.2rem; font-size: 0.6875rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fin-text-soft); }
+.find-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.75rem;
+  width: 100%;
+  padding: 0.45rem 1rem 0.45rem calc(1rem - 2px);
+  border: 0;
+  border-left: 2px solid transparent;
+  background: none;
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--fin-text);
+  text-align: left;
+  cursor: pointer;
+}
+.find-item[aria-selected="true"] { border-left-color: var(--fin-text); }
+.find-item[aria-selected="true"] .find-title { font-weight: 600; }
+.find-title { min-width: 0; overflow-wrap: anywhere; }
+.find-hint { font-size: 0.75rem; color: var(--fin-text-soft); }
+.find-keys { margin: 0; padding: 0.5rem 1rem; border-top: 1px solid var(--fin-line); font-size: 0.75rem; flex: none; }
+@media (max-width: 639px) { .find-keys { display: none; } }
 .card-top {
   display: flex;
   align-items: center;
@@ -5288,10 +5330,9 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .debts-table th, .debts-table td { padding-left: 0.5rem; padding-right: 0.5rem; vertical-align: baseline; }
 .debts-table th.fin-num { text-align: right; }
 .debts-toggle {
-  display: inline-flex;
-  flex-wrap: wrap;
+  display: inline-grid;
+  grid-template-columns: 0.9rem minmax(0, 1fr);
   align-items: baseline;
-  gap: 0 0.5rem;
   padding: 0;
   border: 0;
   background: none;
@@ -5300,9 +5341,11 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
   text-align: left;
   cursor: pointer;
 }
-.debts-toggle::before { content: "+"; display: inline-block; width: 0.75rem; color: var(--fin-text-soft); }
+.debts-toggle::before { content: "+"; color: var(--fin-text-soft); }
 .debts-toggle[aria-expanded="true"]::before { content: "-"; }
-.debts-title { font-weight: 600; }
+.debts-name { min-width: 0; }
+.debts-title { font-weight: 600; margin-right: 0.5rem; }
+.debts-day .input-field.party-date { height: 2rem; min-height: 0; padding-top: 0; padding-bottom: 0; }
 .debts-group[data-special] .debts-title { font-weight: 400; color: var(--fin-text-soft); }
 .debts-count { font-size: 0.75rem; color: var(--fin-text-soft); }
 .debts-sum { font-weight: 600; }
@@ -5315,6 +5358,94 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
   .debts-sides .fin-kpi { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 0.75rem; padding: 0.6rem 0.75rem; }
   .debts-sides .fin-kpi-value { font-size: 1.125rem; }
 }
+/* «Сегодня»: дела карточками - число крупно, строки - щелчок в свой список.
+   Состояние - словами и весом, без цвета: долг - не отказ. */
+.today-screen { display: flex; flex-direction: column; gap: 0.75rem; }
+.today-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.today-date { margin: 0; font-size: 0.875rem; color: var(--fin-text-soft); }
+.today-date::first-letter { text-transform: uppercase; }
+.today-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
+@media (min-width: 1000px) { .today-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1500px) { .today-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.today-card { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.875rem 1rem 1rem; border: 1px solid var(--fin-line); border-radius: var(--radius-card); min-width: 0; }
+.today-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--fin-text);
+  text-align: left;
+  cursor: pointer;
+}
+.today-card-head:hover .today-title { text-decoration: underline; text-underline-offset: 3px; }
+.today-title { font-size: 0.9375rem; font-weight: 600; }
+.today-value { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; margin: 0; }
+.today-unit { font-size: 0.8125rem; color: var(--fin-text-soft); }
+.today-lines { display: grid; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--fin-line); }
+.today-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.4rem 0;
+  border: 0;
+  border-bottom: 1px solid var(--fin-line);
+  background: none;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--fin-text);
+  text-align: left;
+  cursor: pointer;
+}
+.today-line:hover .today-line-label { text-decoration: underline; text-underline-offset: 3px; }
+.today-line-label { min-width: 0; overflow-wrap: anywhere; }
+.today-note, .today-loading { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
+.today-calm { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; }
+.today-calm-item {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--fin-text);
+  text-align: left;
+  cursor: pointer;
+}
+.today-calm-title { font-weight: 600; }
+/* «Прибыль» и «Деньги» по договорам: месяцы года - колонками, название
+   группы держится слева при прокрутке; прогноз - тише, итог - весом. */
+.revenue-screen, .revenue-body { display: flex; flex-direction: column; gap: 0.75rem; }
+.revenue-scroll { max-width: 100%; }
+.revenue-table th, .revenue-table td { padding-left: 0.4rem; padding-right: 0.4rem; white-space: nowrap; font-size: 0.8125rem; }
+@media (max-width: 639.98px) {
+  .revenue-kpis .fin-kpi-value { font-size: 1.125rem; }
+}
+.revenue-table th.fin-num { text-align: right; }
+.revenue-table tbody th, .revenue-table tfoot th, .revenue-table thead th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 9rem;
+  max-width: 14rem;
+  white-space: normal;
+  text-align: left;
+  font-weight: 400;
+  /* Плита страницы, а не прозрачность: под липкой колонкой едут цифры. */
+  background: var(--fin-plate);
+}
+.revenue-title { display: block; font-weight: 600; }
+.revenue-table [data-plan] { color: var(--fin-text-soft); font-style: italic; }
+.revenue-table tfoot th, .revenue-table tfoot td, .revenue-total { font-weight: 600; }
+.revenue-table tr[data-special] .revenue-title { font-weight: 400; color: var(--fin-text-soft); }
 /* Возраст: свежее - бледнее, старое - гуще; «до учёта» - штриховкой. */
 .debts-aging-block { display: grid; gap: 0.5rem; }
 .debts-aging-bar { display: flex; gap: 2px; height: 8px; }
@@ -5342,6 +5473,15 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .vat-bar .fin-mine { margin: 0; }
 .vat-facts { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); font-variant-numeric: tabular-nums; }
 .vat-list { display: grid; gap: 0.75rem; }
+/* Два списка: плательщики НДС и к порогу - заголовком с числом, не цветом. */
+.vat-group { display: grid; gap: 0.5rem; }
+.vat-group-title { margin: 0.5rem 0 0; font-size: 0.875rem; font-weight: 600; color: var(--fin-text); }
+.vat-group-title .fin-soft { font-weight: 400; }
+.vat-hint { margin: 0.4rem 0 0; font-size: 0.8125rem; color: var(--fin-text-soft); overflow-wrap: anywhere; }
+.vat-regime-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-top: 0.6rem; }
+.vat-regime-form .fin-mine { margin: 0; }
+.vat-regime-from { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.vat-regime-from .input-field.party-date { flex: 0 0 8.5rem; width: 8.5rem; height: 2rem; min-height: 0; padding-top: 0; padding-bottom: 0; }
 .vat-entity { padding: 0.875rem 1rem 1rem; border: 1px solid var(--fin-line); border-radius: var(--radius-card); }
 .vat-entity-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; }
 .vat-entity-name { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.6rem; background: none; border: none; padding: 0; font: inherit; color: var(--fin-text); cursor: pointer; text-align: left; }

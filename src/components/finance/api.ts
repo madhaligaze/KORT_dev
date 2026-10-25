@@ -2429,20 +2429,33 @@ export type BillsShadow = {
 };
 
 /** Оборот нашего юрлица к порогу НДС за год (`core/vat.py`). Суммы - без НДС. */
+/** Юрлицо в году: плательщик НДС с начала года, станет с даты, не плательщик (к порогу), режим не записан. */
+export type VatStatus = "payer" | "becomes" | "racing" | "unknown";
+
+/** НДС в назначениях поступлений юрлица за год - довод записать режим, а не режим. */
+export type VatHint = { total: number; with: number; without: number; first: string | null; sample: string };
+
 export type VatEntity = {
   entity_id: string;
   code: string;
   name: string;
   regime: string;
+  status: VatStatus;
+  /** С какого дня плательщик НДС в этом году. */
+  payer_from: string | null;
   payer_now: boolean;
   payer_since: string | null;
+  /** НДС с начала года по текущий месяц. */
+  vat_fact: string;
+  hint: VatHint | null;
   /** Начислено с начала года по текущий месяц включительно. */
   fact: string;
   /** Весь год: начислено и прогноз по условиям договоров до декабря. */
   forecast: string;
   vat: string;
-  remaining: string;
-  /** Месяц, в котором оборот с начала года превысит порог; `null` - не превысит. */
+  /** До порога: оборот к нему - до даты постановки на НДС; плательщику с начала года - `null`. */
+  remaining: string | null;
+  /** Месяц, в котором оборот с начала года превысит порог; `null` - не превысит (или плательщик). */
   crossing: string | null;
   months: { month: string; net: string; vat: string; acts: string | null; forecast: boolean; contracts: number }[];
 };
@@ -2468,6 +2481,10 @@ export type VatPreview = {
     name: string;
     before: string;
     after: string;
+    status: VatStatus;
+    /** НДС к концу года до и после перевода - то, что важно плательщику. */
+    vat_before: string;
+    vat_after: string;
     crossing_before: string | null;
     crossing_after: string | null;
   }[];
@@ -2613,7 +2630,7 @@ export type DebtAge = "opening" | "d30" | "d60" | "d90" | "d90plus";
 /** Вторая сторона (клиент, у покупки - поставщик), наше юрлицо, отдел, сотрудник. */
 export type DebtGroup = "client" | "entity" | "department" | "person";
 /** Нам должны; мы должны (покупки); между своими (обе стороны - наши юрлица). */
-export type DebtSide = "receivable" | "payable" | "intra";
+export type DebtDirection = "receivable" | "payable" | "intra";
 
 export type DebtContract = {
   id: string;
@@ -2651,12 +2668,12 @@ export type DebtRow = {
 export type DebtsView = {
   as_of: string;
   basis: DebtBasis;
-  side: DebtSide;
+  side: DebtDirection;
   group: DebtGroup;
   since: string | null;
   ages: { key: DebtAge; title: string }[];
   /** Итог каждой стороны - для переключателя сторон. */
-  sides: Record<DebtSide, { owed: string; advance: string; contracts: number; unknown: number }>;
+  sides: Record<DebtDirection, { owed: string; advance: string; contracts: number; unknown: number }>;
   totals: {
     /** Долг за вычетом авансов. */
     debt: string;
@@ -2673,7 +2690,57 @@ export type DebtsView = {
   error: string;
 };
 
-/** Сальдо KORT на конец месяца против «Сальдо Конец» книги-сводки. */
+/** Карточка «Сегодня» (`core/today.py`): дело числом и переход в список. */
+export type TodayCardKey = "debts" | "payments" | "acts" | "vat" | "shadow" | "participants";
+
+export type TodayLine = {
+  label: string;
+  amount?: string | null;
+  count?: number;
+  /** «из N» - всего, к чему относится число. */
+  of?: number;
+  /** Месяц события (переход порога НДС). */
+  month?: string;
+  names?: string[];
+  /** Что выбрать в разделе по щелчку на строку - сверх выбора карточки. */
+  go?: Record<string, string>;
+};
+
+export type TodayCard = {
+  key: TodayCardKey;
+  title: string;
+  amount: string | null;
+  count: number | null;
+  unit: string;
+  /** Делать нечего - словами. */
+  empty: string;
+  note: string;
+  lines: TodayLine[];
+  /** Раздел и состояние его экрана (ключи `useSessionState`). */
+  go: { section: string; session: Record<string, string> };
+};
+
+/** Выручка по договорам (`core/revenue.py`): начислено, АВР, оплачено за месяц, поступило. */
+export type RevenueMeasure = "accrued" | "acts" | "paid" | "received";
+export type RevenueGroup = "entity" | "client" | "department" | "person";
+/** Сумма меры за месяц; `null` - KORT этого не знает (оплаты до начала учёта). */
+export type RevenueCell = Record<RevenueMeasure, string | null>;
+
+export type RevenueView = {
+  year: number;
+  months: string[];
+  side: "receivable" | "intra";
+  group: RevenueGroup;
+  since: string | null;
+  /** С какого месяца начисления - прогноз по условиям договоров. */
+  forecast_from: string | null;
+  rows: { key: string; title: string; special: boolean; contracts: number; months: Record<string, RevenueCell>; total: RevenueCell }[];
+  totals: { months: Record<string, RevenueCell>; total: RevenueCell };
+  book: ShadowView["book"];
+  error: string;
+};
+
+/** Сальдо KORT на конец месяца против «Сальдо Конец» сводной таблицы. */
 export type SaldoShadow = {
   book: ShadowView["book"];
   error: string;
@@ -2799,12 +2866,21 @@ export const coreApi = {
     }),
   setOpening: (contractId: string, amount: string | null, basis: DebtBasis = "accruals") =>
     request<{ ok: boolean }>(`/core/contracts/${contractId}/opening`, { method: "PUT", body: JSON.stringify({ amount, basis }) }),
-  debts: (params: { as_of?: string; group: DebtGroup; basis: DebtBasis; side: DebtSide }, init?: RequestInit) => {
+  debts: (params: { as_of?: string; group: DebtGroup; basis: DebtBasis; side: DebtDirection }, init?: RequestInit) => {
     const query = new URLSearchParams({ group: params.group, basis: params.basis, side: params.side });
     if (params.as_of) query.set("as_of", params.as_of);
     return request<DebtsView>(`/core/debts?${query.toString()}`, init);
   },
   debtsShadow: (basis: DebtBasis) => request<SaldoShadow>(`/core/debts/shadow?basis=${basis}`),
+  revenue: (params: { year: number; group: RevenueGroup; side: RevenueView["side"] }, init?: RequestInit) =>
+    request<RevenueView>(`/core/revenue?year=${params.year}&group=${params.group}&side=${params.side}`, init),
+  today: (key: TodayCardKey, init?: RequestInit) => request<TodayCard>(`/core/today/${key}`, init),
+  /** Разделы колонки, где у компании нет ни одной строки (`core/usage.py`). */
+  usage: () => request<{ empty: string[] }>("/core/usage"),
+  searchContracts: (q: string, init?: RequestInit) =>
+    request<{
+      items: { id: string; number: string; customer: string; executor: string; status: string; by: "number" | "client" }[];
+    }>(`/core/search/contracts?q=${encodeURIComponent(q)}`, init),
 };
 
 /**

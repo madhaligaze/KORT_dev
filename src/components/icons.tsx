@@ -417,7 +417,17 @@ export function ThresholdIcon(props: IconProps) {
   );
 }
 
-/** «Сверка» - два листа рядом и черта между: KORT против книги. */
+/** «Сегодня» - лист дел: сделанное отмечено, две строки впереди. */
+export function TodayIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4" y="3.5" width="16" height="17" rx="1.5" />
+      <path d="M7.5 8.6l1.5 1.5 3-3M14.5 8.5h2.5M7.5 13.5h9.5M7.5 17h6" />
+    </Svg>
+  );
+}
+
+/** «Сверка» - два листа рядом и черта между: KORT против таблицы. */
 export function CompareIcon(props: IconProps) {
   return (
     <Svg {...props}>

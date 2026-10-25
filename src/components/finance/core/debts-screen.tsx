@@ -26,7 +26,7 @@ import {
   type DebtContract,
   type DebtGroup,
   type DebtRow,
-  type DebtSide,
+  type DebtDirection,
   type DebtsView,
   type Me,
   coreApi,
@@ -37,7 +37,7 @@ import { bareNumber, contractMoney, formatDay, formatTime, parseDay, plural } fr
 import { DateInput } from "@/components/finance/ui/date-picker";
 import { useSessionState } from "@/components/session-state";
 
-const SIDES: [DebtSide, string][] = [
+const SIDES: [DebtDirection, string][] = [
   ["receivable", "Нам должны"],
   ["payable", "Мы должны"],
   ["intra", "Между своими"],
@@ -46,7 +46,7 @@ const SIDES: [DebtSide, string][] = [
 const GROUPS: DebtGroup[] = ["client", "entity", "department", "person"];
 
 /** Подписи групп: вторая сторона у продажи - клиент, у покупки - поставщик. */
-const GROUP_TITLES: Record<DebtSide, Record<DebtGroup, string>> = {
+const GROUP_TITLES: Record<DebtDirection, Record<DebtGroup, string>> = {
   receivable: { client: "Клиенты", entity: "Юрлица", department: "Отделы", person: "Сотрудники" },
   payable: { client: "Поставщики", entity: "Юрлица", department: "Отделы", person: "Сотрудники" },
   intra: { client: "Кто должен", entity: "Кому", department: "Отделы", person: "Сотрудники" },
@@ -111,7 +111,7 @@ export function DebtsSection({ me, expectations }: { me: Me; expectations: React
 function DebtsScreen({ me }: { me: Me }) {
   // Договор из списка открывается карточкой - ей нужен реестр.
   useRegistryBoot(me);
-  const [side, setSide] = useSessionState<DebtSide>("core.debts.side", "receivable");
+  const [side, setSide] = useSessionState<DebtDirection>("core.debts.side", "receivable");
   const [group, setGroup] = useSessionState<DebtGroup>("core.debts.group", "client");
   const [basis, setBasis] = useSessionState<DebtBasis>("core.debts.basis", "accruals");
   // Пусто - сегодня компании; день держится, пока вкладка открыта.
@@ -147,7 +147,7 @@ function DebtsScreen({ me }: { me: Me }) {
   }, [side, group, basis, day, revision, asked]);
 
   // Другая сторона или группа - другие строки: раскрытое прежде не значит ничего.
-  const chooseSide = (key: DebtSide) => {
+  const chooseSide = (key: DebtDirection) => {
     setSide(key);
     setOpen(new Set());
   };
@@ -191,6 +191,8 @@ function DebtsScreen({ me }: { me: Me }) {
                   ? [
                       `${item.contracts} ${plural(item.contracts, "договор", "договора", "договоров")}`,
                       Number(item.advance) ? `аванс ${contractMoney(item.advance)}` : "",
+                      // Покупки без начислений: долг есть, но KORT его не знает - так и сказать.
+                      !item.contracts && item.unknown ? `долг ${item.unknown} неизвестен` : "",
                     ]
                       .filter(Boolean)
                       .join(" · ")
@@ -353,9 +355,11 @@ function GroupRows({
       <tr className="debts-group" data-special={row.special ? "" : undefined}>
         <td>
           <button type="button" className="debts-toggle" aria-expanded={shown} onClick={onToggle}>
-            <span className="debts-title">{row.title}</span>
-            <span className="debts-count">
-              {count} {plural(count, "договор", "договора", "договоров")}
+            <span className="debts-name">
+              <span className="debts-title">{row.title}</span>
+              <span className="debts-count">
+                {count} {plural(count, "договор", "договора", "договоров")}
+              </span>
             </span>
           </button>
           {aging ? <span className="debts-aging only-mobile">{aging}</span> : null}

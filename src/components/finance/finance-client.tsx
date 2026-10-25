@@ -33,10 +33,13 @@ import {
   ListIcon,
   OneoffIcon,
   PartiesIcon,
+  MoreIcon,
   RefreshIcon,
+  SearchIcon,
   TableIcon,
   TargetIcon,
   ThresholdIcon,
+  TodayIcon,
   TrendIcon,
   UploadIcon,
   WalletIcon,
@@ -48,7 +51,9 @@ import {
   FORBIDDEN_EVENT,
   SCHEMA_EVENT,
   FinanceApiError,
+  coreApi,
   financeApi,
+  looksApi,
   peopleApi,
   compactMoney,
   formatMoney,
@@ -90,10 +95,13 @@ import { DesktopBars } from "@/components/desktop/desktop-bars";
 import { OneoffStaff, SummaryLine } from "@/components/finance/contracts/oneoff";
 import { RegistryImport } from "@/components/finance/contracts/import/registry-import";
 import { RegistrySetup } from "@/components/finance/contracts/setup/registry-setup";
-import { PARTICIPANT_EVENT } from "@/components/finance/core/open";
+import { FindLayer } from "@/components/finance/core/find";
+import { PARTICIPANT_EVENT, openParticipant } from "@/components/finance/core/open";
 import { DebtsSection } from "@/components/finance/core/debts-screen";
 import { ParticipantsScreen } from "@/components/finance/core/participants";
+import { RevenueSection } from "@/components/finance/core/revenue-screen";
 import { ShadowScreen } from "@/components/finance/core/shadow-screen";
+import { TodayScreen } from "@/components/finance/core/today-screen";
 import { VatScreen } from "@/components/finance/core/vat-screen";
 import { readParam, writeParams } from "@/components/finance/address";
 import { forgetLooks } from "@/components/finance/look-store";
@@ -238,6 +246,7 @@ const TableView = dynamic(() => import("./table-view").then((m) => m.TableView),
 type Section =
   | "contracts"
   | "contracts-sheet"
+  | "today"
   | "contracts-oneoff"
   | "contracts-oneoff-cards"
   | "contracts-import"
@@ -291,6 +300,11 @@ type SectionItem = {
  */
 const GROUPS: { title: string; items: SectionItem[] }[] = [
   {
+    // «Сегодня» - главная (ядро, фаза 8): дела числами из итогов, каждое ведёт в свой список.
+    title: "Главное",
+    items: [{ key: "today", title: "Сегодня", icon: TodayIcon, resource: "contracts" }],
+  },
+  {
     // Договоры - первыми: колонка идёт в порядке цепочки учёта, от договора к
     // деньгам и отчётам (план, «Картина целиком»).
     title: "Договоры",
@@ -332,8 +346,8 @@ const GROUPS: { title: string; items: SectionItem[] }[] = [
       { key: "statement", title: "Выписка по счёту", icon: FileTextIcon, resource: "reports.statement" },
       { key: "projects", title: "Проекты", icon: FolderIcon, resource: "reports.projects" },
       { key: "plan", title: "План / Факт", icon: TargetIcon, resource: "reports.plan" },
-      // Оборот наших юрлиц к порогу НДС и перевод клиентов (ядро, фаза 7).
-      { key: "vat", title: "Порог НДС", icon: ThresholdIcon, resource: "reports.summary" },
+      // НДС наших юрлиц: плательщики - НДС, остальные - оборот к порогу; перевод клиентов (ядро, фаза 7).
+      { key: "vat", title: "НДС", icon: ThresholdIcon, resource: "reports.summary" },
     ],
   },
   {
@@ -607,13 +621,59 @@ export function FinanceClient() {
       item.key === "contracts-oneoff-cards" || item.key === "contracts-oneoff" ? oneoffTitle : item.title,
     [oneoffTitle],
   );
+  /**
+   * Виды (ядро, фаза 8): раздел, где у компании нет ни одной строки, не
+   * занимает колонку - он в «Ещё» и в поиске (Ctrl+K). Закрепить его в колонке
+   * каждый может для себя: личное хранилище `/looks/nav`.
+   */
+  const [emptySections, setEmptySections] = useState<Set<string>>(() => new Set());
+  const [pins, setPins] = useState<Set<string>>(() => new Set());
+  const [moreOpen, setMoreOpen] = useState(false);
+  useEffect(() => {
+    if (!companyKey || !userKey) return;
+    let alive = true;
+    coreApi
+      .usage()
+      .then((result) => alive && setEmptySections(new Set(result.empty)))
+      .catch(() => alive && setEmptySections(new Set()));
+    looksApi
+      .get("nav")
+      .then(({ look }) => alive && setPins(new Set(Array.isArray(look?.pinned) ? (look.pinned as string[]) : [])))
+      .catch(() => alive && setPins(new Set()));
+    return () => {
+      alive = false;
+    };
+  }, [companyKey, userKey]);
+  const togglePin = useCallback((key: string) => {
+    setPins((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      void looksApi.put("nav", { pinned: [...next] }).catch(() => {});
+      return next;
+    });
+  }, []);
+  /** Все разрешённые разделы - для поиска, где пустые тоже находятся. */
+  const allowedItems = useMemo(
+    () => GROUPS.flatMap((group) => group.items.filter(visible).map((item) => ({ ...item, title: titleOf(item) }))),
+    [visible, titleOf],
+  );
+  const shown = useCallback(
+    (item: SectionItem) => !emptySections.has(item.key) || pins.has(item.key) || item.key === picked,
+    [emptySections, pins, picked],
+  );
   const groups = useMemo(
     () =>
       GROUPS.map((group) => ({
         ...group,
-        items: group.items.filter(visible).map((item) => ({ ...item, title: titleOf(item) })),
+        items: group.items.filter((item) => visible(item) && shown(item)).map((item) => ({ ...item, title: titleOf(item) })),
       })).filter((g) => g.items.length),
-    [visible, titleOf],
+    [visible, titleOf, shown],
+  );
+  /** Пустые разделы, убранные из колонки, - и закреплённые пустые: их открепляют здесь же. */
+  const quiet = useMemo(
+    () => allowedItems.filter((item) => emptySections.has(item.key) && (!shown(item) || pins.has(item.key))),
+    [allowedItems, emptySections, shown, pins],
   );
   const [last, setLast] = useState<Section | null>(null);
   useEffect(() => {
@@ -737,6 +797,23 @@ export function FinanceClient() {
   const openContract = useCallback((id: string) => {
     setSectionState("contracts");
     writeParams({ s: "contracts", id, v: null, t: null, d: null, bill: null, p: null }, true);
+  }, []);
+  /**
+   * «Найти или сделать» (ядро, фаза 8): Ctrl+K в любом разделе - по коду
+   * клавиши, а не по букве, иначе в русской раскладке («л») не срабатывало бы.
+   * В листе Univer сочетание остаётся листу: там это вставка ссылки.
+   */
+  const [finding, setFinding] = useState(false);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.code !== "KeyK" || event.altKey || event.shiftKey) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.closest(".usheet")) return;
+      event.preventDefault();
+      setFinding((value) => !value);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
   const [pending, setPending] = useState(0);
   useEffect(() => {
@@ -1056,12 +1133,14 @@ export function FinanceClient() {
         );
       case "contracts-setup":
         return <SetupScreen me={me} onBack={() => setSection(setupBack)} backLabel={setupBackTitle} />;
+      case "today":
+        return <TodayScreen me={me} onGo={setSection} />;
       case "participants":
         return <ParticipantsScreen me={me} />;
       case "shadow":
         return <ShadowScreen me={me} />;
       case "vat":
-        return <VatScreen />;
+        return <VatScreen me={me} />;
       default:
         break;
     }
@@ -1073,10 +1152,11 @@ export function FinanceClient() {
         return <TableView onChanged={reload} refresh={sheetRefresh} canEdit={can(me, "table", "edit")} />;
       case "calendar":
         return <CalendarView revision={revision} />;
+      // «По журналу · По договорам»: вид по договорам - итоги ядра (фаза 6).
       case "cash":
-        return <CashFlowReport revision={revision} />;
+        return <RevenueSection me={me} section="cash" measure="received" journal={<CashFlowReport revision={revision} />} />;
       case "profit":
-        return <ProfitReport revision={revision} />;
+        return <RevenueSection me={me} section="profit" measure="accrued" journal={<ProfitReport revision={revision} />} />;
       case "debts":
         // Долги по договорам (ядро, фаза 6) и ожидания журнала - чипами одного раздела.
         return (
@@ -1250,6 +1330,18 @@ export function FinanceClient() {
         {/* «+ Доход / − Расход / ⇄ Перевод» здесь больше нет (28.09.2026): шапку
             видят все отделы, а записывать деньги - дело финансов. Кнопки - у
             заголовка «Журнала», см. `operationActions` выше. */}
+        {/* «Найти или сделать» - и кнопкой: на телефоне Ctrl+K нет. */}
+        {seesContracts ? (
+          <button
+            type="button"
+            className="fin-icon-btn fin-head-find"
+            onClick={() => setFinding(true)}
+            title="Найти или сделать · Ctrl+K"
+            aria-label="Найти или сделать"
+          >
+            <SearchIcon size={16} />
+          </button>
+        ) : null}
         {/* Поддержка - у всех, кто вошёл, и без единого открытого раздела. */}
         <SupportButton unread={supportUnread} onOpen={openSupport} />
         {money ? (
@@ -1372,6 +1464,46 @@ export function FinanceClient() {
                 ))}
               </div>
             ))}
+            {/* Пустые разделы - свёрнутым «Ещё»: колонка - для того, чем пользуются. */}
+            {quiet.length ? (
+              <div className="fin-nav-group fin-nav-more">
+                <button
+                  type="button"
+                  className="fin-nav-item"
+                  aria-expanded={moreOpen}
+                  title={`Ещё ${quiet.length} ${plural(quiet.length, "раздел", "раздела", "разделов")} без данных`}
+                  onClick={() => setMoreOpen((value) => !value)}
+                >
+                  <span className="fin-nav-ico">
+                    <MoreIcon size={17} />
+                  </span>
+                  <span className="fin-nav-text">
+                    Ещё {quiet.length} <span className="fin-nav-soft">без данных</span>
+                  </span>
+                </button>
+                {moreOpen
+                  ? quiet.map((item) => (
+                      <div key={item.key} className="fin-nav-quiet">
+                        <button
+                          type="button"
+                          className="fin-nav-item"
+                          data-on={section ? navKey(section) === item.key : false}
+                          title={item.title}
+                          onClick={() => openNav(item.key)}
+                        >
+                          <span className="fin-nav-ico">
+                            <item.icon size={17} />
+                          </span>
+                          <span className="fin-nav-text">{item.title}</span>
+                        </button>
+                        <button type="button" className="fin-link-btn fin-nav-pin" onClick={() => togglePin(item.key)}>
+                          {pins.has(item.key) ? "открепить" : "закрепить"}
+                        </button>
+                      </div>
+                    ))
+                  : null}
+              </div>
+            ) : null}
           </nav>
 
           {/* Главная цифра в свёрнутом виде: ради неё на панель и смотрят, не
@@ -1563,6 +1695,17 @@ export function FinanceClient() {
         />
       ) : null}
       <SupportLayer me={me} onRefresh={() => void refreshMe()} />
+      {seesContracts ? (
+        <FindLayer
+          me={me}
+          open={finding}
+          sections={allowedItems.map((item) => ({ key: item.key, title: item.title }))}
+          onClose={() => setFinding(false)}
+          onSection={setSection}
+          onContract={openContract}
+          onParticipant={openParticipant}
+        />
+      ) : null}
     </div>
     </SessionScope>
   );
