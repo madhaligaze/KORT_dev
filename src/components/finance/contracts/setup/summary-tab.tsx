@@ -16,6 +16,7 @@ import { useState } from "react";
 
 import { contractsApi } from "@/components/finance/api";
 import { BookColumns } from "@/components/finance/core/book-columns";
+import { TableWords } from "@/components/finance/core/table-words";
 import { ensureSummary, useRegistry } from "@/components/finance/contracts/store";
 import { useSetupAction } from "@/components/finance/contracts/setup/use-setup-action";
 import { formatTime } from "@/components/finance/format";
@@ -75,6 +76,8 @@ export function SummaryTab() {
           ) : null}
           {/* Словарь колонок компании для ядра (фаза 9): своё название колонки - к названию ядра. */}
           <BookColumns />
+          {/* Слова компании в «Счет» и «Вид Услуги» (фаза 9): незнакомому слову - смысл. */}
+          <TableWords />
         </div>
       ) : null}
 

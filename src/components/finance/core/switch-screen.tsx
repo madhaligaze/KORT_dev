@@ -10,11 +10,12 @@
  * именно их KORT не напомнит. Каждое звено - своим запросом (`core/switch/{link}`):
  * сверка читает всю таблицу, и готовая колонка не ждёт остальных.
  *
- * Звено, которое KORT уже умеет вести сам (пока - счета к выставлению),
+ * Звено, которое KORT уже умеет вести сам (счета к выставлению и оплаты),
  * переключается у юрлица кнопкой в клетке. Перед переключением окно
- * показывает, что станет со списком «Не выставлены»: какие счета появятся,
- * какие уйдут, у каких сменится срок. Решает человек, а не порог: расхождение
- * бывает и ошибкой таблицы. Вернуть на таблицу - той же кнопкой.
+ * показывает последствия: у счетов - какие появятся в «Не выставлены», какие
+ * уйдут, у каких сменится срок; у оплат - у каких договоров «Оплачено»
+ * станет другим. Решает человек, а не порог: расхождение бывает и ошибкой
+ * таблицы. Вернуть на таблицу - той же кнопкой.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -23,6 +24,7 @@ import {
   type Bill,
   type SwitchEntity,
   type SwitchLinkKey,
+  type SwitchPaymentsPreview,
   type SwitchPreview,
   type SwitchSource,
   type SwitchSources,
@@ -69,7 +71,7 @@ export function SwitchView({ onGo }: { onGo: (link: SwitchLinkKey, entity?: stri
   const [sources, setSources] = useState<SwitchSources | null>(null);
   // Своя ревизия у каждого звена: после переключения пересверяется одно звено, а не все пять.
   const [revisions, setRevisions] = useState(NONE);
-  const [asking, setAsking] = useState<{ entity: SwitchEntity; source: SwitchSource } | null>(null);
+  const [asking, setAsking] = useState<{ entity: SwitchEntity; source: SwitchSource; link: SwitchLinkKey } | null>(null);
   const [error, setError] = useState("");
   const accruals = useTally("accruals", revisions.accruals);
   const bills = useTally("bills", revisions.bills);
@@ -163,7 +165,7 @@ export function SwitchView({ onGo }: { onGo: (link: SwitchLinkKey, entity?: stri
                     <Cell
                       item={item}
                       switchable={Boolean(tally.switchable)}
-                      onAsk={(source) => setAsking({ entity: item, source })}
+                      onAsk={(source) => setAsking({ entity: item, source, link })}
                       onGo={() => onGo(link, item.id)}
                     />
                   )}
@@ -180,13 +182,14 @@ export function SwitchView({ onGo }: { onGo: (link: SwitchLinkKey, entity?: stri
       </div>
       {asking ? (
         <SwitchDialog
+          link={asking.link}
           entity={asking.entity}
           source={asking.source}
           onClose={() => setAsking(null)}
           onDone={() => {
             setAsking(null);
             loadSources();
-            again(["bills"]);
+            again([asking.link]);
           }}
         />
       ) : null}
@@ -296,32 +299,53 @@ function BillList({ title, bills, notes }: { title: string; bills: Bill[]; notes
   );
 }
 
+const PAID_CODES: Record<SwitchPaymentsPreview["items"][number]["code"], string> = {
+  differ: "расходится",
+  table_only: "оплата только в таблице",
+  kort_only: "оплата только у KORT",
+};
+
+/**
+ * Окно перехода звена юрлица. Счета - что станет со списком «Не выставлены»;
+ * оплаты - у каких договоров «Оплачено» реестра станет другим и на сколько.
+ */
 function SwitchDialog({
+  link,
   entity,
   source,
   onClose,
   onDone,
 }: {
+  link: SwitchLinkKey;
   entity: SwitchEntity;
   source: SwitchSource;
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [preview, setPreview] = useState<SwitchPreview | null>(null);
+  const [bills, setBills] = useState<SwitchPreview | null>(null);
+  const [paid, setPaid] = useState<SwitchPaymentsPreview | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   useScrollLock(true);
 
   useEffect(() => {
     let alive = true;
-    coreApi
-      .switchPreview(entity.id, source)
-      .then((data) => alive && setPreview(data))
-      .catch((exc) => alive && setError(messageOf(exc, "Не посчиталось, что изменится")));
+    const fail = (exc: unknown) => alive && setError(messageOf(exc, "Не посчиталось, что изменится"));
+    if (link === "payments") {
+      coreApi
+        .switchPaymentsPreview(entity.id, source)
+        .then((data) => alive && setPaid(data))
+        .catch(fail);
+    } else {
+      coreApi
+        .switchPreview(entity.id, source)
+        .then((data) => alive && setBills(data))
+        .catch(fail);
+    }
     return () => {
       alive = false;
     };
-  }, [entity.id, source]);
+  }, [link, entity.id, source]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -335,7 +359,7 @@ function SwitchDialog({
     setBusy(true);
     setError("");
     try {
-      await coreApi.setSwitch("bills", entity.id, source);
+      await coreApi.setSwitch(link, entity.id, source);
       onDone();
     } catch (exc) {
       setError(messageOf(exc, "Не переключилось"));
@@ -344,9 +368,9 @@ function SwitchDialog({
   };
 
   const toKort = source === "kort";
-  const counts = preview?.counts;
-  const title = toKort ? `Счета ${entity.code} - из KORT` : `Счета ${entity.code} - снова из таблицы`;
-  const same = counts && !counts.appear && !counts.vanish && !counts.regroup;
+  const what = link === "payments" ? "Оплаты" : "Счета";
+  const title = toKort ? `${what} ${entity.code} - из KORT` : `${what} ${entity.code} - снова из таблицы`;
+  const ready = link === "payments" ? paid : bills;
 
   return createPortal(
     <div
@@ -359,48 +383,17 @@ function SwitchDialog({
         <h2 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
           {title}
         </h2>
-        {!preview && !error ? <p className="text-sm fin-muted">Считаем, что станет со списком «Не выставлены»…</p> : null}
-        {counts ? (
-          <dl className="switch-counts">
-            <div>
-              <dt>Не выставлено сейчас</dt>
-              <dd>{count(counts.before)}</dd>
-            </div>
-            <div>
-              <dt>Станет</dt>
-              <dd className="fin-strong">{count(counts.after)}</dd>
-            </div>
-            <div>
-              <dt>Просрочено</dt>
-              <dd>
-                {count(counts.overdue_before)} → {count(counts.overdue_after)}
-              </dd>
-            </div>
-          </dl>
+        {!ready && !error ? (
+          <p className="text-sm fin-muted">
+            {link === "payments" ? "Сравниваем «Оплачено» таблицы и KORT…" : "Считаем, что станет со списком «Не выставлены»…"}
+          </p>
         ) : null}
-        {same ? <p className="text-sm">Список «Не выставлены» у {entity.code} не изменится.</p> : null}
-        {toKort && entity.closed.length ? (
+        {bills ? <BillsBody preview={bills} entity={entity} toKort={toKort} /> : null}
+        {paid ? <PaymentsBody preview={paid} entity={entity} toKort={toKort} /> : null}
+        {toKort && entity.closed.length && ready ? (
           <p className="text-sm">
             {entity.ready ? "Закрытые месяцы без расхождений: " : "Переход - после двух закрытых месяцев без расхождений: "}
             {entity.closed.map((month) => `${formatMonth(month.month, true)} - ${count(month.same)} из ${count(month.checked)}`).join(", ")}.
-          </p>
-        ) : null}
-        {preview ? (
-          <div className="switch-lists">
-            <BillList title={toKort ? "Появятся: KORT начисляет, в таблице счёт не ждут" : "Появятся: таблица ждёт счёт"} bills={preview.appear} />
-            <BillList title={toKort ? "Уйдут: по условиям договора счёт не нужен" : "Уйдут: их ждёт только KORT"} bills={preview.vanish} />
-            <BillList
-              title="Сменят срок"
-              bills={preview.regroup.map((item) => item.bill)}
-              notes={preview.regroup.map(
-                (item) => `${item.before_text || GROUP_WORDS[item.before] || item.before} → ${item.bill.text || GROUP_WORDS[item.bill.group] || ""}`,
-              )}
-            />
-          </div>
-        ) : null}
-        {toKort && preview ? (
-          <p className="text-xs fin-muted">
-            Список, число у пункта «Счета», бот и шаблон Excel возьмут счета {entity.code} у KORT. Счёт, у которого есть строка в таблице, записывается в неё, как раньше; без строки - в KORT.
           </p>
         ) : null}
         {error ? <p className="text-sm fin-bill-fail">{error}</p> : null}
@@ -408,7 +401,7 @@ function SwitchDialog({
           <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>
             Отмена
           </button>
-          <button type="button" className="btn-primary" disabled={busy || !preview} onClick={() => void go()}>
+          <button type="button" className="btn-primary" disabled={busy || !ready} onClick={() => void go()}>
             {busy ? "Переключаем…" : toKort ? "Перевести на KORT" : "Вернуть на таблицу"}
           </button>
         </div>
@@ -416,4 +409,116 @@ function SwitchDialog({
     </div>,
     document.body,
   );
+}
+
+function BillsBody({ preview, entity, toKort }: { preview: SwitchPreview; entity: SwitchEntity; toKort: boolean }) {
+  const counts = preview.counts;
+  const same = !counts.appear && !counts.vanish && !counts.regroup;
+  return (
+    <>
+      <dl className="switch-counts">
+        <div>
+          <dt>Не выставлено сейчас</dt>
+          <dd>{count(counts.before)}</dd>
+        </div>
+        <div>
+          <dt>Станет</dt>
+          <dd className="fin-strong">{count(counts.after)}</dd>
+        </div>
+        <div>
+          <dt>Просрочено</dt>
+          <dd>
+            {count(counts.overdue_before)} → {count(counts.overdue_after)}
+          </dd>
+        </div>
+      </dl>
+      {same ? <p className="text-sm">Список «Не выставлены» у {entity.code} не изменится.</p> : null}
+      <div className="switch-lists">
+        <BillList title={toKort ? "Появятся: KORT начисляет, в таблице счёт не ждут" : "Появятся: таблица ждёт счёт"} bills={preview.appear} />
+        <BillList title={toKort ? "Уйдут: по условиям договора счёт не нужен" : "Уйдут: их ждёт только KORT"} bills={preview.vanish} />
+        <BillList
+          title="Сменят срок"
+          bills={preview.regroup.map((item) => item.bill)}
+          notes={preview.regroup.map(
+            (item) => `${item.before_text || GROUP_WORDS[item.before] || item.before} → ${item.bill.text || GROUP_WORDS[item.bill.group] || ""}`,
+          )}
+        />
+      </div>
+      {toKort ? (
+        <p className="text-xs fin-muted">
+          Список, число у пункта «Счета», бот и шаблон Excel возьмут счета {entity.code} у KORT. Счёт, у которого есть строка в таблице,
+          записывается в неё, как раньше; без строки - в KORT.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+type PaidItem = SwitchPaymentsPreview["items"][number];
+
+function PaymentsBody({ preview, entity, toKort }: { preview: SwitchPaymentsPreview; entity: SwitchEntity; toKort: boolean }) {
+  const [all, setAll] = useState(false);
+  const counts = preview.counts;
+  const shown = all ? preview.items : preview.items.slice(0, FIRST);
+  // «Было» - то, что «Оплачено» показывает сейчас; «станет» - после перехода.
+  const was = (item: PaidItem) => (toKort ? item.table : item.kort);
+  const will = (item: PaidItem) => (toKort ? item.kort : item.table);
+  return (
+    <>
+      <dl className="switch-counts">
+        <div>
+          <dt>Договоров с оплатами</dt>
+          <dd>{count(counts.contracts)}</dd>
+        </div>
+        <div>
+          <dt>«Оплачено» не изменится</dt>
+          <dd className="fin-strong">{count(counts.same)}</dd>
+        </div>
+        <div>
+          <dt>Оплачено всего</dt>
+          <dd>
+            {paidMoney(toKort ? preview.totals.table : preview.totals.kort)} → {paidMoney(toKort ? preview.totals.kort : preview.totals.table)}
+          </dd>
+        </div>
+      </dl>
+      {preview.items.length ? (
+        <section className="switch-list">
+          <p className="switch-list-title">
+            «Оплачено» станет другим <span className="fin-muted">{count(preview.items.length)}</span>
+          </p>
+          <ul>
+            {shown.map((item) => (
+              <li key={item.id} className="switch-bill">
+                <span className="switch-bill-what">
+                  <span className="fin-strong">{item.customer || "-"}</span>
+                  <span className="switch-note">{[item.number, PAID_CODES[item.code]].filter(Boolean).join(" · ")}</span>
+                </span>
+                <span className="switch-bill-sum">
+                  {paidMoney(was(item))} → {paidMoney(will(item))}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {preview.items.length > shown.length ? (
+            <button type="button" className="fin-link-btn" onClick={() => setAll(true)}>
+              Показать все {count(preview.items.length)}
+            </button>
+          ) : null}
+        </section>
+      ) : (
+        <p className="text-sm">«Оплачено» договоров {entity.code} не изменится.</p>
+      )}
+      {toKort ? (
+        <p className="text-xs fin-muted">
+          «Оплачено» и «Остаток» реестра, «Разовых», листов и выгрузки возьмут оплаты договоров {entity.code} у KORT - из журнала и 1С,
+          разнесённых по договорам.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function paidMoney(value: string | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "-";
+  return formatMoney(value, { whole: true });
 }

@@ -5361,6 +5361,30 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 /* Колонки сводной таблицы для ядра (словарь компании): колонка ядра, как
    нашлась в шапке, свои названия. Отказ («нет в таблице») - цветом отказа. */
 .book-columns { display: grid; gap: 0.5rem; margin-top: 1.25rem; }
+/* «Слова таблицы» - та же раскладка, что у колонок: значение, как понимается, выбор смысла. */
+.table-words { display: grid; gap: 0.75rem; margin-top: 1.5rem; }
+/* «Слои»: шаблон, компания, отделы, люди - друг под другом, отличия компании списком. */
+.layers { display: grid; gap: 1.25rem; max-width: 56rem; }
+.layer { display: grid; gap: 0.4rem; padding-bottom: 1rem; border-bottom: 1px solid var(--fin-line); }
+.layer-title { margin: 0; font-size: 0.9375rem; font-weight: 600; }
+.layer-line { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); overflow-wrap: anywhere; }
+.layer-line .fin-strong { color: var(--fin-text); }
+.layer-list { display: grid; gap: 0.25rem; }
+.layer-items { display: grid; margin: 0; padding: 0; list-style: none; }
+.layer-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+  padding: 0.3rem 0;
+  border-top: 1px solid var(--fin-line);
+  font-size: 0.8125rem;
+}
+.layer-item-what { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.layer-note { font-size: 0.75rem; color: var(--fin-text-soft); }
+.table-words-part { display: grid; gap: 0.35rem; }
+.table-words-title { margin: 0; font-size: 0.8125rem; font-weight: 600; }
 .book-columns-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; }
 .book-columns-head .setup-summary-title, .book-columns-head .setup-summary-meta { margin: 0; }
 .book-columns-head .fin-mine { margin: 0; }

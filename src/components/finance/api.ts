@@ -1500,6 +1500,8 @@ export type SummaryEntry = {
   rows?: number;
   customer?: string;
   candidates?: string[];
+  /** `kort` - оплаты юрлица ведёт KORT («Сверка → Переход»): оплачено - из разнесённых оплат. */
+  source?: "kort";
 };
 
 export type ContractIssue = {
@@ -2722,6 +2724,53 @@ export type BookColumn = {
 
 export type BookColumnsView = { connected: boolean; header: string[]; columns: BookColumn[]; error: string };
 
+/** Значение списка компании против шаблона (`core/layers.py`). */
+export type LayerListItem = {
+  template: string | null;
+  value: string | null;
+  id: string | null;
+  /** template - как в шаблоне, renamed - своё слово, meaning - другой смысл, added - своё значение, removed - убрано. */
+  state: "template" | "renamed" | "meaning" | "added" | "removed";
+  meaning: Record<string, unknown>;
+  template_meaning: Record<string, unknown> | null;
+};
+
+export type LayersView = {
+  template: { title: string; fields: number; lists: Record<string, number> };
+  company: {
+    lists: { key: string; title: string; counts: Record<LayerListItem["state"], number>; items: LayerListItem[] }[];
+    fields: string[];
+    hidden_fields: string[];
+    views: Record<string, number>;
+    columns: number;
+    words: number;
+    since: string | null;
+    kort: Record<string, string[]>;
+  };
+  departments: { id: string; code: string; title: string; grants: number }[];
+  people: { employees: number; with_own_rights: number; looks: number; pins: number };
+};
+
+/** Колонка таблицы со словами компании: «Счет» (состояние счёта) или «Вид Услуги» (пост бота). */
+export type TableWordPart = "bill" | "kind";
+
+/** Значение колонки, встреченное в таблице: строк, смысл и откуда он (`core/settings.table_words`). */
+export type TableWordSeen = {
+  text: string;
+  rows: number;
+  /** Смысл: у «Счет» - issued / overdue / soon / early / undated; у «Вида Услуги» - abon / rent / skip; пусто - не знаю. */
+  meaning: string;
+  /** `kort` - KORT понимает сам, `company` - смысл дала компания, `unknown` - KORT не знает этого слова. */
+  how: "kort" | "company" | "unknown";
+};
+
+export type TableWordsView = {
+  titles: Record<string, string>;
+  meanings: Record<TableWordPart, string[]>;
+  seen: Record<TableWordPart, TableWordSeen[]>;
+  error: string;
+};
+
 /** «Первые шаги» (`core/onboarding.py`): что KORT заведёт по сводной таблице - по шагам. */
 export type StartStep = "entities" | "contracts" | "since";
 
@@ -2805,6 +2854,15 @@ export type SwitchPreview = {
   appear: Bill[];
   vanish: Bill[];
   regroup: { bill: Bill; before: BillGroup; before_text: string }[];
+};
+
+/** Что станет с «Оплачено» договоров юрлица после перехода оплат (`core/switch.preview_payments`). */
+export type SwitchPaymentsPreview = {
+  entity: { id: string; code: string };
+  source: SwitchSource;
+  counts: { contracts: number; same: number; differ: number; table_only: number; kort_only: number };
+  totals: { table: string; kort: string };
+  items: { id: string; number: string; customer: string; table: string | null; kort: string; code: "differ" | "table_only" | "kort_only" }[];
 };
 
 /** Карта группы (`core/group_map.py`): наши ТОО и что между ними. */
@@ -3036,6 +3094,12 @@ export const coreApi = {
   /** Разделы колонки, где у компании нет ни одной строки (`core/usage.py`). */
   usage: () => request<{ empty: string[] }>("/core/usage"),
   group: (year: number) => request<GroupView>(`/core/group?year=${year}`),
+  /** Слои настройки: шаблон → компания → отдел → человек (фаза 9, R15-R17). */
+  layers: () => request<LayersView>("/core/layers"),
+  /** Слова компании в колонках «Счет» и «Вид Услуги» (фаза 9, R12-R13). */
+  tableWords: () => request<TableWordsView>("/core/table-words"),
+  setTableWord: (part: TableWordPart, word: string, meaning: string) =>
+    request<TableWordsView>("/core/table-words", { method: "PUT", body: JSON.stringify({ part, word, meaning }) }),
   /** «Первые шаги» (фаза 9): план по сводной таблице и шаги записи. */
   start: () => request<StartPlan>("/core/start"),
   startStep: (step: StartStep, since?: string) =>
@@ -3044,9 +3108,11 @@ export const coreApi = {
   switchSources: () => request<SwitchSources>("/core/switch"),
   /** Одно звено по нашим юрлицам - своим запросом: сверка читает всю таблицу. */
   switchLink: (link: SwitchLinkKey, init?: RequestInit) => request<SwitchTally>(`/core/switch/${link}`, init),
-  /** Что станет со «Счетами → Не выставлены» юрлица после перехода. */
+  /** Что станет после перехода: «Счета → Не выставлены» юрлица или «Оплачено» его договоров. */
   switchPreview: (entityId: string, source: SwitchSource) =>
     request<SwitchPreview>(`/core/switch/bills/${entityId}/preview?source=${source}`),
+  switchPaymentsPreview: (entityId: string, source: SwitchSource) =>
+    request<SwitchPaymentsPreview>(`/core/switch/payments/${entityId}/preview?source=${source}`),
   setSwitch: (link: SwitchLinkKey, entityId: string, source: SwitchSource) =>
     request<{ sources: SwitchSources["sources"] }>(`/core/switch/${link}/${entityId}`, {
       method: "PUT",
