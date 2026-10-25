@@ -2745,6 +2745,10 @@ export type SwitchEntity = {
   contracts_same: number;
   /** Всё совпало и строк без договора нет. */
   clean: boolean;
+  /** Последние закрытые месяцы окна: сверено (вместе со строками без договора) и совпало. */
+  closed: { month: string; checked: number; same: number }[];
+  /** Готово к переходу: последние закрытые месяцы - без единого расхождения. */
+  ready: boolean;
   source: SwitchSource;
 };
 

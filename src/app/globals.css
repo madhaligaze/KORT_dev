@@ -5229,7 +5229,7 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 
 /* ─── «Сверка» с книгой-сводкой ─── */
 .shadow-screen { display: flex; flex-direction: column; gap: 0.75rem; }
-.fin-mine.shadow-what { margin: 0; justify-content: flex-start; }
+.fin-mine.shadow-what { margin: 0; justify-content: flex-start; flex-wrap: wrap; row-gap: 0.5rem; }
 .shadow-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
 .shadow-source { flex: 1 1 20rem; margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
 .shadow-groups { display: grid; gap: 0.25rem; }
@@ -5426,7 +5426,9 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 /* «Сверка → Переход»: строка - наше юрлицо, колонка - звено. Совпало целиком -
    весом, расхождения - словами; цвета нет: расхождение - не отказ. На узком
    экране клетки - по две в ряд, со своей подписью звена. */
-.switch-grid { display: grid; border-top: 1px solid var(--fin-line); }
+/* Раскладка - по ширине самой сетки, а не окна: рядом с колонкой разделов на
+   1000 px сетке достаётся ~470 px, и шесть колонок резали слова посередине. */
+.switch-grid { display: grid; border-top: 1px solid var(--fin-line); container-type: inline-size; }
 .switch-row {
   display: grid;
   grid-template-columns: 5.5rem repeat(5, minmax(0, 1fr));
@@ -5448,9 +5450,11 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .shadow-top .fin-mine.shadow-what { flex: 1 1 auto; }
 .shadow-entity { min-width: 11rem; }
 .switch-note { font-size: 0.75rem; color: var(--fin-text-soft); }
+/* Готовность - весом, без цвета: «всё хорошо» цветом не говорится. */
+.switch-note.switch-ready { color: var(--fin-text); font-weight: 600; }
 .switch-fail { font-size: 0.75rem; color: var(--fin-fail); }
 .switch-source { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.1rem 0.5rem; margin-top: 0.35rem; font-size: 0.8125rem; }
-@media (max-width: 999.98px) {
+@container (max-width: 46rem) {
   .switch-head { display: none; }
   .switch-row { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 0.75rem; }
   .switch-entity { grid-column: 1 / -1; }

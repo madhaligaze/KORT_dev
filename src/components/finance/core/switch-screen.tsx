@@ -218,8 +218,18 @@ function Cell({
       ) : (
         <span className="switch-main">-</span>
       )}
-      {item.clean ? <span className="switch-note">совпадает</span> : null}
+      {item.ready ? (
+        <span className="switch-note switch-ready">готово к переходу</span>
+      ) : item.clean ? (
+        <span className="switch-note">совпадает</span>
+      ) : null}
       {differ > 0 ? <span className="switch-note">расходится {count(differ)}</span> : null}
+      {!item.ready && item.closed.length ? (
+        /* Переход - после закрытых месяцев без расхождений: видно, какой месяц держит. */
+        <span className="switch-note">
+          {item.closed.map((month) => `${formatMonth(month.month, true)}: ${count(month.same)} из ${count(month.checked)}`).join(" · ")}
+        </span>
+      ) : null}
       {item.unknown ? (
         <span className="switch-note" title="Строки таблицы, которые KORT не связал ни с одним договором">
           без договора {count(item.unknown)}
@@ -369,6 +379,12 @@ function SwitchDialog({
           </dl>
         ) : null}
         {same ? <p className="text-sm">Список «Не выставлены» у {entity.code} не изменится.</p> : null}
+        {toKort && entity.closed.length ? (
+          <p className="text-sm">
+            {entity.ready ? "Закрытые месяцы без расхождений: " : "Переход - после двух закрытых месяцев без расхождений: "}
+            {entity.closed.map((month) => `${formatMonth(month.month, true)} - ${count(month.same)} из ${count(month.checked)}`).join(", ")}.
+          </p>
+        ) : null}
         {preview ? (
           <div className="switch-lists">
             <BillList title={toKort ? "Появятся: KORT начисляет, в таблице счёт не ждут" : "Появятся: таблица ждёт счёт"} bills={preview.appear} />
