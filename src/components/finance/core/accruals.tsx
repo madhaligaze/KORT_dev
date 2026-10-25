@@ -54,29 +54,29 @@ function span(from: string | null, to: string | null): string {
 function codeText(code: ShadowCode, book: BookMonthOut | null): string {
   switch (code) {
     case "amount":
-      return `в книге ${book?.amount ? contractMoney(book.amount) : "пусто"}`;
+      return `в таблице ${book?.amount ? contractMoney(book.amount) : "пусто"}`;
     case "period":
-      return `в книге с ${book?.period_from ? formatDay(book.period_from).slice(0, 5) : "-"}`;
+      return `в таблице с ${book?.period_from ? formatDay(book.period_from).slice(0, 5) : "-"}`;
     case "executor":
-      return `в книге ${book?.code || "другое юрлицо"}`;
+      return `в таблице ${book?.code || "другое юрлицо"}`;
     case "no_kort":
-      return "в книге есть, по договору нет";
+      return "в таблице есть, по договору нет";
     case "no_book":
-      return "в книге нет";
+      return "в таблице нет";
   }
 }
 
 /** Чем АВР 1С и книги расходятся - словами у месяца. */
 const ACT_CODES: Record<ActCode, string> = {
-  act_no_book: "в книге АВР нет",
+  act_no_book: "в таблице АВР нет",
   act_no_1c: "в 1С АВР нет",
-  act_amount: "сумма АВР в 1С и книге разная",
-  act_signed: "подписание в 1С и книге разное",
-  esf: "ЭСФ в 1С и книге разный",
+  act_amount: "сумма АВР в 1С и таблице разная",
+  act_signed: "подписание в 1С и таблице разное",
+  esf: "ЭСФ в 1С и таблице разный",
 };
 
-const ACT_SOURCE = { kort: "KORT", "1c": "1С", book: "книга" } as const;
-const ACT_IN = { kort: "в KORT", "1c": "в 1С", book: "в книге" } as const;
+const ACT_SOURCE = { kort: "KORT", "1c": "1С", book: "таблица" } as const;
+const ACT_IN = { kort: "в KORT", "1c": "в 1С", book: "в таблице" } as const;
 
 function amountText(accrual: AccrualOut): string {
   if (accrual.skipped) return "не начислять";
@@ -276,7 +276,7 @@ function paidText(bucket: MoneyBucket | undefined, book: BookMonthOut | null, co
   const ours = Number(bucket?.paid ?? 0);
   const theirs = Number(book.paid ?? 0);
   if (ours === theirs) return "";
-  return theirs ? `в книге оплачено ${contractMoney(theirs)}` : "в книге оплаты нет";
+  return theirs ? `в таблице оплачено ${contractMoney(theirs)}` : "в таблице оплаты нет";
 }
 
 /** Платежи договора: дата, сумма, кто, куда легли. */
@@ -327,13 +327,13 @@ function ActLine({ act, accrued, past }: { act: MonthAct | undefined; accrued: b
 
 /** Книга за месяц: счёт, оплата и, без АВР ядра, АВР - то, что по месяцу уже сделано. */
 function BookCell({ book, withAct = true }: { book: BookMonthOut | null; withAct?: boolean }) {
-  if (!book) return <span className="acc-book fin-muted">в книге нет</span>;
+  if (!book) return <span className="acc-book fin-muted">в таблице нет</span>;
   const parts = [
     book.bill_no ? `счёт ${book.bill_no}${book.bill_date ? ` от ${formatDay(book.bill_date)}` : ""}` : "",
     book.paid && Number(book.paid) ? `оплачено ${contractMoney(book.paid)}` : "",
     withAct && book.act_no ? `АВР ${book.act_no}${book.accepted === "yes" ? ", принят" : ""}` : "",
   ].filter(Boolean);
-  return <span className="acc-book">{parts.length ? parts.join(" · ") : <span className="fin-muted">в книге {book.amount ? contractMoney(book.amount) : "-"}</span>}</span>;
+  return <span className="acc-book">{parts.length ? parts.join(" · ") : <span className="fin-muted">в таблице {book.amount ? contractMoney(book.amount) : "-"}</span>}</span>;
 }
 
 function RemoveAdjustment({ contractId, documentId, onDone }: { contractId: string; documentId: string; onDone: (text: string) => void }) {

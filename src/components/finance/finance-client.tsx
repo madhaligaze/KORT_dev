@@ -91,6 +91,7 @@ import { OneoffStaff, SummaryLine } from "@/components/finance/contracts/oneoff"
 import { RegistryImport } from "@/components/finance/contracts/import/registry-import";
 import { RegistrySetup } from "@/components/finance/contracts/setup/registry-setup";
 import { PARTICIPANT_EVENT } from "@/components/finance/core/open";
+import { DebtsSection } from "@/components/finance/core/debts-screen";
 import { ParticipantsScreen } from "@/components/finance/core/participants";
 import { ShadowScreen } from "@/components/finance/core/shadow-screen";
 import { VatScreen } from "@/components/finance/core/vat-screen";
@@ -1077,11 +1078,15 @@ export function FinanceClient() {
       case "profit":
         return <ProfitReport revision={revision} />;
       case "debts":
-        return <DebtsReport
-            revision={revision}
-            onChanged={reload}
-            onNewExpectation={(kind) => setDialog({ kind, plan: true })}
-          />;
+        // Долги по договорам (ядро, фаза 6) и ожидания журнала - чипами одного раздела.
+        return (
+          <DebtsSection
+            me={me}
+            expectations={
+              <DebtsReport revision={revision} onChanged={reload} onNewExpectation={(kind) => setDialog({ kind, plan: true })} />
+            }
+          />
+        );
       case "projects":
         return <ProjectsReport revision={revision} />;
       case "plan":
@@ -1358,7 +1363,7 @@ export function FinanceClient() {
                       {/* Просроченные по книге-сводке счета - числом, пока они
                           есть: видно из любого раздела, не только из «Счетов». */}
                       {item.key === "invoices" && me.bills?.overdue ? (
-                        <span className="fin-nav-count" title="Счета, которые по книге пора было выставить">
+                        <span className="fin-nav-count" title="Счета, которые по таблице пора было выставить">
                           {me.bills.overdue}
                         </span>
                       ) : null}

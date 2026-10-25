@@ -32,6 +32,7 @@ import { useRegistryBoot } from "@/components/finance/contracts/registry-cards";
 import { ActsShadow } from "@/components/finance/core/acts-screen";
 import { PaymentsShadow } from "@/components/finance/core/payments-screen";
 import { ProposalActions } from "@/components/finance/core/proposal";
+import { SaldoShadowView } from "@/components/finance/core/saldo-screen";
 import { bareNumber, contractMoney, formatDay, formatTime, plural } from "@/components/finance/format";
 import { ConfirmDialog } from "@/components/finance/ui/confirm-dialog";
 import { useSessionState } from "@/components/session-state";
@@ -50,7 +51,7 @@ const KINDS: { kind: ShadowProposalKind; title: string }[] = [
   { kind: "amount_fix", title: "Сумма разового договора" },
   { kind: "adjust", title: "Поправки месяцев" },
   { kind: "pause", title: "Пауза" },
-  { kind: "stop", title: "Книга кончилась раньше" },
+  { kind: "stop", title: "Таблица кончилась раньше" },
   { kind: "end", title: "Дата окончания" },
 ];
 const BULK = new Set<ShadowProposalKind>(["billing", "period_day", "billing_from"]);
@@ -60,14 +61,14 @@ const CODE_TITLES: Record<ShadowCode, string> = {
   period: "период",
   executor: "юрлицо",
   no_kort: "нет в KORT",
-  no_book: "нет в книге",
+  no_book: "нет в таблице",
 };
 
 function messageOf(exc: unknown, fallback: string): string {
   return exc instanceof Error && exc.message ? exc.message : fallback;
 }
 
-type What = "accruals" | "bills" | "payments" | "acts";
+type What = "accruals" | "bills" | "payments" | "acts" | "saldo";
 
 export function ShadowScreen({ me }: { me: Me }) {
   // Договор из сверки открывается карточкой договора - ей нужен реестр.
@@ -94,6 +95,7 @@ export function ShadowScreen({ me }: { me: Me }) {
             ["bills", "Счета"],
             ["payments", "Оплаты"],
             ["acts", "Акты"],
+            ["saldo", "Сальдо"],
           ] as [What, string][]
         ).map(([key, title]) => (
           <button key={key} type="button" className="fin-chip" data-on={what === key ? "" : undefined} onClick={() => setWhat(key)}>
@@ -107,8 +109,10 @@ export function ShadowScreen({ me }: { me: Me }) {
         <BillsShadowView onOpen={openContract} closed={closed} />
       ) : what === "payments" ? (
         <PaymentsShadow onOpen={openContract} closed={closed} />
-      ) : (
+      ) : what === "acts" ? (
         <ActsShadow onOpen={openContract} closed={closed} />
+      ) : (
+        <SaldoShadowView onOpen={openContract} closed={closed} />
       )}
       <ContractCard
         id={contractId}
@@ -181,17 +185,17 @@ function AccrualsShadow({ onOpen: openContract, closed }: { onOpen: (id: string 
             <>
               {data.book.url ? (
                 <a href={data.book.url} target="_blank" rel="noreferrer" className="fin-link-btn">
-                  {data.book.title || "Книга-сводка"}
+                  {data.book.title || "Сводная таблица"}
                 </a>
               ) : (
-                data.book.title || "Книга-сводка"
+                data.book.title || "Сводная таблица"
               )}
               {data.book.worksheet ? ` · ${data.book.worksheet}` : ""}
               {data.book.read_at ? ` · прочитана в ${formatTime(data.book.read_at)}` : ""}
               {data.window.length ? ` · ${formatMonth(data.window[0])} - ${formatMonth(data.window[data.window.length - 1])}` : ""}
             </>
           ) : loading ? (
-            "Читаем книгу-сводку…"
+            "Читаем сводную таблицу…"
           ) : null}
         </p>
         <button type="button" className="btn-ghost btn-sm" disabled={loading} onClick={() => setRevision((value) => value + 1)}>
@@ -240,7 +244,7 @@ function AccrualsShadow({ onOpen: openContract, closed }: { onOpen: (id: string 
       ) : null}
 
       {!data ? (
-        <p className="creg-empty">{loading ? "Сверяем начисления с книгой…" : ""}</p>
+        <p className="creg-empty">{loading ? "Сверяем начисления с таблицей…" : ""}</p>
       ) : view === "proposals" ? (
         <Proposals
           data={data}
@@ -304,9 +308,9 @@ function BillsShadowView({ onOpen, closed }: { onOpen: (id: string | null) => vo
       <div className="shadow-bar">
         <p className="shadow-source">
           {data?.book
-            ? `${data.book.title || "Книга-сводка"} · прочитана в ${formatTime(data.book.read_at)} · ${data.window.length ? `${formatMonth(data.window[0])} - ${formatMonth(data.window[data.window.length - 1])}` : ""}`
+            ? `${data.book.title || "Сводная таблица"} · прочитана в ${formatTime(data.book.read_at)} · ${data.window.length ? `${formatMonth(data.window[0])} - ${formatMonth(data.window[data.window.length - 1])}` : ""}`
             : loading
-              ? "Читаем книгу-сводку…"
+              ? "Читаем сводную таблицу…"
               : ""}
         </p>
         <button type="button" className="btn-ghost btn-sm" disabled={loading} onClick={() => setRevision((value) => value + 1)}>
@@ -322,11 +326,11 @@ function BillsShadowView({ onOpen, closed }: { onOpen: (id: string | null) => vo
         <div className="fin-kpi">
           <span className="fin-kpi-label">Ждут счёта</span>
           <span className="fin-kpi-value">{data ? `${counts.kort_waits ?? 0} · ${counts.book_waits ?? 0}` : "-"}</span>
-          <span className="fin-kpi-label">KORT · книга</span>
+          <span className="fin-kpi-label">KORT · таблица</span>
         </div>
         {(
           [
-            ["no_kort", "Только в книге"],
+            ["no_kort", "Только в таблице"],
             ["no_book", "Только у KORT"],
           ] as [BillsShadowCode, string][]
         ).map(([key, title]) => (
@@ -358,7 +362,7 @@ function BillsShadowView({ onOpen, closed }: { onOpen: (id: string | null) => vo
         </div>
       ) : null}
       {!data ? (
-        <p className="creg-empty">{loading ? "Сверяем счета с книгой…" : ""}</p>
+        <p className="creg-empty">{loading ? "Сверяем счета с таблицей…" : ""}</p>
       ) : lines.length ? (
         <div className="fin-card overflow-x-auto">
           <table className="fin-table shadow-table">
@@ -368,7 +372,7 @@ function BillsShadowView({ onOpen, closed }: { onOpen: (id: string | null) => vo
                 <th>Месяц</th>
                 <th>Чем</th>
                 <th>KORT</th>
-                <th>Книга</th>
+                <th>Таблица</th>
               </tr>
             </thead>
             <tbody>
@@ -450,7 +454,7 @@ function Proposals({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if (!proposals.length) {
-    return <p className="creg-empty">Предложений нет - условия договоров дают то же, что книга</p>;
+    return <p className="creg-empty">Предложений нет - условия договоров дают то же, что таблица</p>;
   }
   const groups = KINDS.map((item) => ({ ...item, items: proposals.filter((proposal) => proposal.kind === item.kind) })).filter(
     (group) => group.items.length,
@@ -490,7 +494,7 @@ function Proposals({
       <ConfirmDialog
         open={Boolean(bulk)}
         title={bulk ? `${bulk.title}: записать у ${bulk.items.length} ${plural(bulk.items.length, "договора", "договоров", "договоров")}?` : ""}
-        text="Каждый договор получит значение, как в книге. Вернуть всё разом - «Восстановление» в личном кабинете."
+        text="Каждый договор получит значение, как в таблице. Вернуть всё разом - «Восстановление» в личном кабинете."
         confirm="Записать"
         busy={busy}
         onCancel={() => setConfirm(null)}
@@ -548,7 +552,7 @@ function Lines({ data, onOpen }: { data: ShadowView; onOpen: (id: string) => voi
                 <th>Месяц</th>
                 <th>Чем</th>
                 <th style={{ textAlign: "right" }}>KORT</th>
-                <th style={{ textAlign: "right" }}>Книга</th>
+                <th style={{ textAlign: "right" }}>Таблица</th>
               </tr>
             </thead>
             <tbody>
@@ -600,7 +604,7 @@ function Unknown({
   const [error, setError] = useState("");
   const [made, setMade] = useState<Set<string>>(() => new Set());
   const items = data.unknown.filter((item) => !made.has(item.key));
-  if (!items.length) return <p className="creg-empty">Все договоры книги заведены в реестре</p>;
+  if (!items.length) return <p className="creg-empty">Все договоры таблицы заведены в реестре</p>;
   return (
     <div className="shadow-unknown">
       {error ? <p className="party-error">{error}</p> : null}
@@ -639,7 +643,7 @@ function Unknown({
                 try {
                   const created = await coreApi.createFromBook(item.key);
                   setMade((current) => new Set(current).add(item.key));
-                  onCreated(`Договор ${created.number || "без номера"} заведён по книге`, created.id);
+                  onCreated(`Договор ${created.number || "без номера"} заведён по таблице`, created.id);
                 } catch (exc) {
                   setError(messageOf(exc, "Договор не завёлся"));
                 } finally {

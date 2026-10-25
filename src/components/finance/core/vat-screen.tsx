@@ -207,7 +207,7 @@ function EntityRow({
                 <th>Месяц</th>
                 <th style={{ textAlign: "right" }}>Начислено без НДС</th>
                 <th style={{ textAlign: "right" }}>НДС</th>
-                <th style={{ textAlign: "right" }}>АВР в книге</th>
+                <th style={{ textAlign: "right" }}>АВР в таблице</th>
                 <th style={{ textAlign: "right" }}>С начала года</th>
               </tr>
             </thead>

@@ -16,7 +16,7 @@ import { useSessionState } from "@/components/session-state";
 
 type View = "lines" | "unsigned" | "no_esf" | "missing";
 
-const SOURCE: Record<ActOut["source"], string> = { kort: "KORT", "1c": "1С", book: "книга" };
+const SOURCE: Record<ActOut["source"], string> = { kort: "KORT", "1c": "1С", book: "таблица" };
 
 function messageOf(exc: unknown, fallback: string): string {
   return exc instanceof Error && exc.message ? exc.message : fallback;
@@ -72,11 +72,11 @@ export function ActsShadow({ onOpen, closed }: { onOpen: (id: string | null) => 
       <div className="shadow-bar">
         <p className="shadow-source">
           {data?.book
-            ? `${data.book.title || "Книга-сводка"} · прочитана в ${formatTime(data.book.read_at)}${
+            ? `${data.book.title || "Сводная таблица"} · прочитана в ${formatTime(data.book.read_at)}${
                 data.window.length ? ` · ${formatMonth(data.window[0])} - ${formatMonth(data.window[data.window.length - 1])}` : ""
               }`
             : loading
-              ? "Читаем книгу-сводку…"
+              ? "Читаем сводную таблицу…"
               : ""}
           {data ? ` · 1С: ${data.onec.length ? data.onec.map((item) => item.code || item.name).join(", ") : "не подключена"}` : ""}
         </p>
@@ -86,7 +86,7 @@ export function ActsShadow({ onOpen, closed }: { onOpen: (id: string | null) => 
       </div>
       <div className="fin-kpis">
         <div className="fin-kpi">
-          <span className="fin-kpi-label">1С и книга совпадают</span>
+          <span className="fin-kpi-label">1С и таблица совпадают</span>
           <span className="fin-kpi-value">{data ? `${counts.same ?? 0} из ${counts.months ?? 0}` : "-"}</span>
           <span className="fin-kpi-label">месяцев договоров</span>
         </div>
@@ -118,7 +118,7 @@ export function ActsShadow({ onOpen, closed }: { onOpen: (id: string | null) => 
                   <th>Месяц</th>
                   <th>Чем</th>
                   <th>1С</th>
-                  <th>Книга</th>
+                  <th>Таблица</th>
                 </tr>
               </thead>
               <tbody>
@@ -135,7 +135,7 @@ export function ActsShadow({ onOpen, closed }: { onOpen: (id: string | null) => 
             </table>
           </div>
         ) : (
-          <p className="creg-empty">{data.onec.length ? "АВР 1С и книги совпадают" : "1С не подключена - сверять книгу не с чем"}</p>
+          <p className="creg-empty">{data.onec.length ? "АВР 1С и таблицы совпадают" : "1С не подключена - сверять таблицу не с чем"}</p>
         )
       ) : view === "missing" ? (
         data.missing.length ? (

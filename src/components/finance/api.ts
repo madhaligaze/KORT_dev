@@ -2585,12 +2585,103 @@ export type PaymentWithout = {
   candidates: { id: string; number: string; customer: string; executor_id: string | null; why: "спор" | "номер" | "клиент" | "сумма" }[];
 };
 
+/** Основание долга и сальдо: по начислениям (что должен по договору) или по АВР (по выставленным актам). */
+export type DebtBasis = "accruals" | "acts";
+
 export type OpeningPlan = {
   since: string;
-  items: { contract_id: string; number: string; amount: string; was: string | null; line: number; state: "new" | "changed" | "remove" }[];
+  items: {
+    contract_id: string;
+    number: string;
+    basis: DebtBasis;
+    amount: string;
+    was: string | null;
+    line: number;
+    state: "new" | "changed" | "remove";
+  }[];
   counts: Record<"new" | "changed" | "remove" | "same" | "manual", number>;
+  /** По начислениям: долг и аванс на начало учёта. */
   debt: string;
   advance: string;
+  /** По АВР. */
+  acts_debt: string;
+  acts_advance: string;
+};
+
+/** Возраст неоплаченного: остаток сальдо «до учёта» и дни от начала периода (даты акта). */
+export type DebtAge = "opening" | "d30" | "d60" | "d90" | "d90plus";
+/** Вторая сторона (клиент, у покупки - поставщик), наше юрлицо, отдел, сотрудник. */
+export type DebtGroup = "client" | "entity" | "department" | "person";
+/** Нам должны; мы должны (покупки); между своими (обе стороны - наши юрлица). */
+export type DebtSide = "receivable" | "payable" | "intra";
+
+export type DebtContract = {
+  id: string;
+  number: string;
+  /** Вторая сторона: клиент, у покупки - поставщик. */
+  party: string;
+  /** Наше юрлицо договора. */
+  entity: string;
+  /** Доля в процентах, когда в группе не весь договор. */
+  fraction: string | null;
+  /** Долг договора целиком, когда в группе - его доля. */
+  whole: string | null;
+  /** Долг за вычетом аванса; минус - аванс. */
+  debt: string;
+  /** Неоплаченное: долг = неоплаченное минус аванс. */
+  owed: string;
+  aging: Partial<Record<DebtAge, string>>;
+  advance: string | null;
+  paid: string;
+};
+
+export type DebtRow = {
+  key: string;
+  title: string;
+  /** «Не распределено», «доли закрыты», «без отдела» - не отдел и не человек. */
+  special: boolean;
+  debt: string;
+  owed: string;
+  advance: string | null;
+  aging: Partial<Record<DebtAge, string>>;
+  contracts: DebtContract[];
+};
+
+/** Долги по договорам на день (`core/debts.py`). */
+export type DebtsView = {
+  as_of: string;
+  basis: DebtBasis;
+  side: DebtSide;
+  group: DebtGroup;
+  since: string | null;
+  ages: { key: DebtAge; title: string }[];
+  /** Итог каждой стороны - для переключателя сторон. */
+  sides: Record<DebtSide, { owed: string; advance: string; contracts: number; unknown: number }>;
+  totals: {
+    /** Долг за вычетом авансов. */
+    debt: string;
+    /** Неоплаченное - сумма корзин возраста. */
+    owed: string;
+    advance: string;
+    aging: Partial<Record<DebtAge, string>>;
+    contracts: number;
+    /** Договоры, долг которых KORT не знает. */
+    unknown: number;
+  };
+  rows: DebtRow[];
+  book: ShadowView["book"];
+  error: string;
+};
+
+/** Сальдо KORT на конец месяца против «Сальдо Конец» книги-сводки. */
+export type SaldoShadow = {
+  book: ShadowView["book"];
+  error: string;
+  basis: DebtBasis;
+  window: string[];
+  counts: Partial<Record<"contracts" | "same" | "months" | "months_same", number>>;
+  contracts: Record<string, { id: string; number: string; customer: string; executor: string }>;
+  lines: { contract_id: string; diff: string; first: string; months: { month: string; kort: string; book: string; same: boolean }[] }[];
 };
 
 export type PaymentsView = {
@@ -2695,9 +2786,10 @@ export const coreApi = {
   paymentSettings: (body: { since?: string | null; entity_id?: string; source?: "journal" | "1c" }) =>
     request<PaymentsView["settings"]>("/core/payments/settings", { method: "PUT", body: JSON.stringify(body) }),
   paymentsOpening: () =>
-    request<{ done: number; point: { id: string; title: string; kind: string } | null }>("/core/payments/opening", {
-      method: "POST",
-    }),
+    request<{ done: number; documents: number; point: { id: string; title: string; kind: string } | null }>(
+      "/core/payments/opening",
+      { method: "POST" },
+    ),
   paymentIgnore: (kind: "categories" | "payers", name: string, on: boolean) =>
     request<PaymentsView["settings"]>("/core/payments/ignore", { method: "PUT", body: JSON.stringify({ kind, name, on }) }),
   paymentDecide: (operationId: string, body: { action: "link" | "none" | "auto"; contract_id?: string }) =>
@@ -2705,8 +2797,14 @@ export const coreApi = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  setOpening: (contractId: string, amount: string | null) =>
-    request<{ ok: boolean }>(`/core/contracts/${contractId}/opening`, { method: "PUT", body: JSON.stringify({ amount }) }),
+  setOpening: (contractId: string, amount: string | null, basis: DebtBasis = "accruals") =>
+    request<{ ok: boolean }>(`/core/contracts/${contractId}/opening`, { method: "PUT", body: JSON.stringify({ amount, basis }) }),
+  debts: (params: { as_of?: string; group: DebtGroup; basis: DebtBasis; side: DebtSide }, init?: RequestInit) => {
+    const query = new URLSearchParams({ group: params.group, basis: params.basis, side: params.side });
+    if (params.as_of) query.set("as_of", params.as_of);
+    return request<DebtsView>(`/core/debts?${query.toString()}`, init);
+  },
+  debtsShadow: (basis: DebtBasis) => request<SaldoShadow>(`/core/debts/shadow?basis=${basis}`),
 };
 
 /**

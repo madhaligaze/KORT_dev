@@ -5271,6 +5271,67 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
   .paid-item-acts { align-items: flex-start; }
   .paid-candidate { justify-content: flex-start; }
 }
+.paid-month-head { color: var(--fin-text-soft); font-weight: 600; }
+
+/* ─── «Долги» (ядро, фаза 6) ───
+   Основание, чей долг и день - одной полосой; группа раскрывается в свои
+   договоры. Возраст долга на узком экране - строкой под названием, а не
+   пятью колонками. Цвета нет: долг - не отказ. */
+.debts-screen, .debts-body { display: flex; flex-direction: column; gap: 0.75rem; }
+.debts-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
+.debts-bar .fin-mine { margin: 0; }
+.debts-day { display: inline-flex; align-items: center; gap: 0.5rem; }
+.debts-day .fin-label { margin: 0; }
+.debts-day .input-field.party-date { flex: 0 0 8.5rem; width: 8.5rem; }
+@media (min-width: 1200px) { .debts-kpis { grid-template-columns: repeat(7, minmax(0, 1fr)); } }
+.debts-source { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
+.debts-table th, .debts-table td { padding-left: 0.5rem; padding-right: 0.5rem; vertical-align: baseline; }
+.debts-table th.fin-num { text-align: right; }
+.debts-toggle {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.debts-toggle::before { content: "+"; display: inline-block; width: 0.75rem; color: var(--fin-text-soft); }
+.debts-toggle[aria-expanded="true"]::before { content: "-"; }
+.debts-title { font-weight: 600; }
+.debts-group[data-special] .debts-title { font-weight: 400; color: var(--fin-text-soft); }
+.debts-count { font-size: 0.75rem; color: var(--fin-text-soft); }
+.debts-sum { font-weight: 600; }
+.debts-contract td { font-size: 0.8125rem; }
+.debts-contract td:first-child { padding-left: 1.75rem; }
+.debts-share, .debts-aging { display: block; font-size: 0.75rem; color: var(--fin-text-soft); }
+.debts-sides { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 639.98px) {
+  .debts-sides { grid-template-columns: minmax(0, 1fr); }
+  .debts-sides .fin-kpi { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 0.75rem; padding: 0.6rem 0.75rem; }
+  .debts-sides .fin-kpi-value { font-size: 1.125rem; }
+}
+/* Возраст: свежее - бледнее, старое - гуще; «до учёта» - штриховкой. */
+.debts-aging-block { display: grid; gap: 0.5rem; }
+.debts-aging-bar { display: flex; gap: 2px; height: 8px; }
+.debts-aging-part { flex-basis: 0; min-width: 3px; }
+.debts-aging-part[data-age="d30"], .debts-age[data-age="d30"] { --age-tone: color-mix(in srgb, var(--fin-text) 22%, transparent); }
+.debts-aging-part[data-age="d60"], .debts-age[data-age="d60"] { --age-tone: color-mix(in srgb, var(--fin-text) 42%, transparent); }
+.debts-aging-part[data-age="d90"], .debts-age[data-age="d90"] { --age-tone: color-mix(in srgb, var(--fin-text) 64%, transparent); }
+.debts-aging-part[data-age="d90plus"], .debts-age[data-age="d90plus"] { --age-tone: var(--fin-text); }
+.debts-aging-part[data-age="opening"], .debts-age[data-age="opening"] {
+  --age-tone: repeating-linear-gradient(135deg, var(--fin-text) 0 2px, transparent 2px 5px);
+}
+.debts-aging-part { background: var(--age-tone); }
+.debts-ages { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; margin: 0; }
+.debts-age { position: relative; display: grid; gap: 0.1rem; padding-top: 0.45rem; }
+.debts-age::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--age-tone); }
+.debts-age dt { font-size: 0.75rem; color: var(--fin-text-soft); }
+.debts-age dd { margin: 0; text-align: left; }
 
 /* ─── «Порог НДС» (ядро, фаза 7) ───
    Полоса оборота одной тушью: факт - полный тон, прогноз до конца года -

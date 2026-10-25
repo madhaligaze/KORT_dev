@@ -76,11 +76,11 @@ export function PaymentsShadow({ onOpen, closed }: { onOpen: (id: string | null)
       <div className="shadow-bar">
         <p className="shadow-source">
           {data?.book
-            ? `${data.book.title || "Книга-сводка"} · прочитана в ${formatTime(data.book.read_at)}${
+            ? `${data.book.title || "Сводная таблица"} · прочитана в ${formatTime(data.book.read_at)}${
                 shadow?.window.length ? ` · ${formatMonth(shadow.window[0])} - ${formatMonth(shadow.window[shadow.window.length - 1])}` : ""
               }`
             : loading
-              ? "Читаем книгу-сводку…"
+              ? "Читаем сводную таблицу…"
               : ""}
         </p>
         <button type="button" className="btn-ghost btn-sm" disabled={loading} onClick={() => setRevision((value) => value + 1)}>
@@ -125,7 +125,7 @@ export function PaymentsShadow({ onOpen, closed }: { onOpen: (id: string | null)
       ) : null}
 
       {!data ? (
-        <p className="creg-empty">{loading ? "Сверяем оплаты с книгой…" : ""}</p>
+        <p className="creg-empty">{loading ? "Сверяем оплаты с таблицей…" : ""}</p>
       ) : view === "lines" ? (
         <PaidLines data={data} onOpen={onOpen} />
       ) : view === "without" ? (
@@ -260,13 +260,13 @@ function ContractCell({ data, id, onOpen }: { data: PaymentsView; id: string; on
   );
 }
 
-const PAID_CODE_TITLES = { paid: "сумма", paid_no_kort: "нет у KORT", paid_no_book: "нет в книге" } as const;
+const PAID_CODE_TITLES = { paid: "сумма", paid_no_kort: "нет у KORT", paid_no_book: "нет в таблице" } as const;
 
 /** Договоры, где KORT видит другие деньги, чем книга: итог за окно и месяцы. */
 function PaidLines({ data, onOpen }: { data: PaymentsView; onOpen: (id: string) => void }) {
   const [open, setOpen] = useState<string | null>(null);
-  if (!data.shadow) return <p className="creg-empty">{data.error || "Книга-сводка не прочитана"}</p>;
-  if (!data.shadow.lines.length) return <p className="creg-empty">Оплаты KORT и книги совпадают</p>;
+  if (!data.shadow) return <p className="creg-empty">{data.error || "Сводная таблица не прочитана"}</p>;
+  if (!data.shadow.lines.length) return <p className="creg-empty">Оплаты KORT и таблицы совпадают</p>;
   return (
     <div className="fin-card overflow-x-auto">
       <table className="fin-table shadow-table paid-table">
@@ -274,7 +274,7 @@ function PaidLines({ data, onOpen }: { data: PaymentsView; onOpen: (id: string) 
           <tr>
             <th>Договор</th>
             <th style={{ textAlign: "right" }}>KORT</th>
-            <th style={{ textAlign: "right" }}>Книга</th>
+            <th style={{ textAlign: "right" }}>Таблица</th>
             <th style={{ textAlign: "right" }}>Разница</th>
             <th>Месяцы</th>
           </tr>
@@ -467,14 +467,16 @@ function Opening({ data, onOpen, onApplied }: { data: PaymentsView; onOpen: (id:
   const [error, setError] = useState("");
   const plan = data.opening;
   if (!data.settings.since_used) return <p className="creg-empty">Оплат ещё нет - начало учёта не определено</p>;
-  if (!plan) return <p className="creg-empty">{data.error || "Книга-сводка не прочитана"}</p>;
-  const changes = plan.items.length;
+  if (!plan) return <p className="creg-empty">{data.error || "Сводная таблица не прочитана"}</p>;
+  // Сальдо два - по начислениям и по АВР; переносятся договоры, у которых сменилось хоть одно.
+  const changes = new Set(plan.items.map((item) => item.contract_id)).size;
   return (
     <div className="paid-opening">
       <p className="paid-opening-text">
-        На {formatDay(plan.since)} по книге: долг {money(plan.debt)}, аванс {money(plan.advance)}
+        На {formatDay(plan.since)} по таблице: по начислениям долг {money(plan.debt)}, аванс {money(plan.advance)} · по АВР
+        долг {money(plan.acts_debt)}, аванс {money(plan.acts_advance)}
         {plan.counts.same ? ` · уже в KORT ${plan.counts.same}` : ""}
-        {plan.counts.manual ? ` · поставлено вручную ${plan.counts.manual} - книга их не меняет` : ""}
+        {plan.counts.manual ? ` · поставлено вручную ${plan.counts.manual} - таблица их не меняет` : ""}
       </p>
       {changes ? (
         <>
@@ -486,19 +488,21 @@ function Opening({ data, onOpen, onApplied }: { data: PaymentsView; onOpen: (id:
               <thead>
                 <tr>
                   <th>Договор</th>
+                  <th>Сальдо</th>
                   <th style={{ textAlign: "right" }}>Было в KORT</th>
-                  <th style={{ textAlign: "right" }}>По книге</th>
-                  <th>Строка книги</th>
+                  <th style={{ textAlign: "right" }}>По таблице</th>
+                  <th>Строка таблицы</th>
                 </tr>
               </thead>
               <tbody>
                 {plan.items.map((item) => (
-                  <tr key={item.contract_id}>
+                  <tr key={`${item.contract_id}-${item.basis}`}>
                     <td>
                       <button type="button" className="fin-link-btn creg-num" onClick={() => onOpen(item.contract_id)}>
                         {bareNumber(item.number) || "без номера"}
                       </button>
                     </td>
+                    <td className="fin-muted">{item.basis === "acts" ? "по АВР" : "по начислениям"}</td>
                     <td className="fin-num">{money(item.was)}</td>
                     <td className="fin-num">{item.state === "remove" ? "снять" : money(item.amount)}</td>
                     <td className="fin-muted">{item.line || "-"}</td>
@@ -509,13 +513,13 @@ function Opening({ data, onOpen, onApplied }: { data: PaymentsView; onOpen: (id:
           </div>
         </>
       ) : (
-        <p className="creg-empty">Сальдо в KORT такое же, как в книге</p>
+        <p className="creg-empty">Сальдо в KORT такое же, как в таблице</p>
       )}
       {error ? <p className="party-error">{error}</p> : null}
       <ConfirmDialog
         open={confirm}
         title={`Перенести входящее сальдо на ${formatDay(plan.since)}: ${changes} ${plural(changes, "договор", "договора", "договоров")}?`}
-        text="Оплаты будут гасить это сальдо раньше начислений. Вернуть всё разом - «Восстановление» в личном кабинете."
+        text="Оплаты будут гасить сальдо по начислениям раньше начислений; сальдо по АВР - начало долга по актам. Вернуть всё разом - «Восстановление» в личном кабинете."
         confirm="Перенести"
         busy={busy}
         onCancel={() => setConfirm(false)}

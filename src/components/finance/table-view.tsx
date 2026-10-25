@@ -96,7 +96,7 @@ const JOURNAL_REFUSALS: Partial<Record<StructureKind, SheetWarningSpec>> = {
   },
   renameSheet: { title: "Лист журнала не переименовывается", lines: ["Журнал один, его название задаёт учёт."] },
   removeSheet: { title: "Лист журнала не удаляется", lines: ["Это и есть журнал операций, а не копия."] },
-  addSheet: { title: "Новый лист здесь не заводится", lines: ["Журнал - один лист операций; свои таблицы ведутся в «Книгах Google»."] },
+  addSheet: { title: "Новый лист здесь не заводится", lines: ["Журнал - один лист операций; свои таблицы ведутся в «Google Таблицах»."] },
   orderSheets: { title: "Лист журнала один", lines: [] },
   protect: {
     title: "Защита листа не нужна",
