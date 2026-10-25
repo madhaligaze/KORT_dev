@@ -15,6 +15,7 @@
 import { useState } from "react";
 
 import { contractsApi } from "@/components/finance/api";
+import { BookColumns } from "@/components/finance/core/book-columns";
 import { ensureSummary, useRegistry } from "@/components/finance/contracts/store";
 import { useSetupAction } from "@/components/finance/contracts/setup/use-setup-action";
 import { formatTime } from "@/components/finance/format";
@@ -68,6 +69,8 @@ export function SummaryTab() {
               {action.error("disconnect")}
             </p>
           ) : null}
+          {/* Словарь колонок компании для ядра (фаза 9): своё название колонки - к названию ядра. */}
+          <BookColumns />
         </div>
       ) : null}
 

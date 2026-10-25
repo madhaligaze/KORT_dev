@@ -25,19 +25,28 @@ function money(value: string | null | undefined): string {
   return contractMoney(value);
 }
 
-export function SaldoShadowView({ onOpen, closed }: { onOpen: (id: string | null) => void; closed: number }) {
+export function SaldoShadowView({
+  onOpen,
+  closed,
+  entity = "",
+}: {
+  onOpen: (id: string | null) => void;
+  closed: number;
+  /** Одно наше юрлицо - только его месяцы (как в «Переходе»). */
+  entity?: string;
+}) {
   const [basis, setBasis] = useSessionState<DebtBasis>("core.shadow.saldo.basis", "accruals");
   const [data, setData] = useState<SaldoShadow | null>(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
-  const asked = `${basis}|${revision}|${closed}`;
+  const asked = `${basis}|${revision}|${closed}|${entity}`;
   const [answered, setAnswered] = useState("");
   const loading = answered !== asked;
   const [open, setOpen] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
     coreApi
-      .debtsShadow(basis)
+      .debtsShadow(basis, entity)
       .then((next) => {
         if (!alive) return;
         setData(next);
@@ -48,7 +57,7 @@ export function SaldoShadowView({ onOpen, closed }: { onOpen: (id: string | null
     return () => {
       alive = false;
     };
-  }, [basis, revision, closed, asked]);
+  }, [basis, revision, closed, asked, entity]);
   const counts = data?.counts ?? {};
   return (
     <>

@@ -24,8 +24,9 @@ import {
   coreApi,
 } from "@/components/finance/api";
 import { Section } from "@/components/finance/contracts/section";
+import { openSection } from "@/components/finance/core/open";
 import { REGIMES, binWord, kindWord } from "@/components/finance/core/words";
-import { bareNumber, contractMoney, formatDay, parseDay } from "@/components/finance/format";
+import { bareNumber, contractMoney, formatDay, parseDay, plural } from "@/components/finance/format";
 import { CardLayer } from "@/components/finance/ui/card-layer";
 import { DateInput } from "@/components/finance/ui/date-picker";
 import { MenuPopover } from "@/components/finance/ui/menu-popover";
@@ -180,6 +181,8 @@ export function ParticipantCard({ id, open, access, onClose, onOpen, onOpenContr
                 }}
               />
             </div>
+            {/* У нашего ТОО главное - его НДС и кто ему должен: сразу под реквизитами, а не под сотней договоров. */}
+            {dossier.own && access.setup ? <OwnNumbers entityId={dossier.id} /> : null}
             <Aliases dossier={dossier} canEdit={access.edit} onChanged={changed} />
             <Contracts dossier={dossier} onOpen={onOpen} onOpenContract={onOpenContract} />
             {dossier.own ? <Own dossier={dossier} canSetup={access.setup} onChanged={changed} /> : null}
@@ -714,6 +717,87 @@ function Own({ dossier, canSetup, onChanged }: { dossier: Dossier; canSetup: boo
         </Section>
       ) : null}
     </>
+  );
+}
+
+const MONTHS_IN = [
+  "январе", "феврале", "марте", "апреле", "мае", "июне",
+  "июле", "августе", "сентябре", "октябре", "ноябре", "декабре",
+];
+
+/**
+ * Досье нашего ТОО «в цифрах» (ядро, фаза 8): оборот и НДС за год, кто ему
+ * должен - те же числа, что в «НДС» и «Долгах», и переход туда. Долг - по
+ * месяцам этого ТОО: переведённый клиент остаётся должен прежнему за старые.
+ */
+function OwnNumbers({ entityId }: { entityId: string }) {
+  const [data, setData] = useState<Awaited<ReturnType<typeof coreApi.entityNumbers>> | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    coreApi
+      .entityNumbers(entityId)
+      .then((next) => alive && setData(next))
+      .catch((exc) => alive && setError(messageOf(exc, "Числа не посчитались")));
+    return () => {
+      alive = false;
+    };
+  }, [entityId]);
+  const vat = data?.vat;
+  const money = (value: string | null | undefined) => (value && Math.round(Number(value)) ? contractMoney(Math.round(Number(value))) : "-");
+  const vatLine = !vat
+    ? ""
+    : vat.status === "payer"
+      ? `плательщик НДС${vat.payer_from ? ` с ${formatDay(vat.payer_from)}` : ""} · НДС с начала года ${money(vat.vat_fact)}, к концу года ${money(vat.vat)}`
+      : vat.status === "becomes"
+        ? `на НДС с ${formatDay(vat.payer_from)} · НДС к концу года ${money(vat.vat)}`
+        : `${vat.status === "unknown" ? "режим не записан · " : ""}${
+            vat.crossing ? `порог ${vat.crossing <= new Date().toISOString().slice(0, 7) ? "пройден" : "будет пройден"} в ${MONTHS_IN[Number(vat.crossing.slice(5, 7)) - 1]}` : `до порога ${money(vat.remaining)}`
+          }`;
+  return (
+    <Section title={`В цифрах${data ? ` · ${data.year}` : ""}`}>
+      {error ? <p className="ifield-error">{error}</p> : null}
+      {!data && !error ? <p className="party-none">Считаем…</p> : null}
+      {data ? (
+        <>
+          {vat ? (
+            <div className="party-line">
+              <span>Оборот без НДС</span>
+              <span className="fin-num">
+                {money(vat.fact)} <span className="fin-soft">· к концу года {money(vat.forecast)}</span>
+              </span>
+            </div>
+          ) : null}
+          {vat ? (
+            <div className="party-line">
+              <span>НДС</span>
+              <button type="button" className="fin-link-btn" onClick={() => openSection({ section: "vat" })}>
+                {vatLine}
+              </button>
+            </div>
+          ) : null}
+          <div className="party-line">
+            <span>Должны этому ТОО</span>
+            <button
+              type="button"
+              className="fin-link-btn"
+              onClick={() =>
+                openSection({
+                  section: "debts",
+                  session: { "core.debts.view": "contracts", "core.debts.side": "receivable", "core.debts.group": "entity" },
+                })
+              }
+            >
+              {Number(data.debts.owed)
+                ? `${money(data.debts.owed)} · ${data.debts.contracts} ${plural(data.debts.contracts, "договор", "договора", "договоров")}${
+                    Number(data.debts.d90plus) ? ` · больше 90 дней ${money(data.debts.d90plus)}` : ""
+                  }`
+                : "никто не должен"}
+            </button>
+          </div>
+        </>
+      ) : null}
+    </Section>
   );
 }
 

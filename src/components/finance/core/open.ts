@@ -10,3 +10,17 @@ export function openParticipant(id: string): void {
   if (typeof window === "undefined" || !id) return;
   window.dispatchEvent(new CustomEvent<string>(PARTICIPANT_EVENT, { detail: id }));
 }
+
+/**
+ * Раздел с уже выбранным списком - из любого места (досье ТОО, карточка):
+ * `session` - значения состояния экрана (ключи `useSessionState`), которые
+ * раздел прочтёт при открытии. Тем же событием, что и досье, - по той же причине.
+ */
+export const SECTION_EVENT = "kort:section";
+
+export type SectionGo = { section: string; session?: Record<string, string> };
+
+export function openSection(go: SectionGo): void {
+  if (typeof window === "undefined" || !go.section) return;
+  window.dispatchEvent(new CustomEvent<SectionGo>(SECTION_EVENT, { detail: go }));
+}

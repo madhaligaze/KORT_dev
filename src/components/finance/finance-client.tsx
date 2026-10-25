@@ -25,6 +25,7 @@ import {
   FolderIcon,
   GaugeIcon,
   GridIcon,
+  GroupIcon,
   PersonIcon,
   PlugIcon,
   ReceiptIcon,
@@ -96,7 +97,8 @@ import { OneoffStaff, SummaryLine } from "@/components/finance/contracts/oneoff"
 import { RegistryImport } from "@/components/finance/contracts/import/registry-import";
 import { RegistrySetup } from "@/components/finance/contracts/setup/registry-setup";
 import { FindLayer } from "@/components/finance/core/find";
-import { PARTICIPANT_EVENT, openParticipant } from "@/components/finance/core/open";
+import { GroupScreen } from "@/components/finance/core/group-screen";
+import { PARTICIPANT_EVENT, SECTION_EVENT, type SectionGo, openParticipant } from "@/components/finance/core/open";
 import { DebtsSection } from "@/components/finance/core/debts-screen";
 import { ParticipantsScreen } from "@/components/finance/core/participants";
 import { RevenueSection } from "@/components/finance/core/revenue-screen";
@@ -107,7 +109,7 @@ import { readParam, writeParams } from "@/components/finance/address";
 import { forgetLooks } from "@/components/finance/look-store";
 import { habitsOwner, pickMode, preferOf, useModeTracker } from "@/components/finance/habits";
 import type { Me, OperationKind } from "@/components/finance/api";
-import { SessionScope, dropAllSessions, useSessionState, useSessionStateIn } from "@/components/session-state";
+import { SessionScope, dropAllSessions, useSessionState, useSessionStateIn, writeSession } from "@/components/session-state";
 import { SupportButton } from "@/components/support/button";
 import { SupportLayer } from "@/components/support/layer";
 import { forgetSupport, openSupport, useSupportUnread } from "@/components/support/store";
@@ -247,6 +249,7 @@ type Section =
   | "contracts"
   | "contracts-sheet"
   | "today"
+  | "group"
   | "contracts-oneoff"
   | "contracts-oneoff-cards"
   | "contracts-import"
@@ -348,6 +351,8 @@ const GROUPS: { title: string; items: SectionItem[] }[] = [
       { key: "plan", title: "План / Факт", icon: TargetIcon, resource: "reports.plan" },
       // НДС наших юрлиц: плательщики - НДС, остальные - оборот к порогу; перевод клиентов (ядро, фаза 7).
       { key: "vat", title: "НДС", icon: ThresholdIcon, resource: "reports.summary" },
+      // Наши ТОО и что между ними: обороты, договоры между своими, переводы, выплаты людям (фаза 8).
+      { key: "group", title: "Карта группы", icon: GroupIcon, resource: "contracts" },
     ],
   },
   {
@@ -476,7 +481,7 @@ function writeMode(section: Section): void {
 /** Загрузка и настройка реестра меняют шаблон компании - владелец и администратор.
  *  Сверка с книгой - работа того, кто переводит учёт в KORT, - тоже; порог
  *  НДС и перевод клиентов между юрлицами - решение владельца. */
-const ADMIN_SECTIONS = new Set<Section>(["contracts-import", "contracts-setup", "shadow", "vat"]);
+const ADMIN_SECTIONS = new Set<Section>(["contracts-import", "contracts-setup", "shadow", "vat", "group"]);
 
 /**
  * Мера раздела (`.fin-body[data-measure]` в globals.css): до какой ширины
@@ -742,6 +747,20 @@ export function FinanceClient() {
     window.addEventListener(PARTICIPANT_EVENT, onParticipant);
     return () => window.removeEventListener(PARTICIPANT_EVENT, onParticipant);
   }, []);
+  /** Раздел с выбранным списком - из досье ТОО и других карточек (`openSection`). */
+  const scopeRef = useRef("");
+  useEffect(() => {
+    const onSection = (event: Event) => {
+      const go = (event as CustomEvent<SectionGo>).detail;
+      if (!go?.section) return;
+      for (const [key, value] of Object.entries(go.session ?? {})) writeSession(scopeRef.current, key, value);
+      setSectionState(go.section as Section);
+      writeLast(go.section as Section);
+      writeParams({ s: go.section, p: null, id: null, v: null, t: null, d: null, bill: null }, true);
+    };
+    window.addEventListener(SECTION_EVENT, onSection);
+    return () => window.removeEventListener(SECTION_EVENT, onSection);
+  }, []);
   /**
    * «Карточки · Таблица»: явный выбор - голос в привычку учётки и выбор этой
    * вкладки (`habits.ts`, `writeSessionMode`).
@@ -969,6 +988,7 @@ export function FinanceClient() {
    * только вход известен.
    */
   const sessionScope = me?.user?.id ? `${me.user.id}:${me.company?.id ?? ""}` : "";
+  scopeRef.current = sessionScope;
   /**
    * Открытое окно операции переживает перезагрузку, а поля в нём - свой
    * черновик (`OperationDialog`). `plan` - окно открыто с уже отмеченным
@@ -1135,6 +1155,8 @@ export function FinanceClient() {
         return <SetupScreen me={me} onBack={() => setSection(setupBack)} backLabel={setupBackTitle} />;
       case "today":
         return <TodayScreen me={me} onGo={setSection} />;
+      case "group":
+        return <GroupScreen />;
       case "participants":
         return <ParticipantsScreen me={me} />;
       case "shadow":

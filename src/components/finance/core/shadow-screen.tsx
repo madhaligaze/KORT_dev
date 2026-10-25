@@ -26,13 +26,16 @@ import {
   coreApi,
   formatMonth,
 } from "@/components/finance/api";
+import { ChoiceSelect } from "@/components/choice-select";
 import { readParam, writeParams } from "@/components/finance/address";
 import { ContractCard } from "@/components/finance/contracts/contract-card";
 import { useRegistryBoot } from "@/components/finance/contracts/registry-cards";
+import { useRegistry } from "@/components/finance/contracts/store";
 import { ActsShadow } from "@/components/finance/core/acts-screen";
 import { PaymentsShadow } from "@/components/finance/core/payments-screen";
 import { ProposalActions } from "@/components/finance/core/proposal";
 import { SaldoShadowView } from "@/components/finance/core/saldo-screen";
+import { SwitchView } from "@/components/finance/core/switch-screen";
 import { bareNumber, contractMoney, formatDay, formatTime, plural } from "@/components/finance/format";
 import { ConfirmDialog } from "@/components/finance/ui/confirm-dialog";
 import { useSessionState } from "@/components/session-state";
@@ -68,7 +71,7 @@ function messageOf(exc: unknown, fallback: string): string {
   return exc instanceof Error && exc.message ? exc.message : fallback;
 }
 
-type What = "accruals" | "bills" | "payments" | "acts" | "saldo";
+type What = "switch" | "accruals" | "bills" | "payments" | "acts" | "saldo";
 
 export function ShadowScreen({ me }: { me: Me }) {
   // Договор из сверки открывается карточкой договора - ей нужен реестр.
@@ -86,33 +89,56 @@ export function ShadowScreen({ me }: { me: Me }) {
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
+  // Одно наше юрлицо во всех звеньях - как его считает «Переход»; пусто - все.
+  const [entity, setEntity] = useSessionState("core.shadow.entity", "");
+  const schema = useRegistry((s) => s.schema);
+  const entities = schema?.own_entities ?? [];
   return (
     <div className="shadow-screen">
-      <nav className="fin-mine shadow-what" aria-label="Что сверяем">
-        {(
-          [
-            ["accruals", "Начисления"],
-            ["bills", "Счета"],
-            ["payments", "Оплаты"],
-            ["acts", "Акты"],
-            ["saldo", "Сальдо"],
-          ] as [What, string][]
-        ).map(([key, title]) => (
-          <button key={key} type="button" className="fin-chip" data-on={what === key ? "" : undefined} onClick={() => setWhat(key)}>
-            {title}
-          </button>
-        ))}
-      </nav>
-      {what === "accruals" ? (
-        <AccrualsShadow onOpen={openContract} closed={closed} />
+      <div className="shadow-top">
+        <nav className="fin-mine shadow-what" aria-label="Что сверяем">
+          {(
+            [
+              ["switch", "Переход"],
+              ["accruals", "Начисления"],
+              ["bills", "Счета"],
+              ["payments", "Оплаты"],
+              ["acts", "Акты"],
+              ["saldo", "Сальдо"],
+            ] as [What, string][]
+          ).map(([key, title]) => (
+            <button key={key} type="button" className="fin-chip" data-on={what === key ? "" : undefined} onClick={() => setWhat(key)}>
+              {title}
+            </button>
+          ))}
+        </nav>
+        {what !== "switch" && entities.length > 1 ? (
+          <ChoiceSelect className="input-field shadow-entity" value={entity} onChange={setEntity} placeholder="все юрлица" clearable>
+            {entities.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.code || item.name}
+              </option>
+            ))}
+          </ChoiceSelect>
+        ) : null}
+      </div>
+      {what === "switch" ? (
+        <SwitchView
+          onGo={(link, id) => {
+            setEntity(id ?? "");
+            setWhat(link);
+          }}
+        />
+      ) : what === "accruals" ? (
+        <AccrualsShadow onOpen={openContract} closed={closed} entity={entity} />
       ) : what === "bills" ? (
-        <BillsShadowView onOpen={openContract} closed={closed} />
+        <BillsShadowView onOpen={openContract} closed={closed} entity={entity} />
       ) : what === "payments" ? (
-        <PaymentsShadow onOpen={openContract} closed={closed} />
+        <PaymentsShadow onOpen={openContract} closed={closed} entity={entity} />
       ) : what === "acts" ? (
-        <ActsShadow onOpen={openContract} closed={closed} />
+        <ActsShadow onOpen={openContract} closed={closed} entity={entity} />
       ) : (
-        <SaldoShadowView onOpen={openContract} closed={closed} />
+        <SaldoShadowView onOpen={openContract} closed={closed} entity={entity} />
       )}
       <ContractCard
         id={contractId}
@@ -128,14 +154,23 @@ export function ShadowScreen({ me }: { me: Me }) {
   );
 }
 
-function AccrualsShadow({ onOpen: openContract, closed }: { onOpen: (id: string | null) => void; closed: number }) {
+function AccrualsShadow({
+  onOpen: openContract,
+  closed,
+  entity,
+}: {
+  onOpen: (id: string | null) => void;
+  closed: number;
+  entity: string;
+}) {
   const [view, setView] = useSessionState<View>("core.shadow.view", "proposals");
   const [data, setData] = useState<ShadowView | null>(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
-  // Сверка «идёт», пока пришедший ответ - не на последний запрос.
-  const [loaded, setLoaded] = useState(-1);
-  const loading = loaded !== revision;
+  // Сверка «идёт», пока пришедший ответ - не на последний запрос (и не на прежний выбор юрлица).
+  const asked = `${revision}|${entity}`;
+  const [loaded, setLoaded] = useState("");
+  const loading = loaded !== asked;
   // Записанное прячется сразу; сверка пересчитывается следом, раз в пару секунд.
   const [applied, setApplied] = useState<Set<string>>(() => new Set());
   const [note, setNote] = useState("");
@@ -151,7 +186,7 @@ function AccrualsShadow({ onOpen: openContract, closed }: { onOpen: (id: string 
   useEffect(() => {
     let alive = true;
     coreApi
-      .shadow()
+      .shadow(entity)
       .then((next) => {
         if (!alive) return;
         setData(next);
@@ -159,11 +194,11 @@ function AccrualsShadow({ onOpen: openContract, closed }: { onOpen: (id: string 
         setError(next.error);
       })
       .catch((exc) => alive && setError(messageOf(exc, "Сверка не прочиталась")))
-      .finally(() => alive && setLoaded(revision));
+      .finally(() => alive && setLoaded(asked));
     return () => {
       alive = false;
     };
-  }, [revision]);
+  }, [asked, entity]);
 
   const proposals = useMemo(
     () => (data?.proposals ?? []).filter((item) => !applied.has(item.key)),
@@ -277,28 +312,29 @@ function AccrualsShadow({ onOpen: openContract, closed }: { onOpen: (id: string 
  * «Счета»: список «Не выставлены» KORT против списка книги. KORT ждёт счёт по
  * начислению, у которого счёта нет ни в KORT, ни в книге; срок - «Период с».
  */
-function BillsShadowView({ onOpen, closed }: { onOpen: (id: string | null) => void; closed: number }) {
+function BillsShadowView({ onOpen, closed, entity }: { onOpen: (id: string | null) => void; closed: number; entity: string }) {
   const [data, setData] = useState<BillsShadow | null>(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
-  const [loaded, setLoaded] = useState(-1);
-  const loading = loaded !== revision;
+  const asked = `${revision}|${closed}|${entity}`;
+  const [loaded, setLoaded] = useState("");
+  const loading = loaded !== asked;
   const [code, setCode] = useSessionState<BillsShadowCode | "">("core.shadow.bills.code", "");
   useEffect(() => {
     let alive = true;
     coreApi
-      .shadowBills()
+      .shadowBills(entity)
       .then((next) => {
         if (!alive) return;
         setData(next);
         setError(next.error);
       })
       .catch((exc) => alive && setError(messageOf(exc, "Сверка счетов не прочиталась")))
-      .finally(() => alive && setLoaded(revision));
+      .finally(() => alive && setLoaded(asked));
     return () => {
       alive = false;
     };
-  }, [revision, closed]);
+  }, [asked, entity]);
   const counts = data?.counts ?? {};
   const total = (counts.same ?? 0) + (data?.lines.length ?? 0);
   const lines = (data?.lines ?? []).filter((line) => !code || line.code === code);

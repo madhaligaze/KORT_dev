@@ -651,6 +651,9 @@ export type Bill = {
   onec_name: string;
   /** «Дата заключения Договора» - как в книге. */
   signed_at: string;
+  /** `kort` - счета юрлица ведёт KORT: состояние по начислениям договора; `line` 0 - строки в таблице нет. */
+  source?: "" | "kort";
+  contract_id?: string | null;
 };
 
 /** Что со строкой загруженного шаблона: записать, уже в книге, не заполнена, отказ. */
@@ -688,9 +691,14 @@ export type BillsTemplateRead = {
 /** Поля карточки, которые KORT пишет в книгу юрлица. */
 export type BillField = "bill_no" | "bill_date" | "bill_period" | "note";
 
-/** Строка книги юрлица, где счёт отмечают (`contracts/bill_book.py`). */
+/**
+ * Строка книги юрлица, где счёт отмечают (`contracts/bill_book.py`). `kort` -
+ * строки в таблице нет, счёт записывается в KORT (`core/billing.py`); `place`
+ * тогда - заглушка для прежних версий десктопа.
+ */
 export type BillBook = {
   place: { book: string; tab: string; row: number; url: string };
+  kort?: boolean;
   /** Как поля показывает книга сейчас - их же карточка шлёт назад в `expect`. */
   fields: Record<BillField, string>;
   /** «Счет» в книге: TRUE или слова формулы. */
@@ -721,6 +729,9 @@ export type BillsBoard = {
     read_at: string | null;
     drift: string;
     error: string;
+    /** Коды юрлиц, чьи счета ведёт KORT (`core/switch.py`), и отказ расчёта, если был. */
+    kort?: string[];
+    kort_error?: string;
   } | null;
   items: Bill[];
   /** Выставленные за прошлый и текущий месяц - свежие первыми. */
@@ -2690,6 +2701,113 @@ export type DebtsView = {
   error: string;
 };
 
+/** Колонка ядра в шапке сводной таблицы (`core/book.py`, `layout.inspect_layout`). */
+export type BookColumn = {
+  key: string;
+  title: string;
+  required: boolean;
+  strict: boolean;
+  index: number | null;
+  header: string;
+  /** exact | squashed | loose | missing - как нашлась. */
+  how: string;
+  /** Почему не нашлась: «нет в таблице», несколько похожих, та же колонка у другой. */
+  problem: string;
+  /** Названия ядра. */
+  names: string[];
+  /** Названия компании из словаря. */
+  extra: string[];
+};
+
+export type BookColumnsView = { connected: boolean; header: string[]; columns: BookColumn[]; error: string };
+
+/** Звенья перехода с таблицы на KORT (`core/switch.py`). */
+export type SwitchLinkKey = "accruals" | "bills" | "payments" | "acts" | "saldo";
+/** Откуда звено юрлица: `book` - таблица, `kort` - KORT. */
+export type SwitchSource = "book" | "kort";
+
+export type SwitchSources = {
+  links: { key: SwitchLinkKey; title: string; switchable: boolean }[];
+  /** Звено → наше юрлицо → `kort`; нет в словаре - таблица. */
+  sources: Partial<Record<SwitchLinkKey, Record<string, SwitchSource>>>;
+};
+
+/** Звено у одного нашего юрлица: месяцев договоров сверено и совпало, строк таблицы без договора в KORT. */
+export type SwitchEntity = {
+  id: string;
+  code: string;
+  months: number;
+  same: number;
+  unknown: number;
+  /** Доля совпавших от сверенного вместе со строками без договора, «0.9876»; `null` - сверять нечего. */
+  share: string | null;
+  contracts: number;
+  contracts_same: number;
+  /** Всё совпало и строк без договора нет. */
+  clean: boolean;
+  source: SwitchSource;
+};
+
+export type SwitchTally = {
+  link: SwitchLinkKey;
+  title: string;
+  switchable: boolean;
+  window: string[];
+  entities: SwitchEntity[];
+  error: string;
+};
+
+export type SwitchPreview = {
+  entity: { id: string; code: string };
+  source: SwitchSource;
+  counts: {
+    before: number;
+    after: number;
+    appear: number;
+    vanish: number;
+    regroup: number;
+    overdue_before: number;
+    overdue_after: number;
+  };
+  appear: Bill[];
+  vanish: Bill[];
+  regroup: { bill: Bill; before: BillGroup; before_text: string }[];
+};
+
+/** Карта группы (`core/group_map.py`): наши ТОО и что между ними. */
+export type GroupNode = {
+  id: string;
+  code: string;
+  name: string;
+  status: VatStatus;
+  payer_from: string | null;
+  fact: string;
+  forecast: string;
+  vat: string;
+  crossing: string | null;
+};
+
+export type GroupEdge = {
+  kind: "intra" | "transfer";
+  from: string;
+  to: string;
+  contracts: number;
+  /** Договоры между своими - начислено за год к сегодня; перевод - месячная сумма переведённых. */
+  amount: string;
+  numbers?: string[];
+  /** Перевод - с какого месяца. */
+  month?: string;
+};
+
+export type GroupView = {
+  year: number;
+  threshold: string;
+  nodes: GroupNode[];
+  edges: GroupEdge[];
+  people: { id: string; name: string; entities: { code: string; amount: string }[]; total: string }[];
+  people_total: number;
+};
+
 /** Карточка «Сегодня» (`core/today.py`): дело числом и переход в список. */
 export type TodayCardKey = "debts" | "payments" | "acts" | "vat" | "shadow" | "participants";
 
@@ -2778,6 +2896,12 @@ export type PaymentsView = {
   opening: OpeningPlan | null;
 };
 
+/** Адрес сверки с фильтром «по ТОО»; без юрлица - как был. */
+function withEntity(path: string, entity?: string): string {
+  if (!entity) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}entity=${encodeURIComponent(entity)}`;
+}
+
 export const coreApi = {
   list: (q: string, show: ParticipantsShow = "all", init?: RequestInit) =>
     request<{ items: ParticipantHit[]; total: number }>(
@@ -2820,8 +2944,9 @@ export const coreApi = {
   taxYears: () => request<{ items: TaxYear[] }>("/core/tax-years"),
   setTaxYear: (year: number, body: { mrp: string; threshold_mrp: number; vat_rate: string; forecast?: boolean; note?: string }) =>
     request<TaxYear>(`/core/tax-years/${year}`, { method: "PUT", body: JSON.stringify(body) }),
-  shadow: () => request<ShadowView>("/core/shadow"),
-  shadowBills: () => request<BillsShadow>("/core/shadow/bills"),
+  /** Сверки звеньев; `entity` - одно наше юрлицо, как его считает «Переход». */
+  shadow: (entity?: string) => request<ShadowView>(withEntity("/core/shadow", entity)),
+  shadowBills: (entity?: string) => request<BillsShadow>(withEntity("/core/shadow/bills", entity)),
   vat: (year: number) => request<VatYearView>(`/core/vat?year=${year}`),
   vatClients: (year: number, entity: string) =>
     request<{ items: VatClient[] }>(`/core/vat/clients?year=${year}&entity=${encodeURIComponent(entity)}`),
@@ -2848,8 +2973,8 @@ export const coreApi = {
     request<{ ok: boolean }>(`/core/contracts/${contractId}/adjustments/${documentId}`, { method: "DELETE" }),
   statusFrom: (contractId: string, body: { status_id: string; effective_from: string; summary?: string }) =>
     request<{ id: string }>(`/core/contracts/${contractId}/status-from`, { method: "POST", body: JSON.stringify(body) }),
-  payments: () => request<PaymentsView>("/core/payments"),
-  acts: () => request<ActsView>("/core/acts"),
+  payments: (entity?: string) => request<PaymentsView>(withEntity("/core/payments", entity)),
+  acts: (entity?: string) => request<ActsView>(withEntity("/core/acts", entity)),
   paymentSettings: (body: { since?: string | null; entity_id?: string; source?: "journal" | "1c" }) =>
     request<PaymentsView["settings"]>("/core/payments/settings", { method: "PUT", body: JSON.stringify(body) }),
   paymentsOpening: () =>
@@ -2871,12 +2996,45 @@ export const coreApi = {
     if (params.as_of) query.set("as_of", params.as_of);
     return request<DebtsView>(`/core/debts?${query.toString()}`, init);
   },
-  debtsShadow: (basis: DebtBasis) => request<SaldoShadow>(`/core/debts/shadow?basis=${basis}`),
+  debtsShadow: (basis: DebtBasis, entity?: string) => request<SaldoShadow>(withEntity(`/core/debts/shadow?basis=${basis}`, entity)),
   revenue: (params: { year: number; group: RevenueGroup; side: RevenueView["side"] }, init?: RequestInit) =>
     request<RevenueView>(`/core/revenue?year=${params.year}&group=${params.group}&side=${params.side}`, init),
   today: (key: TodayCardKey, init?: RequestInit) => request<TodayCard>(`/core/today/${key}`, init),
   /** Разделы колонки, где у компании нет ни одной строки (`core/usage.py`). */
   usage: () => request<{ empty: string[] }>("/core/usage"),
+  group: (year: number) => request<GroupView>(`/core/group?year=${year}`),
+  /** «Переход» (фаза 10): звенья и какое звено какого юрлица уже ведётся в KORT. */
+  switchSources: () => request<SwitchSources>("/core/switch"),
+  /** Одно звено по нашим юрлицам - своим запросом: сверка читает всю таблицу. */
+  switchLink: (link: SwitchLinkKey, init?: RequestInit) => request<SwitchTally>(`/core/switch/${link}`, init),
+  /** Что станет со «Счетами → Не выставлены» юрлица после перехода. */
+  switchPreview: (entityId: string, source: SwitchSource) =>
+    request<SwitchPreview>(`/core/switch/bills/${entityId}/preview?source=${source}`),
+  setSwitch: (link: SwitchLinkKey, entityId: string, source: SwitchSource) =>
+    request<{ sources: SwitchSources["sources"] }>(`/core/switch/${link}/${entityId}`, {
+      method: "PUT",
+      body: JSON.stringify({ source }),
+    }),
+  /** Словарь колонок сводной таблицы (фаза 9): шапка и как нашлась каждая колонка ядра. */
+  bookColumns: () => request<BookColumnsView>("/core/book/columns"),
+  setBookColumn: (key: string, name: string, on: boolean) =>
+    request<BookColumnsView>("/core/book/columns", { method: "PUT", body: JSON.stringify({ key, name, on }) }),
+  /** Досье нашего ТОО «в цифрах»: НДС и оборот за год, кто ему должен (`core/group_map.py`). */
+  entityNumbers: (entityId: string) =>
+    request<{
+      year: number;
+      vat: {
+        status: VatStatus;
+        payer_from: string | null;
+        fact: string;
+        forecast: string;
+        vat: string;
+        vat_fact: string;
+        remaining: string | null;
+        crossing: string | null;
+      } | null;
+      debts: { owed: string; d90plus: string; advance: string; contracts: number };
+    }>(`/core/entities/${entityId}/numbers`),
   searchContracts: (q: string, init?: RequestInit) =>
     request<{
       items: { id: string; number: string; customer: string; executor: string; status: string; by: "number" | "client" }[];

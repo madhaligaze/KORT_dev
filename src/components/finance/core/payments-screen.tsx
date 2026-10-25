@@ -40,29 +40,39 @@ const WHY: Record<PaymentWithout["candidates"][number]["why"], string> = {
   сумма: "та же сумма",
 };
 
-export function PaymentsShadow({ onOpen, closed }: { onOpen: (id: string | null) => void; closed: number }) {
+export function PaymentsShadow({
+  onOpen,
+  closed,
+  entity = "",
+}: {
+  onOpen: (id: string | null) => void;
+  closed: number;
+  /** Одно наше юрлицо - только его месяцы в сверке с таблицей (как в «Переходе»). */
+  entity?: string;
+}) {
   const [view, setView] = useSessionState<View>("core.shadow.paid.view", "lines");
   const [data, setData] = useState<PaymentsView | null>(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
-  const [loaded, setLoaded] = useState(-1);
-  const loading = loaded !== revision;
+  const asked = `${revision}|${closed}|${entity}`;
+  const [loaded, setLoaded] = useState("");
+  const loading = loaded !== asked;
   const [note, setNote] = useState("");
   useEffect(() => {
     let alive = true;
     coreApi
-      .payments()
+      .payments(entity)
       .then((next) => {
         if (!alive) return;
         setData(next);
         setError(next.error);
       })
       .catch((exc) => alive && setError(messageOf(exc, "Оплаты не сверились")))
-      .finally(() => alive && setLoaded(revision));
+      .finally(() => alive && setLoaded(asked));
     return () => {
       alive = false;
     };
-  }, [revision, closed]);
+  }, [asked, entity]);
   const reload = (text: string) => {
     setNote(text);
     setRevision((value) => value + 1);

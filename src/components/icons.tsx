@@ -417,6 +417,18 @@ export function ThresholdIcon(props: IconProps) {
   );
 }
 
+/** «Карта группы» - три узла и связи между ними. */
+export function GroupIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="9" y="3" width="6" height="5" rx="1" />
+      <rect x="3" y="16" width="6" height="5" rx="1" />
+      <rect x="15" y="16" width="6" height="5" rx="1" />
+      <path d="M11 8l-4.5 8M13 8l4.5 8M9 18.5h6" />
+    </Svg>
+  );
+}
+
 /** «Сегодня» - лист дел: сделанное отмечено, две строки впереди. */
 export function TodayIcon(props: IconProps) {
   return (

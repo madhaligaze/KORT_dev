@@ -90,6 +90,8 @@ export function UnissuedBills({
   const source = board.source;
   const reading = !source?.read_at && !source?.error;
   const done = view === "issued";
+  // Юрлица, чьи счета ведёт KORT (`core/switch.py`): состояние их счетов - по начислениям KORT.
+  const kort = source?.kort ?? [];
 
   return (
     <div className="flex flex-col gap-3">
@@ -168,12 +170,18 @@ export function UnissuedBills({
                 : " - новое сразу"}
             </>
           ) : null}
+          {kort.length ? ` · счета ${kort.join(", ")} - из KORT` : ""}
         </p>
       ) : null}
 
       {source?.error ? (
         <p className="text-xs" style={{ color: "var(--accent-rose)" }}>
           {source.error}
+        </p>
+      ) : null}
+      {source?.kort_error ? (
+        <p className="text-xs" style={{ color: "var(--accent-rose)" }}>
+          {source.kort_error}
         </p>
       ) : null}
 
@@ -195,7 +203,7 @@ export function UnissuedBills({
               )}
               <th style={{ textAlign: "right" }}>Сумма</th>
               <th>Период с</th>
-              {done ? null : <th>Счёт по таблице</th>}
+              {done ? null : <th>{kort.length ? "Счёт" : "Счёт по таблице"}</th>}
             </tr>
           </thead>
           <tbody>
@@ -239,6 +247,12 @@ export function UnissuedBills({
                     className={item.group === "overdue" ? "fin-out" : item.group === "soon" ? "fin-strong" : "fin-muted"}
                   >
                     {item.text || "пусто"}
+                    {item.source === "kort" ? (
+                      <span className="fin-bills-note">{item.line ? "по KORT" : "по KORT, в таблице строки нет"}</span>
+                    ) : kort.includes(item.own) ? (
+                      /* Юрлицо на KORT, а строку KORT не связал с договором - она словами таблицы. */
+                      <span className="fin-bills-note">по таблице: договора в KORT нет</span>
+                    ) : null}
                     {/* Деньги пришли, а счёта нет - то, что выставить надо первым. */}
                     {item.paid ? <span className="fin-bills-note">{PAID[item.paid]}</span> : null}
                   </td>

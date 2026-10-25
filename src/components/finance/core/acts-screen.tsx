@@ -34,28 +34,38 @@ export function actText(act: ActOut): string {
     .join(" · ");
 }
 
-export function ActsShadow({ onOpen, closed }: { onOpen: (id: string | null) => void; closed: number }) {
+export function ActsShadow({
+  onOpen,
+  closed,
+  entity = "",
+}: {
+  onOpen: (id: string | null) => void;
+  closed: number;
+  /** Одно наше юрлицо: сверка 1С - его месяцы, списки - его договоры. */
+  entity?: string;
+}) {
   const [view, setView] = useSessionState<View>("core.shadow.acts.view", "lines");
   const [data, setData] = useState<ActsView | null>(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
-  const [loaded, setLoaded] = useState(-1);
-  const loading = loaded !== revision;
+  const asked = `${revision}|${closed}|${entity}`;
+  const [loaded, setLoaded] = useState("");
+  const loading = loaded !== asked;
   useEffect(() => {
     let alive = true;
     coreApi
-      .acts()
+      .acts(entity)
       .then((next) => {
         if (!alive) return;
         setData(next);
         setError(next.error);
       })
       .catch((exc) => alive && setError(messageOf(exc, "Акты не сверились")))
-      .finally(() => alive && setLoaded(revision));
+      .finally(() => alive && setLoaded(asked));
     return () => {
       alive = false;
     };
-  }, [revision, closed]);
+  }, [asked, entity]);
   const counts = data?.counts ?? {};
   const contract = (id: string) => data?.contracts[id];
   const cell = (id: string) => (
