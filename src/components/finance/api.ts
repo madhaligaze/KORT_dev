@@ -438,6 +438,10 @@ export type ImportPreview = {
   mapping: { columns: Record<string, { index: number; header: string; how: string }>; width: number };
   unused_columns: string[];
   accounts_missing: string[];
+  /** Счёт, которого нет, → наше юрлицо, названное в нём целиком («Kaspi ТОО "BBC HR"»). */
+  accounts_entities?: Record<string, string>;
+  /** Наши юрлица - на выбор, чьим заводить счёт (только когда счетов не хватает). */
+  entities?: { id: string; name: string; code: string }[];
   accounts_suggested?: SuggestedAccount[];
   rows: ImportRow[];
 };
@@ -1369,8 +1373,10 @@ export type PaymentItem = {
   counterparty: string;
   account: string;
   comment: string;
-  /** `auto` - разнесла система, `manual` - человек, `open` - спорный. */
-  how: "auto" | "manual" | "open";
+  /** Номер договора, как его написал источник («№ЮО/84» в журнале). */
+  contract_ref?: string;
+  /** `auto` - по стороне, `number` - по номеру договора из источника, `manual` - человек, `open` - спорный. */
+  how: "auto" | "number" | "manual" | "open";
 };
 
 export type ContractPayments = { summary: PaymentSummary | null; items: PaymentItem[] };
@@ -2469,12 +2475,149 @@ export type VatPreview = {
   key?: string;
 };
 
+/** Оплата договора из источника (`core/payments.py`): операция журнала или поступление 1С. */
+export type CorePayment = {
+  key: string;
+  source: "journal" | "1c";
+  paid_at: string;
+  amount: string;
+  /** «За какие месяцы» по источнику: первый и последний. */
+  hint: [string, string] | null;
+  how: string;
+  payer: string;
+  comment: string;
+  contract_ref: string;
+  account: string;
+};
+
+/** Долг, который гасят оплаты: входящее сальдо (`month: "opening"`) или начисление месяца. */
+export type MoneyBucket = {
+  month: string;
+  accrued: string;
+  paid: string;
+  debt: string;
+  /** `hint` - по «за какой месяц», `order` - старейшему долгу, `date` - по месяцу платежа. */
+  parts: { key: string; paid_at: string; amount: string; by: "hint" | "order" | "date" }[];
+};
+
+export type ContractMoney = {
+  /** С какого дня KORT ведёт оплаты; `null` - оплат ещё нет. */
+  since: string | null;
+  /** День компании, на который считан долг. */
+  today: string;
+  opening: MoneyBucket | null;
+  months: MoneyBucket[];
+  over: { key: string; paid_at: string; amount: string }[];
+  over_total: string;
+  payments: CorePayment[];
+  paid: string;
+  /** Считает ли KORT начисления договора; нет - долг неизвестен. */
+  accrues: boolean;
+  /** Долг на сегодня: сальдо и начисления к сегодня минус оплаты; минус - аванс; `null` - неизвестен. */
+  debt: string | null;
+};
+
+/** АВР месяца договора в одном источнике (`core/acts.py`). Сумма - только с правом на деньги. */
+export type ActOut = {
+  source: "kort" | "1c" | "book";
+  month: string;
+  number: string;
+  date: string | null;
+  amount: string | null;
+  signed: string | null;
+  accepted: boolean;
+  esf: string | null;
+  esf_sent: boolean;
+  esf_state: string;
+  ref: string;
+};
+
+export type ActCode = "act_no_book" | "act_no_1c" | "act_amount" | "act_signed" | "esf";
+
+/** АВР месяца: выбранный по приоритету (KORT, 1С, книга), где ещё есть и чем 1С и книга расходятся. */
+export type MonthAct = { act: ActOut | null; sources: ActOut["source"][]; codes: ActCode[] };
+
 export type ContractMonths = {
   schedule: { kind: "month" | "total" | ""; start: string | null; period_day: number | null; why: string; paused: string[] };
   months: { month: string; kort: AccrualOut | null; book: BookMonthOut | null; codes: ShadowCode[]; paused: boolean }[];
   book: boolean;
   window: string[];
   proposals: ShadowProposal[];
+  /** Оплаты KORT по месяцам - тем, кому открыты оплаты по выписке. */
+  money?: ContractMoney;
+  /** АВР по месяцам. */
+  acts?: Record<string, MonthAct>;
+  /** День компании, на который построена лента. */
+  today?: string;
+};
+
+export type ActsView = {
+  book: ShadowView["book"];
+  error: string;
+  window: string[];
+  /** Юрлица с подключённой 1С - у них 1С сверяется с книгой. */
+  onec: { id: string; code: string; name: string }[];
+  counts: Partial<Record<"months" | "same" | ActCode, number>>;
+  lines: { contract_id: string; month: string; codes: ActCode[]; onec: ActOut | null; book: ActOut | null }[];
+  unsigned: { contract_id: string; act: ActOut; days: number }[];
+  no_esf: { contract_id: string; act: ActOut; days: number }[];
+  missing: { contract_id: string; month: string }[];
+  contracts: Record<string, { id: string; number: string; customer: string; executor: string }>;
+  codes: Record<ActCode, string>;
+  esf_days: number;
+};
+
+export type PaidShadowCode = "paid" | "paid_no_kort" | "paid_no_book";
+
+/** Поступление журнала без договора - с кандидатами. */
+export type PaymentWithout = {
+  operation_id: string;
+  paid_at: string;
+  amount: string;
+  payer: string;
+  account: string;
+  entity_id: string | null;
+  category: string;
+  comment: string;
+  contract_ref: string;
+  hint: [string, string] | null;
+  disputed: boolean;
+  candidates: { id: string; number: string; customer: string; executor_id: string | null; why: "спор" | "номер" | "клиент" | "сумма" }[];
+};
+
+export type OpeningPlan = {
+  since: string;
+  items: { contract_id: string; number: string; amount: string; was: string | null; line: number; state: "new" | "changed" | "remove" }[];
+  counts: Record<"new" | "changed" | "remove" | "same" | "manual", number>;
+  debt: string;
+  advance: string;
+};
+
+export type PaymentsView = {
+  settings: {
+    since: string | null;
+    since_used: string | null;
+    sources: Record<string, "journal" | "1c">;
+    /** Статьи и плательщики, целиком отмеченные «не оплаты по договорам». */
+    ignore: { categories: string[]; payers: string[] };
+  };
+  entities: { id: string; code: string; name: string; source: "journal" | "1c"; journal: number; onec: number }[];
+  without: PaymentWithout[];
+  /** Сколько поступлений скрыто: переводы своих юрлиц, отмеченное «не оплаты», решённое «не по договору». */
+  without_hidden: { own: number; ignored: number; decided: number };
+  book: ShadowView["book"];
+  error: string;
+  shadow: {
+    window: string[];
+    since: string | null;
+    counts: Partial<Record<"contracts" | "same" | "months" | "months_same" | PaidShadowCode, number>>;
+    contracts: Record<
+      string,
+      { id: string; number: string; customer: string; executor: string; kort: string; book: string; same: boolean; opening_paid: string | null; over: string | null }
+    >;
+    lines: { contract_id: string; diff: string; months: { month: string; kort: string | null; book: string | null; code: PaidShadowCode | "" }[] }[];
+  } | null;
+  opening: OpeningPlan | null;
 };
 
 export const coreApi = {
@@ -2547,6 +2690,23 @@ export const coreApi = {
     request<{ ok: boolean }>(`/core/contracts/${contractId}/adjustments/${documentId}`, { method: "DELETE" }),
   statusFrom: (contractId: string, body: { status_id: string; effective_from: string; summary?: string }) =>
     request<{ id: string }>(`/core/contracts/${contractId}/status-from`, { method: "POST", body: JSON.stringify(body) }),
+  payments: () => request<PaymentsView>("/core/payments"),
+  acts: () => request<ActsView>("/core/acts"),
+  paymentSettings: (body: { since?: string | null; entity_id?: string; source?: "journal" | "1c" }) =>
+    request<PaymentsView["settings"]>("/core/payments/settings", { method: "PUT", body: JSON.stringify(body) }),
+  paymentsOpening: () =>
+    request<{ done: number; point: { id: string; title: string; kind: string } | null }>("/core/payments/opening", {
+      method: "POST",
+    }),
+  paymentIgnore: (kind: "categories" | "payers", name: string, on: boolean) =>
+    request<PaymentsView["settings"]>("/core/payments/ignore", { method: "PUT", body: JSON.stringify({ kind, name, on }) }),
+  paymentDecide: (operationId: string, body: { action: "link" | "none" | "auto"; contract_id?: string }) =>
+    request<{ operation_id: string; action: string; contract_id: string | null }>(`/core/payments/${operationId}/decide`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  setOpening: (contractId: string, amount: string | null) =>
+    request<{ ok: boolean }>(`/core/contracts/${contractId}/opening`, { method: "PUT", body: JSON.stringify({ amount }) }),
 };
 
 /**

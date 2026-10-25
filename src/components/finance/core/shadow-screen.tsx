@@ -29,6 +29,8 @@ import {
 import { readParam, writeParams } from "@/components/finance/address";
 import { ContractCard } from "@/components/finance/contracts/contract-card";
 import { useRegistryBoot } from "@/components/finance/contracts/registry-cards";
+import { ActsShadow } from "@/components/finance/core/acts-screen";
+import { PaymentsShadow } from "@/components/finance/core/payments-screen";
 import { ProposalActions } from "@/components/finance/core/proposal";
 import { bareNumber, contractMoney, formatDay, formatTime, plural } from "@/components/finance/format";
 import { ConfirmDialog } from "@/components/finance/ui/confirm-dialog";
@@ -65,7 +67,7 @@ function messageOf(exc: unknown, fallback: string): string {
   return exc instanceof Error && exc.message ? exc.message : fallback;
 }
 
-type What = "accruals" | "bills";
+type What = "accruals" | "bills" | "payments" | "acts";
 
 export function ShadowScreen({ me }: { me: Me }) {
   // Договор из сверки открывается карточкой договора - ей нужен реестр.
@@ -90,6 +92,8 @@ export function ShadowScreen({ me }: { me: Me }) {
           [
             ["accruals", "Начисления"],
             ["bills", "Счета"],
+            ["payments", "Оплаты"],
+            ["acts", "Акты"],
           ] as [What, string][]
         ).map(([key, title]) => (
           <button key={key} type="button" className="fin-chip" data-on={what === key ? "" : undefined} onClick={() => setWhat(key)}>
@@ -99,8 +103,12 @@ export function ShadowScreen({ me }: { me: Me }) {
       </nav>
       {what === "accruals" ? (
         <AccrualsShadow onOpen={openContract} closed={closed} />
-      ) : (
+      ) : what === "bills" ? (
         <BillsShadowView onOpen={openContract} closed={closed} />
+      ) : what === "payments" ? (
+        <PaymentsShadow onOpen={openContract} closed={closed} />
+      ) : (
+        <ActsShadow onOpen={openContract} closed={closed} />
       )}
       <ContractCard
         id={contractId}

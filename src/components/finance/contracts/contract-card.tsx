@@ -782,6 +782,7 @@ function Snapshot({ contractId }: { contractId: string }) {
 const PAYMENT_ACTIONS: Record<PaymentItem["how"], { label: string; action: "link" | "unlink" | "auto" }> = {
   open: { label: "Отнести к этому договору", action: "link" },
   auto: { label: "Не по этому договору", action: "unlink" },
+  number: { label: "Не по этому договору", action: "unlink" },
   manual: { label: "Как по выписке", action: "auto" },
 };
 
@@ -877,6 +878,9 @@ function Payments({ contractId, seq }: { contractId: string; seq: number }) {
               {isGone ? <span className="annot">не по договору</span> : null}
               {!isGone && item.how === "open" ? <span className="annot">спорный</span> : null}
               {!isGone && item.how === "manual" ? <span className="annot">вручную</span> : null}
+              {!isGone && item.how === "number" ? (
+                <span className="annot">по {item.contract_ref || "номеру договора"}</span>
+              ) : null}
               {canEdit ? (
                 <>
                   {" "}

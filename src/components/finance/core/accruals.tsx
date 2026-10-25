@@ -11,18 +11,27 @@
  *
  * День периода и «начислять с» - обычные поля реестра, правятся здесь, рядом
  * с месяцами, которые от них зависят.
+ *
+ * Оплаты (фаза 4) - тем, кому открыты оплаты по выписке: сколько в месяце
+ * оплачено по разнесению KORT (`core/payments.py`), долг на сегодня, входящее
+ * сальдо на начало учёта и сами платежи - куда каждый лёг.
  */
 import { useContext, useEffect, useState } from "react";
 
 import {
   type AccrualOut,
+  type ActCode,
   type BookMonthOut,
+  type ContractMoney,
   type ContractMonths,
+  type MoneyBucket,
+  type MonthAct,
   type ShadowCode,
   FinanceApiError,
   coreApi,
   formatMonth,
 } from "@/components/finance/api";
+import { actText } from "@/components/finance/core/acts-screen";
 import { CardScopeContext, InlineField } from "@/components/finance/contracts/field-editor";
 import { fieldOf } from "@/components/finance/contracts/schema";
 import { Section } from "@/components/finance/contracts/section";
@@ -56,6 +65,18 @@ function codeText(code: ShadowCode, book: BookMonthOut | null): string {
       return "в книге нет";
   }
 }
+
+/** Чем АВР 1С и книги расходятся - словами у месяца. */
+const ACT_CODES: Record<ActCode, string> = {
+  act_no_book: "в книге АВР нет",
+  act_no_1c: "в 1С АВР нет",
+  act_amount: "сумма АВР в 1С и книге разная",
+  act_signed: "подписание в 1С и книге разное",
+  esf: "ЭСФ в 1С и книге разный",
+};
+
+const ACT_SOURCE = { kort: "KORT", "1c": "1С", book: "книга" } as const;
+const ACT_IN = { kort: "в KORT", "1c": "в 1С", book: "в книге" } as const;
 
 function amountText(accrual: AccrualOut): string {
   if (accrual.skipped) return "не начислять";
@@ -109,9 +130,15 @@ export function Accruals({ contractId, seq }: { contractId: string; seq: number 
     setEditing(null);
     setRevision((current) => current + 1);
   };
+  const money = value.money?.since ? value.money : null;
+  const buckets = new Map((money?.months ?? []).map((bucket) => [bucket.month, bucket]));
+  const current = (money?.today ?? "").slice(0, 7);
+  // Месяц «сегодня» для АВР: прошлые месяцы без АВР - «АВР нет», текущий и будущие - рано.
+  const currentMonth = value.today?.slice(0, 7) ?? current;
   return (
     <Section title="Начисления" end={summary ? <span className="fin-muted">{summary}</span> : null}>
       {schedule.why ? <p className="acc-why">{schedule.why}</p> : null}
+      {money ? <MoneyLine money={money} /> : null}
       {periodField || fromField || vatField ? (
         <div className="card-grid acc-terms">
           {periodField ? <InlineField contractId={contractId} field={periodField} /> : null}
@@ -135,10 +162,19 @@ export function Accruals({ contractId, seq }: { contractId: string; seq: number 
         </p>
       ) : null}
       {value.months.length ? (
-        <div className="acc-list" role="list">
-          {value.months.map((row) => (
+        <div className="acc-list" role="list" data-money={money ? "true" : undefined}>
+          {value.months.map((row) => {
+            const bucket = buckets.get(row.month);
+            const paidCode = money ? paidText(bucket, row.book, value.window.includes(row.month) && row.month <= current) : "";
+            const act = value.acts?.[row.month];
+            const codes = [
+              ...row.codes.map((code) => codeText(code, row.book)),
+              ...(paidCode ? [paidCode] : []),
+              ...(act?.codes ?? []).map((code) => ACT_CODES[code]),
+            ];
+            return (
             <div key={row.month} role="listitem">
-              <div className="acc-row" data-off={row.codes.length ? "true" : undefined}>
+              <div className="acc-row" data-off={codes.length ? "true" : undefined}>
                 <span className="acc-month">
                   {formatMonth(row.month)}
                   <small>{row.kort ? span(row.kort.period_from, row.kort.period_to) : row.book ? span(row.book.period_from, row.book.period_to) : ""}</small>
@@ -148,8 +184,10 @@ export function Accruals({ contractId, seq }: { contractId: string; seq: number 
                   {row.kort?.adjustment ? <small>поправка: {row.kort.adjustment.reason}</small> : null}
                   {row.paused ? <small>приостановлен</small> : null}
                 </span>
-                {value.book ? <BookCell book={row.book} /> : null}
-                <span className="acc-codes">{row.codes.map((code) => codeText(code, row.book)).join(" · ")}</span>
+                {money ? <PaidCell bucket={bucket} month={row.month} since={money.since} current={current} /> : null}
+                {value.book ? <BookCell book={row.book} withAct={!value.acts} /> : null}
+                <span className="acc-codes">{codes.join(" · ")}</span>
+                {value.acts ? <ActLine act={act} accrued={Boolean(row.kort && !row.kort.skipped && Number(row.kort.amount))} past={row.month < currentMonth} /> : null}
                 <span className="acc-acts">
                   {canEdit && row.kort?.adjustment ? (
                     <RemoveAdjustment contractId={contractId} documentId={row.kort.adjustment.id} onDone={changed} />
@@ -175,22 +213,125 @@ export function Accruals({ contractId, seq }: { contractId: string; seq: number 
                 />
               ) : null}
             </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <p className="party-none">Начислений в эти месяцы нет</p>
       )}
+      {money?.payments.length ? <PaymentsList money={money} /> : null}
     </Section>
   );
 }
 
-/** Книга за месяц: счёт, оплата, АВР - то, что по месяцу уже сделано. */
-function BookCell({ book }: { book: BookMonthOut | null }) {
+/** Оплачено и долг договора - одной строкой над месяцами. */
+function MoneyLine({ money }: { money: ContractMoney }) {
+  const debt = money.debt === null ? null : Number(money.debt);
+  const opening = money.opening;
+  return (
+    <p className="acc-money">
+      <span>
+        оплачено <b>{contractMoney(money.paid)}</b>
+      </span>
+      {debt === null ? (
+        <span>долг не считается: начислений по договору KORT не считает</span>
+      ) : (
+        <span>
+          {debt < 0 ? "аванс " : "долг на сегодня "}
+          <b>{contractMoney(Math.abs(debt))}</b>
+        </span>
+      )}
+      {opening ? (
+        <span>
+          входящее сальдо на {formatDay(money.since)}: {contractMoney(opening.accrued)}
+          {Number(opening.debt) > 0 ? `, осталось ${contractMoney(opening.debt)}` : ", закрыто"}
+        </span>
+      ) : null}
+      {Number(money.over_total) ? <span>сверх начислений {contractMoney(money.over_total)}</span> : null}
+      <span className="fin-muted">учёт оплат с {formatDay(money.since)}</span>
+    </p>
+  );
+}
+
+/** Оплата месяца по KORT: сколько и что осталось; до начала учёта - не знаем. */
+function PaidCell({ bucket, month, since, current }: { bucket: MoneyBucket | undefined; month: string; since: string | null; current: string }) {
+  if (since && month < since.slice(0, 7)) return <span className="acc-paid fin-muted">до учёта оплат</span>;
+  if (!bucket) return <span className="acc-paid fin-muted">-</span>;
+  const paid = Number(bucket.paid);
+  const debt = Number(bucket.debt);
+  const accrued = Number(bucket.accrued);
+  return (
+    <span className="acc-paid">
+      {paid ? `оплачено ${contractMoney(bucket.paid)}` : <span className="fin-muted">не оплачено</span>}
+      {paid && accrued && debt > 0 && month <= current ? <small>осталось {contractMoney(bucket.debt)}</small> : null}
+      {paid && !accrued ? <small>начисления нет</small> : null}
+      {paid && accrued && month > current ? <small>заранее</small> : null}
+    </span>
+  );
+}
+
+/** Оплата KORT расходится с «Сумма Факт Поступ.» книги - словами у месяца. */
+function paidText(bucket: MoneyBucket | undefined, book: BookMonthOut | null, compare: boolean): string {
+  if (!compare || !book || book.paid === undefined) return "";
+  const ours = Number(bucket?.paid ?? 0);
+  const theirs = Number(book.paid ?? 0);
+  if (ours === theirs) return "";
+  return theirs ? `в книге оплачено ${contractMoney(theirs)}` : "в книге оплаты нет";
+}
+
+/** Платежи договора: дата, сумма, кто, куда легли. */
+function PaymentsList({ money }: { money: ContractMoney }) {
+  const [open, setOpen] = useState(false);
+  const where = new Map<string, string[]>();
+  const add = (key: string, text: string) => where.set(key, [...(where.get(key) ?? []), text]);
+  if (money.opening) for (const part of money.opening.parts) add(part.key, "сальдо");
+  for (const bucket of money.months) for (const part of bucket.parts) add(part.key, formatMonth(bucket.month, true));
+  for (const part of money.over) add(part.key, "сверх начислений");
+  const shown = open ? money.payments : money.payments.slice(0, 3);
+  return (
+    <div className="acc-payments">
+      <p className="fin-label">Оплаты · {money.payments.length}</p>
+      {shown.map((payment) => (
+        <div key={payment.key} className="acc-payment">
+          <span className="fin-mono">{formatDay(payment.paid_at)}</span>
+          <span className="acc-payment-sum">{contractMoney(payment.amount)}</span>
+          <span className="acc-payment-who">
+            {[payment.payer, payment.account].filter(Boolean).join(" · ")}
+            {payment.comment ? <small>{payment.comment}</small> : null}
+          </span>
+          <span className="acc-payment-where">{(where.get(payment.key) ?? []).join(", ")}</span>
+        </div>
+      ))}
+      {money.payments.length > 3 ? (
+        <button type="button" className="fin-link-btn" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? "Свернуть" : `Все оплаты · ${money.payments.length}`}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** АВР месяца из выбранного источника; прошлый начисленный месяц без АВР - «АВР нет». */
+function ActLine({ act, accrued, past }: { act: MonthAct | undefined; accrued: boolean; past: boolean }) {
+  if (act?.act) {
+    const also = act.sources.filter((source) => source !== act.act?.source).map((source) => ACT_IN[source]);
+    return (
+      <span className="acc-act">
+        {actText(act.act)} · {ACT_SOURCE[act.act.source]}
+        {also.length ? ` · ещё ${also.join(" и ")}` : ""}
+      </span>
+    );
+  }
+  return accrued && past ? <span className="acc-act">АВР нет</span> : null;
+}
+
+/** Книга за месяц: счёт, оплата и, без АВР ядра, АВР - то, что по месяцу уже сделано. */
+function BookCell({ book, withAct = true }: { book: BookMonthOut | null; withAct?: boolean }) {
   if (!book) return <span className="acc-book fin-muted">в книге нет</span>;
   const parts = [
     book.bill_no ? `счёт ${book.bill_no}${book.bill_date ? ` от ${formatDay(book.bill_date)}` : ""}` : "",
     book.paid && Number(book.paid) ? `оплачено ${contractMoney(book.paid)}` : "",
-    book.act_no ? `АВР ${book.act_no}${book.accepted === "yes" ? ", принят" : ""}` : "",
+    withAct && book.act_no ? `АВР ${book.act_no}${book.accepted === "yes" ? ", принят" : ""}` : "",
   ].filter(Boolean);
   return <span className="acc-book">{parts.length ? parts.join(" · ") : <span className="fin-muted">в книге {book.amount ? contractMoney(book.amount) : "-"}</span>}</span>;
 }

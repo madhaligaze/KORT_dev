@@ -5148,6 +5148,42 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
   .acc-book, .acc-codes { grid-column: 1 / -1; }
   .acc-acts { grid-column: 1 / -1; text-align: left; }
 }
+/* Оплаты в ленте (фаза 4): колонка «оплачено» после суммы KORT, книга -
+   второй строкой месяца (в карточке шириной ~700 px на неё иначе оставалось
+   несколько пикселей, и «счёт 93 от …» вставал столбиком по букве); долг и
+   аванс - словами и весом числа, без цвета. */
+.acc-list[data-money] .acc-row { grid-template-columns: 8.5rem 8rem 9rem minmax(0, 1fr) auto; }
+.acc-list[data-money] .acc-book { grid-column: 1 / -1; order: 1; }
+.acc-paid { display: flex; flex-direction: column; text-align: right; font-variant-numeric: tabular-nums; }
+.acc-paid small { font-size: 0.75rem; color: var(--fin-text-soft); }
+.acc-money { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1.25rem; margin: 0 0 0.75rem; font-size: 0.8125rem; color: var(--fin-text-soft); }
+.acc-money b { font-weight: 600; color: var(--fin-text); font-variant-numeric: tabular-nums; }
+.acc-payments { margin-top: 0.875rem; }
+.acc-payments .fin-label { margin-bottom: 0.25rem; }
+.acc-payment {
+  display: grid;
+  grid-template-columns: 6rem 8rem minmax(0, 1fr) minmax(0, 12rem);
+  align-items: baseline;
+  column-gap: 0.75rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--fin-line);
+  font-size: 0.8125rem;
+}
+.acc-payment > * { min-width: 0; }
+.acc-payment-sum { text-align: right; font-variant-numeric: tabular-nums; }
+.acc-payment-who { display: flex; flex-direction: column; overflow-wrap: anywhere; }
+.acc-payment-who small { font-size: 0.75rem; color: var(--fin-text-soft); }
+.acc-payment-where { color: var(--fin-text-soft); text-align: right; }
+.acc-payments > .fin-link-btn { margin-top: 0.35rem; }
+@media (max-width: 639px) {
+  .acc-list[data-money] .acc-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .acc-list[data-money] .acc-paid { grid-column: 1 / -1; text-align: left; flex-direction: row; flex-wrap: wrap; gap: 0 0.5rem; }
+  .acc-payment { grid-template-columns: 5.5rem minmax(0, 1fr); row-gap: 0.15rem; }
+  .acc-payment-who, .acc-payment-where { grid-column: 1 / -1; text-align: left; }
+}
+/* Счёт из импорта и его юрлицо - одной строкой. */
+.import-owner-row { align-items: center; }
+.import-owner-row select { flex: none; max-width: 55%; }
 
 /* ─── «Сверка» с книгой-сводкой ─── */
 .shadow-screen { display: flex; flex-direction: column; gap: 0.75rem; }
@@ -5173,6 +5209,68 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .shadow-error { flex-basis: 100%; font-size: 0.75rem; color: var(--fin-fail); white-space: normal; }
 .shadow-codes { flex-wrap: wrap; row-gap: 0.5rem; }
 .shadow-table td { vertical-align: top; }
+
+/* ─── «Сверка → Оплаты» (ядро, фаза 4) ─── */
+.paid-settings { display: grid; gap: 0.5rem; padding: 0.75rem 0; border-top: 1px solid var(--fin-line); border-bottom: 1px solid var(--fin-line); }
+.paid-since { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; font-size: 0.8125rem; }
+.paid-since .fin-label { margin: 0; }
+.paid-since .input-field.party-date { flex: 0 0 8.5rem; width: 8.5rem; }
+.paid-sources { display: flex; flex-wrap: wrap; gap: 0.35rem 1.5rem; }
+.paid-source { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; }
+.paid-source-name { min-width: 4.5rem; color: var(--fin-text); }
+.fin-mine.paid-source-pick { margin: 0; }
+.paid-months { display: grid; gap: 0.1rem; margin-top: 0.35rem; }
+.paid-month { display: grid; grid-template-columns: 4.5rem 7rem 7rem auto; column-gap: 0.75rem; font-size: 0.75rem; color: var(--fin-text-soft); }
+.paid-month[data-off] .paid-month-code { color: var(--fin-fail); }
+.paid-without { display: grid; }
+.paid-without > .shadow-codes { margin-bottom: 0.5rem; }
+.paid-item {
+  display: grid;
+  grid-template-columns: 6rem 8rem minmax(0, 1fr) minmax(0, 22rem);
+  align-items: baseline;
+  column-gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--fin-line);
+  font-size: 0.8125rem;
+}
+.paid-item > * { min-width: 0; }
+.paid-item-sum { text-align: right; font-variant-numeric: tabular-nums; }
+.paid-item-who { display: flex; flex-direction: column; gap: 0.1rem; overflow-wrap: anywhere; }
+.paid-item-who small { font-size: 0.75rem; color: var(--fin-text-soft); }
+.paid-item-who .annot { margin-left: 0.4rem; }
+.paid-item-acts { display: flex; flex-direction: column; align-items: flex-end; gap: 0.15rem; }
+.paid-candidate { display: inline-flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-end; gap: 0 0.4rem; }
+/* ─── «Сверка → Акты» (ядро, фаза 5) ─── */
+.acts-list { display: grid; }
+.acts-item {
+  display: grid;
+  grid-template-columns: minmax(12rem, 22rem) minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--fin-line);
+  font-size: 0.8125rem;
+}
+.acts-item > * { min-width: 0; }
+.acts-text { overflow-wrap: anywhere; }
+.acc-act { grid-column: 1 / -1; order: 2; font-size: 0.75rem; color: var(--fin-text-soft); overflow-wrap: anywhere; }
+@media (max-width: 767px) {
+  .acts-item { grid-template-columns: minmax(0, 1fr); row-gap: 0.2rem; }
+}
+.paid-hidden, .paid-rule { margin: 0 0 0.5rem; font-size: 0.8125rem; color: var(--fin-text-soft); }
+.paid-ignore { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
+.paid-ignore .fin-label { margin: 0; }
+.paid-ignore-item { display: inline-flex; align-items: baseline; gap: 0.35rem; }
+.paid-opening { display: grid; gap: 0.75rem; justify-items: start; }
+.paid-opening .fin-card { justify-self: stretch; }
+.paid-opening-text { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); font-variant-numeric: tabular-nums; }
+@media (max-width: 767px) {
+  .paid-item { grid-template-columns: 5.5rem minmax(0, 1fr); row-gap: 0.2rem; }
+  .paid-item-sum { text-align: left; }
+  .paid-item-who, .paid-item-acts { grid-column: 1 / -1; }
+  .paid-item-acts { align-items: flex-start; }
+  .paid-candidate { justify-content: flex-start; }
+}
 
 /* ─── «Порог НДС» (ядро, фаза 7) ───
    Полоса оборота одной тушью: факт - полный тон, прогноз до конца года -

@@ -68,6 +68,13 @@ export function PreviewView({
   const [fixed, setFixed] = useState<Set<number>>(new Set());
   /** Счёт для разом всех отложенных строк, которым его не хватает. */
   const [bulkAccount, setBulkAccount] = useState("");
+  /**
+   * Чьими из наших юрлиц заводить недостающие счета. Предложение - юрлицо,
+   * названное в счёте целиком («Kaspi Юр. ТОО "BBC HR"»); выбирает человек.
+   * По юрлицу счёта оплата на него находит договоры этого юрлица.
+   */
+  const [owners, setOwners] = useState<Record<string, string>>({});
+  const ownerOf = (name: string) => owners[name] ?? preview.accounts_entities?.[name] ?? "";
 
   const answer = async (patch: ImportAnswer) => {
     setBusy(true);
@@ -145,7 +152,8 @@ export function PreviewView({
     setError("");
     try {
       for (const name of preview.accounts_missing) {
-        await financeApi.createAccount({ name, kind: "bank" });
+        const owner = ownerOf(name);
+        await financeApi.createAccount({ name, kind: "bank", ...(owner ? { group_entity_id: owner } : {}) });
       }
       setPreview(await reload({}));
       onApplied();
@@ -380,7 +388,34 @@ export function PreviewView({
 
       {preview.accounts_missing.length ? (
         <div className="fin-card p-3 flex flex-col gap-2">
-          <p className="fin-issue-text">Счетов нет в справочнике: {preview.accounts_missing.join(", ")}</p>
+          <p className="fin-issue-text">
+            Счетов нет в справочнике
+            {preview.entities?.length ? "" : `: ${preview.accounts_missing.join(", ")}`}
+          </p>
+          {preview.entities?.length ? (
+            <div className="flex flex-col gap-1">
+              {preview.accounts_missing.map((name) => (
+                <div key={name} className="fin-acc-row import-owner-row">
+                  <span className="fin-acc-name">{name}</span>
+                  <select
+                    className="input-field"
+                    style={{ width: "auto" }}
+                    aria-label={`Чей счёт «${name}»`}
+                    value={ownerOf(name)}
+                    disabled={busy}
+                    onChange={(event) => setOwners((was) => ({ ...was, [name]: event.target.value }))}
+                  >
+                    <option value="">ничей</option>
+                    {preview.entities?.map((entity) => (
+                      <option key={entity.id} value={entity.id}>
+                        {entity.code || entity.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          ) : null}
           {/* Счёт из файла сам не заводится - место, где лежат деньги, не должно
               появляться из опечатки. Но и вбивать двадцать два счёта книги
               руками незачем: список перед глазами, решение за человеком. */}
