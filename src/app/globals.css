@@ -5500,6 +5500,45 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 }
 /* «Сегодня»: дела карточками - число крупно, строки - щелчок в свой список.
    Состояние - словами и весом, без цвета: долг - не отказ. */
+/* «Первые шаги»: шаги номерами; сделанный - тише, следующий - единственная плита.
+   Отметок «готово» цветом нет: шаг говорит словами, что сделано. */
+.start-screen { display: flex; flex-direction: column; gap: 0.75rem; max-width: 52rem; }
+.start-book { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
+.start-steps { display: grid; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--fin-line); }
+.start-step {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  column-gap: 0.75rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--fin-line);
+}
+.start-n { font-family: var(--font-martian), ui-monospace, monospace; font-size: 0.875rem; color: var(--fin-text-soft); padding-top: 0.1rem; }
+.start-step:not([data-done]) .start-n { color: var(--fin-text); font-weight: 600; }
+.start-body { display: flex; flex-direction: column; align-items: flex-start; gap: 0.4rem; min-width: 0; }
+.start-body > * { max-width: 100%; }
+.start-title { margin: 0; font-size: 0.9375rem; font-weight: 600; }
+.start-step[data-done] .start-title { font-weight: 500; }
+.start-text { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); overflow-wrap: anywhere; }
+.start-state { margin: 0; font-size: 0.8125rem; }
+.start-note { font-size: 0.75rem; color: var(--fin-text-soft); }
+.start-owed { margin: 0; font-size: 1rem; font-variant-numeric: tabular-nums; }
+.start-go { margin-top: 0.25rem; }
+.start-aside { font-size: 0.8125rem; }
+.start-groups { display: grid; width: 100%; margin: 0.25rem 0 0; padding: 0; list-style: none; border-top: 1px solid var(--fin-line); }
+.start-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 0.75rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--fin-line);
+  font-size: 0.8125rem;
+}
+.start-group > * { min-width: 0; overflow-wrap: break-word; }
+.start-group-what { display: flex; flex-direction: column; }
+.start-group-sum { text-align: right; font-variant-numeric: tabular-nums; }
+.start-connect { display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; }
+.start-field { display: flex; flex-direction: column; gap: 0.25rem; width: min(100%, 36rem); }
+
 .today-screen { display: flex; flex-direction: column; gap: 0.75rem; }
 .today-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
 .today-date { margin: 0; font-size: 0.875rem; color: var(--fin-text-soft); }

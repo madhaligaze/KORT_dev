@@ -2721,6 +2721,34 @@ export type BookColumn = {
 
 export type BookColumnsView = { connected: boolean; header: string[]; columns: BookColumn[]; error: string };
 
+/** «Первые шаги» (`core/onboarding.py`): что KORT заведёт по сводной таблице - по шагам. */
+export type StartStep = "entities" | "contracts" | "since";
+
+export type StartPlan = {
+  /** Сводная таблица подключена; `book` пуст - ещё читается или отказ (`error`). */
+  connected: boolean;
+  error: string;
+  book: { title: string; worksheet: string; rows: number; matched: number } | null;
+  entities?: { items: { code: string; rows: number; id: string | null }[]; missing: number };
+  contracts?: {
+    total: number;
+    missing: number;
+    missing_rows: number;
+    disputed: number;
+    groups: { key: string; own: string; customer: string; number: string; months: string[]; amount: string | null }[];
+  };
+  since?: { current: string | null; proposed: string };
+  openings?: { since: string; new: number; same: number; debt: string | null };
+  debts?: { owed: string; contracts: number; advance: string } | null;
+};
+
+export type StartDone = {
+  done?: number;
+  codes?: string[];
+  since?: string;
+  point?: { id: string; title: string } | null;
+};
+
 /** Звенья перехода с таблицы на KORT (`core/switch.py`). */
 export type SwitchLinkKey = "accruals" | "bills" | "payments" | "acts" | "saldo";
 /** Откуда звено юрлица: `book` - таблица, `kort` - KORT. */
@@ -3007,6 +3035,10 @@ export const coreApi = {
   /** Разделы колонки, где у компании нет ни одной строки (`core/usage.py`). */
   usage: () => request<{ empty: string[] }>("/core/usage"),
   group: (year: number) => request<GroupView>(`/core/group?year=${year}`),
+  /** «Первые шаги» (фаза 9): план по сводной таблице и шаги записи. */
+  start: () => request<StartPlan>("/core/start"),
+  startStep: (step: StartStep, since?: string) =>
+    request<StartDone>(`/core/start/${step}`, { method: "POST", body: JSON.stringify(since ? { since } : {}) }),
   /** «Переход» (фаза 10): звенья и какое звено какого юрлица уже ведётся в KORT. */
   switchSources: () => request<SwitchSources>("/core/switch"),
   /** Одно звено по нашим юрлицам - своим запросом: сверка читает всю таблицу. */

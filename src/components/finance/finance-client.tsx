@@ -37,6 +37,7 @@ import {
   MoreIcon,
   RefreshIcon,
   SearchIcon,
+  StepsIcon,
   TableIcon,
   TargetIcon,
   ThresholdIcon,
@@ -103,6 +104,7 @@ import { DebtsSection } from "@/components/finance/core/debts-screen";
 import { ParticipantsScreen } from "@/components/finance/core/participants";
 import { RevenueSection } from "@/components/finance/core/revenue-screen";
 import { ShadowScreen } from "@/components/finance/core/shadow-screen";
+import { StartScreen } from "@/components/finance/core/start-screen";
 import { TodayScreen } from "@/components/finance/core/today-screen";
 import { VatScreen } from "@/components/finance/core/vat-screen";
 import { readParam, writeParams } from "@/components/finance/address";
@@ -249,6 +251,7 @@ type Section =
   | "contracts"
   | "contracts-sheet"
   | "today"
+  | "start"
   | "group"
   | "contracts-oneoff"
   | "contracts-oneoff-cards"
@@ -305,7 +308,11 @@ const GROUPS: { title: string; items: SectionItem[] }[] = [
   {
     // «Сегодня» - главная (ядро, фаза 8): дела числами из итогов, каждое ведёт в свой список.
     title: "Главное",
-    items: [{ key: "today", title: "Сегодня", icon: TodayIcon, resource: "contracts" }],
+    items: [
+      { key: "today", title: "Сегодня", icon: TodayIcon, resource: "contracts" },
+      // От сводной таблицы до «Долгов» (фаза 9); заведённой компании - в «Ещё» (`core/usage.py`).
+      { key: "start", title: "Первые шаги", icon: StepsIcon, resource: "contracts" },
+    ],
   },
   {
     // Договоры - первыми: колонка идёт в порядке цепочки учёта, от договора к
@@ -481,7 +488,7 @@ function writeMode(section: Section): void {
 /** Загрузка и настройка реестра меняют шаблон компании - владелец и администратор.
  *  Сверка с книгой - работа того, кто переводит учёт в KORT, - тоже; порог
  *  НДС и перевод клиентов между юрлицами - решение владельца. */
-const ADMIN_SECTIONS = new Set<Section>(["contracts-import", "contracts-setup", "shadow", "vat", "group"]);
+const ADMIN_SECTIONS = new Set<Section>(["contracts-import", "contracts-setup", "shadow", "vat", "group", "start"]);
 
 /**
  * Мера раздела (`.fin-body[data-measure]` в globals.css): до какой ширины
@@ -988,7 +995,10 @@ export function FinanceClient() {
    * только вход известен.
    */
   const sessionScope = me?.user?.id ? `${me.user.id}:${me.company?.id ?? ""}` : "";
-  scopeRef.current = sessionScope;
+  // Слушатель перехода в раздел (`SECTION_EVENT`) читает учётку из ссылки - пишется после отрисовки.
+  useEffect(() => {
+    scopeRef.current = sessionScope;
+  }, [sessionScope]);
   /**
    * Открытое окно операции переживает перезагрузку, а поля в нём - свой
    * черновик (`OperationDialog`). `plan` - окно открыто с уже отмеченным
@@ -1157,6 +1167,8 @@ export function FinanceClient() {
         return <TodayScreen me={me} onGo={setSection} />;
       case "group":
         return <GroupScreen />;
+      case "start":
+        return <StartScreen />;
       case "participants":
         return <ParticipantsScreen me={me} />;
       case "shadow":

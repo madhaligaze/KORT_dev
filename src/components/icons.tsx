@@ -439,6 +439,15 @@ export function TodayIcon(props: IconProps) {
   );
 }
 
+/** «Первые шаги» - ступени: от таблицы к KORT по одному шагу. */
+export function StepsIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 19.5h4.5V15h4.5v-4.5h4.5V6h3.5" />
+    </Svg>
+  );
+}
+
 /** «Сверка» - два листа рядом и черта между: KORT против таблицы. */
 export function CompareIcon(props: IconProps) {
   return (
