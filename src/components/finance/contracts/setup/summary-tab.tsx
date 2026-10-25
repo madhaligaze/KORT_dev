@@ -34,7 +34,11 @@ export function SummaryTab() {
     setResult("");
     const ok = await action.run("connect", async () => {
       const done = await contractsApi.setup.connectSummary(link.trim(), sheet.trim());
-      setResult(`Прочитано строк: ${done.rows}${done.drift ? ` · таблицу поправили: ${done.drift}` : ""}`);
+      setResult(
+        done.problem
+          ? `Таблица подключена, но не читается: ${done.problem}. Назовите колонки в «Колонках для ядра» ниже.`
+          : `Прочитано строк: ${done.rows}${done.drift ? ` · таблицу поправили: ${done.drift}` : ""}`,
+      );
     });
     if (ok) {
       setLink("");

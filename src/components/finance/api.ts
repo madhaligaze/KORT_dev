@@ -1879,8 +1879,9 @@ export const contractsApi = {
       request<RegistryView>(`${C}/setup/views`, { method: "POST", body: JSON.stringify(data) }),
     updateView: (id: string, data: Record<string, unknown>) =>
       request<RegistryView>(`${C}/setup/views/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+    /** `problem` - таблица подключена, но нужные колонки названы по-своему: их называют в «Колонках для ядра». */
     connectSummary: (link: string, worksheet: string) =>
-      request<{ title: string; worksheet: string; rows: number; drift: string }>(`${C}/setup/summary`, {
+      request<{ title: string; worksheet: string; rows: number; drift: string; problem?: string }>(`${C}/setup/summary`, {
         method: "POST",
         body: JSON.stringify({ link, worksheet }),
       }),

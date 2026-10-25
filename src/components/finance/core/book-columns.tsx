@@ -26,7 +26,8 @@ function messageOf(exc: unknown, fallback: string): string {
   return exc instanceof Error && exc.message ? exc.message : fallback;
 }
 
-export function BookColumns() {
+/** `onChanged` - название записано, таблица перечитана: экран вокруг (например, «Первые шаги») пересчитывает своё. */
+export function BookColumns({ onChanged }: { onChanged?: () => void } = {}) {
   const [data, setData] = useState<BookColumnsView | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
@@ -46,6 +47,7 @@ export function BookColumns() {
     setError("");
     try {
       setData(await coreApi.setBookColumn(column.key, name, on));
+      onChanged?.();
     } catch (exc) {
       setError(messageOf(exc, "Не записалось"));
     } finally {

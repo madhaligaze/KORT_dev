@@ -25,6 +25,7 @@ import {
   coreApi,
   formatMonth,
 } from "@/components/finance/api";
+import { BookColumns } from "@/components/finance/core/book-columns";
 import { openSection } from "@/components/finance/core/open";
 import { contractMoney, formatDay, plural } from "@/components/finance/format";
 import { useSessionState } from "@/components/session-state";
@@ -113,12 +114,14 @@ export function StartScreen() {
     );
   }
   if (!plan.book || !plan.entities || !plan.contracts || !plan.since || !plan.openings) {
+    // Таблица подключена, но не читается: чаще всего колонки названы по-своему - их называют здесь же.
     return (
       <div className="start-screen">
         <p className="party-error">{error || "Сводная таблица ещё читается"}</p>
-        <button type="button" className="btn-ghost" onClick={reload}>
+        <button type="button" className="btn-ghost start-go" onClick={reload}>
           Прочитать снова
         </button>
+        <BookColumns onChanged={reload} />
       </div>
     );
   }
