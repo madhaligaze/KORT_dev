@@ -249,14 +249,14 @@ export type DebtItem = {
   overdue_days: number;
 };
 
-export type DebtSide = {
+export type DebtSideReport = {
   total: Money;
   overdue: Money;
   by_counterparty: { name: string; amount: Money }[];
   items: DebtItem[];
 };
 
-export type Debts = { as_of: string; receivable: DebtSide; payable: DebtSide };
+export type Debts = { as_of: string; receivable: DebtSideReport; payable: DebtSideReport };
 
 export type ProjectsReport = {
   items: { name: string; income: Money; expense: Money; profit: Money; margin: string }[];
