@@ -2352,12 +2352,22 @@ export type BookMonthOut = {
 
 export type ShadowCode = "amount" | "period" | "executor" | "no_kort" | "no_book";
 
+/** Решение «верно у KORT» (`core/changes.py`): действует, пока KORT и таблица считают месяц так же. */
+export type ShadowDecision = { id: string; at: string | null; batch: string | null };
+
 export type ShadowLine = {
   contract_id: string;
   month: string;
   codes: ShadowCode[];
   kort: AccrualOut | null;
   book: BookMonthOut | null;
+  /** Почему расходится, если это видно из данных: ошибка периода таблицы, день периода у KORT. */
+  hint: string;
+  /** Таблица пропустила день периода, посчитала его дважды или идёт со сдвигом после этого. */
+  slip: "gap" | "overlap" | "shift" | "";
+  verified: ShadowDecision | null;
+  /** Решение было, но с тех пор изменились условия договора, таблица или обе стороны. */
+  stale: (ShadowDecision & { side: "kort" | "book" | "both" }) | null;
 };
 
 export type ShadowProposalKind =
@@ -2414,7 +2424,7 @@ export type ShadowView = {
   book: { title: string; worksheet: string; read_at: string; url: string; drift: string } | null;
   error: string;
   window: string[];
-  counts: Partial<Record<"contracts" | "clean" | "months" | "same" | ShadowCode | "unknown" | "proposals", number>>;
+  counts: Partial<Record<"contracts" | "clean" | "months" | "same" | "verified" | ShadowCode | "unknown" | "proposals", number>>;
   contracts: Record<string, ShadowContract>;
   lines: ShadowLine[];
   proposals: ShadowProposal[];
@@ -2570,7 +2580,15 @@ export type MonthAct = { act: ActOut | null; sources: ActOut["source"][]; codes:
 
 export type ContractMonths = {
   schedule: { kind: "month" | "total" | ""; start: string | null; period_day: number | null; why: string; paused: string[] };
-  months: { month: string; kort: AccrualOut | null; book: BookMonthOut | null; codes: ShadowCode[]; paused: boolean }[];
+  months: {
+    month: string;
+    kort: AccrualOut | null;
+    book: BookMonthOut | null;
+    codes: ShadowCode[];
+    paused: boolean;
+    hint?: string;
+    verified?: ShadowDecision | null;
+  }[];
   book: boolean;
   window: string[];
   proposals: ShadowProposal[];
@@ -2723,33 +2741,6 @@ export type BookColumn = {
 };
 
 export type BookColumnsView = { connected: boolean; header: string[]; columns: BookColumn[]; error: string };
-
-/** Значение списка компании против шаблона (`core/layers.py`). */
-export type LayerListItem = {
-  template: string | null;
-  value: string | null;
-  id: string | null;
-  /** template - как в шаблоне, renamed - своё слово, meaning - другой смысл, added - своё значение, removed - убрано. */
-  state: "template" | "renamed" | "meaning" | "added" | "removed";
-  meaning: Record<string, unknown>;
-  template_meaning: Record<string, unknown> | null;
-};
-
-export type LayersView = {
-  template: { title: string; fields: number; lists: Record<string, number> };
-  company: {
-    lists: { key: string; title: string; counts: Record<LayerListItem["state"], number>; items: LayerListItem[] }[];
-    fields: string[];
-    hidden_fields: string[];
-    views: Record<string, number>;
-    columns: number;
-    words: number;
-    since: string | null;
-    kort: Record<string, string[]>;
-  };
-  departments: { id: string; code: string; title: string; grants: number }[];
-  people: { employees: number; with_own_rights: number; looks: number; pins: number };
-};
 
 /** Колонка таблицы со словами компании: «Счет» (состояние счёта) или «Вид Услуги» (пост бота). */
 export type TableWordPart = "bill" | "kind";
@@ -3057,6 +3048,21 @@ export const coreApi = {
     ),
   createFromBook: (key: string) =>
     request<{ id: string; number: string }>("/core/shadow/create", { method: "POST", body: JSON.stringify({ key }) }),
+  verify: (contractId: string, month: string) =>
+    request<{ ok: boolean; id: string; text: string }>("/core/shadow/verify", {
+      method: "POST",
+      body: JSON.stringify({ contract_id: contractId, month }),
+    }),
+  unverify: (documentId: string) =>
+    request<{ ok: boolean; text: string }>(`/core/shadow/verify/${documentId}`, { method: "DELETE" }),
+  /** «Верно у KORT» разом - месяцы, где таблица ошиблась в периоде; `entity` - как у сверки. */
+  verifySlips: (entity?: string) =>
+    request<{ done: number; contracts: number; batch: string | null; skipped: string[] }>("/core/shadow/verify-slips", {
+      method: "POST",
+      body: JSON.stringify({ entity: entity || null }),
+    }),
+  unverifyBatch: (batch: string) =>
+    request<{ done: number; skipped: string[] }>(`/core/shadow/verify-batch/${batch}`, { method: "DELETE" }),
   months: (contractId: string) => request<ContractMonths>(`/core/contracts/${contractId}/months`),
   setAdjustment: (contractId: string, body: { month: string; amount?: string | null; skip?: boolean; reason: string }) =>
     request<{ id: string }>(`/core/contracts/${contractId}/adjustments`, { method: "POST", body: JSON.stringify(body) }),
@@ -3094,8 +3100,6 @@ export const coreApi = {
   /** Разделы колонки, где у компании нет ни одной строки (`core/usage.py`). */
   usage: () => request<{ empty: string[] }>("/core/usage"),
   group: (year: number) => request<GroupView>(`/core/group?year=${year}`),
-  /** Слои настройки: шаблон → компания → отдел → человек (фаза 9, R15-R17). */
-  layers: () => request<LayersView>("/core/layers"),
   /** Слова компании в колонках «Счет» и «Вид Услуги» (фаза 9, R12-R13). */
   tableWords: () => request<TableWordsView>("/core/table-words"),
   setTableWord: (part: TableWordPart, word: string, meaning: string) =>

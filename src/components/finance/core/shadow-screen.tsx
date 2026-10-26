@@ -19,6 +19,7 @@ import {
   type BillsShadowCode,
   type Me,
   type ShadowCode,
+  type ShadowDecision,
   type ShadowLine,
   type ShadowProposal,
   type ShadowProposalKind,
@@ -36,7 +37,7 @@ import { PaymentsShadow } from "@/components/finance/core/payments-screen";
 import { ProposalActions } from "@/components/finance/core/proposal";
 import { SaldoShadowView } from "@/components/finance/core/saldo-screen";
 import { SwitchView } from "@/components/finance/core/switch-screen";
-import { bareNumber, contractMoney, formatDay, formatTime, plural } from "@/components/finance/format";
+import { bareNumber, contractMoney, dayTitle, formatDay, formatTime, plural } from "@/components/finance/format";
 import { ConfirmDialog } from "@/components/finance/ui/confirm-dialog";
 import { useSessionState } from "@/components/session-state";
 
@@ -70,6 +71,25 @@ const CODE_TITLES: Record<ShadowCode, string> = {
 function messageOf(exc: unknown, fallback: string): string {
   return exc instanceof Error && exc.message ? exc.message : fallback;
 }
+
+type LineFilter = ShadowCode | "" | "slip" | "verified";
+
+function lineKey(line: { contract_id: string; month: string }): string {
+  return `${line.contract_id}|${line.month}`;
+}
+
+/** Пачкой решается ошибка периода таблицы, только когда расходится одно начало периода. */
+function slipped(line: ShadowLine): boolean {
+  return Boolean(line.slip) && line.codes.length === 1 && line.codes[0] === "period";
+}
+
+const STALE: Record<NonNullable<ShadowLine["stale"]>["side"], string> = {
+  kort: "условия договора изменились",
+  book: "таблица изменилась",
+  both: "изменились и таблица, и условия договора",
+};
+
+type SlipsResult = { done: number; contracts: number; batch: string | null; skipped: string[] };
 
 type What = "switch" | "accruals" | "bills" | "payments" | "acts" | "saldo";
 
@@ -173,6 +193,10 @@ function AccrualsShadow({
   const loading = loaded !== asked;
   // Записанное прячется сразу; сверка пересчитывается следом, раз в пару секунд.
   const [applied, setApplied] = useState<Set<string>>(() => new Set());
+  // Решения «верно у KORT» до пересчёта: месяц уходит из расходящихся сразу, а не через пересчёт.
+  const [decided, setDecided] = useState<Map<string, ShadowDecision | null>>(() => new Map());
+  // Пачка «верно у KORT» возвращается целиком - кнопкой у сообщения о записи.
+  const [batch, setBatch] = useState<{ id: string; done: number } | null>(null);
   const [note, setNote] = useState("");
   const later = useRef(0);
   const reload = useCallback(() => {
@@ -191,6 +215,7 @@ function AccrualsShadow({
         if (!alive) return;
         setData(next);
         setApplied(new Set());
+        setDecided(new Map());
         setError(next.error);
       })
       .catch((exc) => alive && setError(messageOf(exc, "Сверка не прочиталась")))
@@ -205,11 +230,61 @@ function AccrualsShadow({
     [data, applied],
   );
   const counts = data?.counts ?? {};
-  const differing = (counts.months ?? 0) - (counts.same ?? 0);
+  const verdictOf = useCallback(
+    (line: ShadowLine) => {
+      const key = lineKey(line);
+      return decided.has(key) ? (decided.get(key) ?? null) : line.verified;
+    },
+    [decided],
+  );
+  const differing = data ? data.lines.filter((line) => !verdictOf(line)).length : 0;
+  const settled = data ? data.lines.length - differing : 0;
   const onApplied = (proposal: ShadowProposal) => (text: string) => {
     setApplied((current) => new Set(current).add(proposal.key));
+    setBatch(null);
     setNote(text);
     reload();
+  };
+  const onDecided = (line: ShadowLine, decision: ShadowDecision | null, text: string) => {
+    setDecided((current) => new Map(current).set(lineKey(line), decision));
+    setBatch(null);
+    setNote(text);
+    reload();
+  };
+  const onSlips = (result: SlipsResult, lines: ShadowLine[]) => {
+    const at = new Date().toISOString();
+    setDecided((current) => {
+      const next = new Map(current);
+      for (const line of lines) next.set(lineKey(line), { id: "", at, batch: result.batch });
+      return next;
+    });
+    setBatch(result.batch ? { id: result.batch, done: result.done } : null);
+    setNote(
+      `Верно у KORT: ${result.done} ${plural(result.done, "месяц", "месяца", "месяцев")} у ${result.contracts} ${plural(result.contracts, "договора", "договоров", "договоров")}` +
+        (result.skipped.length ? `, не записано: ${result.skipped.join("; ")}` : ""),
+    );
+    // Сразу, а не через паузу: у месяцев пачки «Вернуть» по одному ждёт их решений с сервера.
+    setRevision((value) => value + 1);
+  };
+  const [undoing, setUndoing] = useState(false);
+  const undoBatch = async () => {
+    if (!batch || !data) return;
+    setUndoing(true);
+    try {
+      const result = await coreApi.unverifyBatch(batch.id);
+      setDecided((current) => {
+        const next = new Map(current);
+        for (const line of data.lines) if (verdictOf(line)?.batch === batch.id) next.set(lineKey(line), null);
+        return next;
+      });
+      setBatch(null);
+      setNote(`Вернули ${result.done} ${plural(result.done, "решение", "решения", "решений")} «верно у KORT» - месяцы снова расходятся`);
+      reload();
+    } catch (exc) {
+      setError(messageOf(exc, "Решения не вернулись"));
+    } finally {
+      setUndoing(false);
+    }
   };
 
   return (
@@ -245,7 +320,7 @@ function AccrualsShadow({
             {data ? `${counts.clean ?? 0} из ${counts.contracts ?? 0}` : "-"}
           </span>
           <span className="fin-kpi-label">
-            {data ? `месяцев ${counts.same ?? 0} из ${counts.months ?? 0}` : ""}
+            {data ? `месяцев ${counts.same ?? 0} из ${counts.months ?? 0}${settled ? ` · верно у KORT ${settled}` : ""}` : ""}
           </span>
         </div>
         {(
@@ -275,6 +350,14 @@ function AccrualsShadow({
       {note ? (
         <p className="shadow-note" role="status">
           {note}
+          {batch ? (
+            <>
+              {" · "}
+              <button type="button" className="fin-link-btn" disabled={undoing} onClick={undoBatch}>
+                Вернуть все {batch.done}
+              </button>
+            </>
+          ) : null}
         </p>
       ) : null}
 
@@ -287,12 +370,13 @@ function AccrualsShadow({
           onOpen={openContract}
           onApplied={onApplied}
           onBulk={(text) => {
+            setBatch(null);
             setNote(text);
             setRevision((value) => value + 1);
           }}
         />
       ) : view === "lines" ? (
-        <Lines data={data} onOpen={openContract} />
+        <Lines data={data} verdictOf={verdictOf} entity={entity} onOpen={openContract} onDecided={onDecided} onSlips={onSlips} />
       ) : (
         <Unknown
           data={data}
@@ -561,24 +645,80 @@ function money(value: string | null | undefined): string {
   return value ? contractMoney(value) : "-";
 }
 
-function Lines({ data, onOpen }: { data: ShadowView; onOpen: (id: string) => void }) {
-  const [code, setCode] = useSessionState<ShadowCode | "">("core.shadow.code", "");
-  const lines = data.lines.filter((line) => !code || line.codes.includes(code));
-  const count = (key: ShadowCode) => data.lines.filter((line) => line.codes.includes(key)).length;
+/**
+ * Расходящиеся месяцы. Ошиблась таблица, а не договор, - «Верно у KORT»: месяц
+ * засчитывается сошедшимся, пока KORT и таблица считают его так же. Месяцы, где
+ * таблица пропустила день периода или посчитала его дважды и расходится одно
+ * начало периода, решаются и пачкой.
+ */
+function Lines({
+  data,
+  verdictOf,
+  entity,
+  onOpen,
+  onDecided,
+  onSlips,
+}: {
+  data: ShadowView;
+  verdictOf: (line: ShadowLine) => ShadowDecision | null;
+  entity: string;
+  onOpen: (id: string) => void;
+  onDecided: (line: ShadowLine, decision: ShadowDecision | null, text: string) => void;
+  onSlips: (result: SlipsResult, lines: ShadowLine[]) => void;
+}) {
+  const [filter, setFilter] = useSessionState<LineFilter>("core.shadow.code", "");
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [confirm, setConfirm] = useState(false);
+  const open = data.lines.filter((line) => !verdictOf(line));
+  const settled = data.lines.filter((line) => verdictOf(line));
+  const slips = open.filter(slipped);
+  const slipContracts = new Set(slips.map((line) => line.contract_id)).size;
+  const lines =
+    filter === "verified" ? settled : filter === "slip" ? slips : open.filter((line) => !filter || line.codes.includes(filter));
+  const count = (key: ShadowCode) => open.filter((line) => line.codes.includes(key)).length;
+  const chip = (key: LineFilter, title: string, value: number) =>
+    value || filter === key ? (
+      <button key={key} type="button" className="fin-chip" data-on={filter === key ? "" : undefined} onClick={() => setFilter(key)}>
+        {title} {value}
+      </button>
+    ) : null;
+
+  const decide = async (line: ShadowLine) => {
+    const verdict = verdictOf(line);
+    setBusy(lineKey(line));
+    setError("");
+    try {
+      if (verdict) {
+        const result = await coreApi.unverify(verdict.id);
+        onDecided(line, null, result.text);
+      } else {
+        const result = await coreApi.verify(line.contract_id, line.month);
+        onDecided(line, { id: result.id, at: new Date().toISOString(), batch: null }, result.text);
+      }
+    } catch (exc) {
+      setError(messageOf(exc, verdict ? "Решение не снялось" : "Решение не записалось"));
+    } finally {
+      setBusy("");
+    }
+  };
+
   return (
     <>
       <div className="fin-mine shadow-codes" role="group" aria-label="Чем расходится">
-        <button type="button" className="fin-chip" data-on={code === "" ? "" : undefined} onClick={() => setCode("")}>
-          Все {data.lines.length}
+        <button type="button" className="fin-chip" data-on={filter === "" ? "" : undefined} onClick={() => setFilter("")}>
+          Все {open.length}
         </button>
-        {(Object.keys(CODE_TITLES) as ShadowCode[]).map((key) =>
-          count(key) ? (
-            <button key={key} type="button" className="fin-chip" data-on={code === key ? "" : undefined} onClick={() => setCode(key)}>
-              {CODE_TITLES[key]} {count(key)}
-            </button>
-          ) : null,
-        )}
+        {(Object.keys(CODE_TITLES) as ShadowCode[]).map((key) => chip(key, CODE_TITLES[key], count(key)))}
+        {chip("slip", "ошибка периода в таблице", slips.length)}
+        {chip("verified", "верно у KORT", settled.length)}
+        {filter === "slip" && slips.length ? (
+          <button type="button" className="btn-ghost btn-sm shadow-bulk" disabled={Boolean(busy)} onClick={() => setConfirm(true)}>
+            Верно у KORT - все {slips.length}
+          </button>
+        ) : null}
       </div>
+      {error ? <p className="party-error">{error}</p> : null}
       {lines.length ? (
         <div className="fin-card overflow-x-auto">
           <table className="fin-table shadow-table">
@@ -589,23 +729,72 @@ function Lines({ data, onOpen }: { data: ShadowView; onOpen: (id: string) => voi
                 <th>Чем</th>
                 <th style={{ textAlign: "right" }}>KORT</th>
                 <th style={{ textAlign: "right" }}>Таблица</th>
+                <th>
+                  <span className="sr-only">Решение</span>
+                </th>
               </tr>
             </thead>
             <tbody>
               {lines.map((line) => (
-                <LineRow key={`${line.contract_id}-${line.month}`} data={data} line={line} onOpen={onOpen} />
+                <LineRow
+                  key={lineKey(line)}
+                  data={data}
+                  line={line}
+                  verdict={verdictOf(line)}
+                  busy={busy === lineKey(line) || busy === "slips"}
+                  onOpen={onOpen}
+                  onDecide={() => decide(line)}
+                />
               ))}
             </tbody>
           </table>
         </div>
       ) : (
-        <p className="creg-empty">Расхождений нет</p>
+        <p className="creg-empty">
+          {filter === "verified" ? "Решений «верно у KORT» нет" : filter === "slip" ? "Ошибок периода в таблице больше нет" : "Расхождений нет"}
+        </p>
       )}
+      <ConfirmDialog
+        open={confirm}
+        title={`Верно у KORT: ${slips.length} ${plural(slips.length, "месяц", "месяца", "месяцев")} у ${slipContracts} ${plural(slipContracts, "договора", "договоров", "договоров")}?`}
+        text="В них таблица пропустила день периода или посчитала его дважды. Условия договоров не меняются; вернуть - сразу после записи."
+        confirm="Записать"
+        busy={busy === "slips"}
+        onCancel={() => setConfirm(false)}
+        onConfirm={async () => {
+          setBusy("slips");
+          setError("");
+          try {
+            const result = await coreApi.verifySlips(entity);
+            setConfirm(false);
+            onSlips(result, slips);
+          } catch (exc) {
+            setConfirm(false);
+            setError(messageOf(exc, "Не записалось"));
+          } finally {
+            setBusy("");
+          }
+        }}
+      />
     </>
   );
 }
 
-function LineRow({ data, line, onOpen }: { data: ShadowView; line: ShadowLine; onOpen: (id: string) => void }) {
+function LineRow({
+  data,
+  line,
+  verdict,
+  busy,
+  onOpen,
+  onDecide,
+}: {
+  data: ShadowView;
+  line: ShadowLine;
+  verdict: ShadowDecision | null;
+  busy: boolean;
+  onOpen: (id: string) => void;
+  onDecide: () => void;
+}) {
   const side = (amount: string | null | undefined, from: string | null | undefined, code: string) => (
     <>
       {money(amount)}
@@ -618,11 +807,26 @@ function LineRow({ data, line, onOpen }: { data: ShadowView; line: ShadowLine; o
         <ContractCell data={data} id={line.contract_id} onOpen={onOpen} />
       </td>
       <td className="fin-bills-date">{formatMonth(line.month)}</td>
-      <td className="fin-out">{line.codes.map((code) => CODE_TITLES[code]).join(", ")}</td>
+      <td className={verdict ? undefined : "fin-out"}>
+        {line.codes.map((code) => CODE_TITLES[code]).join(", ")}
+        {line.hint ? <span className="fin-bills-note">{line.hint}</span> : null}
+        {verdict ? (
+          <span className="fin-bills-note">верно у KORT{verdict.at ? ` · ${dayTitle(verdict.at).toLowerCase()}` : ""}</span>
+        ) : line.stale ? (
+          <span className="fin-bills-note">
+            верно у KORT решили {dayTitle(line.stale.at).toLowerCase()}, но {STALE[line.stale.side]}
+          </span>
+        ) : null}
+      </td>
       <td className="fin-num">
         {line.kort ? side(line.kort.skipped ? "0" : line.kort.amount, line.kort.period_from, "") : "-"}
       </td>
       <td className="fin-num">{line.book ? side(line.book.amount, line.book.period_from, line.book.code) : "-"}</td>
+      <td className="shadow-decide">
+        <button type="button" className="fin-link-btn" disabled={busy || (verdict !== null && !verdict.id)} onClick={onDecide}>
+          {verdict ? "Вернуть" : "Верно у KORT"}
+        </button>
+      </td>
     </tr>
   );
 }

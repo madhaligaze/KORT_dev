@@ -65,7 +65,7 @@ export function TableWords() {
   if (!data && !error) return <p className="setup-summary-meta">Читаем слова таблицы…</p>;
   return (
     <section className="table-words" aria-label="Слова таблицы">
-      <div className="book-columns-head">
+      <div className="table-words-head">
         <h3 className="setup-summary-title">Слова таблицы</h3>
         <p className="setup-summary-meta">{data && !data.error ? (unknown ? `незнакомых слов: ${unknown}` : "все слова понятны") : ""}</p>
         <span className="fin-mine" role="group" aria-label="Какие слова">
@@ -94,7 +94,7 @@ export function TableWords() {
               <div key={part} className="table-words-part">
                 <p className="table-words-title">{title}</p>
                 {items.length ? (
-                  <div className="book-columns-list" role="list">
+                  <div className="table-words-list" role="list">
                     {items.map((item) => (
                       <WordRow key={item.text} part={part} item={item} data={data} busy={busy === `${part}:${item.text}`} onSave={save} />
                     ))}
@@ -124,13 +124,13 @@ function WordRow({
   onSave: (part: TableWordPart, word: string, meaning: string) => Promise<void>;
 }) {
   return (
-    <div className="book-column" role="listitem" data-problem={item.how === "unknown" ? "" : undefined}>
-      <span className="book-column-title">«{item.text}»</span>
-      <span className="book-column-found">
-        <span className={item.how === "unknown" ? "book-column-problem" : "fin-soft"}>{HOW[item.how]}</span>
+    <div className="table-word" role="listitem" data-unknown={item.how === "unknown" ? "" : undefined}>
+      <span className="table-word-text">«{item.text}»</span>
+      <span className="table-word-how">
+        <span className={item.how === "unknown" ? "table-word-unknown" : "fin-soft"}>{HOW[item.how]}</span>
         <span className="fin-soft"> · строк: {item.rows}</span>
       </span>
-      <span className="book-column-pick">
+      <span className="table-word-pick">
         <ChoiceSelect
           className="input-field"
           value={item.how === "company" ? item.meaning : ""}

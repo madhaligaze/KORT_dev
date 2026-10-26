@@ -23,7 +23,6 @@ import {
   type StartStep,
   contractsApi,
   coreApi,
-  formatMonth,
 } from "@/components/finance/api";
 import { BookColumns } from "@/components/finance/core/book-columns";
 import { openSection } from "@/components/finance/core/open";
@@ -160,9 +159,7 @@ export function StartScreen() {
             </p>
             {entities.missing ? (
               <>
-                <p className="start-text">
-                  Нет в KORT: {missingCodes.join(", ")}. Заведутся юрлицами с именем-кодом; полное имя и БИН - потом, в «Участниках».
-                </p>
+                <p className="start-text">Нет в KORT: {missingCodes.join(", ")}</p>
                 <StepButton step="entities" next={next} busy={busy} onRun={run}>
                   Завести {count(entities.missing)} {plural(entities.missing, "юрлицо", "юрлица", "юрлиц")}
                 </StepButton>
@@ -178,13 +175,13 @@ export function StartScreen() {
           <div className="start-body">
             <p className="start-title">Договоры</p>
             <p className="start-text">
-              В KORT {count(contracts.total)} {plural(contracts.total, "договор", "договора", "договоров")}.{" "}
-              {contracts.missing
-                ? `По строкам без договора можно завести ${count(contracts.missing)}: номер, клиент, юрлицо, сумма последнего месяца, как начислять.`
-                : "Строк без договора, которые можно завести, нет."}
-              {contracts.disputed
-                ? ` Спорных ${count(contracts.disputed)} - номер у другого клиента или несколько кандидатов: их решает человек.`
-                : ""}
+              {[
+                `в KORT ${count(contracts.total)} ${plural(contracts.total, "договор", "договора", "договоров")}`,
+                contracts.missing ? `по строкам таблицы - ещё ${count(contracts.missing)}` : "",
+                contracts.disputed ? `спорных ${count(contracts.disputed)}` : "",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
             {contracts.missing ? (
               <>
@@ -238,16 +235,18 @@ export function StartScreen() {
           <div className="start-body">
             <p className="start-title">Начало учёта и сальдо</p>
             <p className="start-text">
-              {since.current
-                ? `Оплаты ведутся с ${formatDay(since.current)}.`
-                : `Учёт начнётся с ${formatDay(since.proposed)} - ${formatMonth(since.proposed.slice(0, 7))}, последний наступивший месяц таблицы с «Сальдо Начало».`}{" "}
-              {openings.new
-                ? `Входящее сальдо на ${formatDay(sinceDay)} - у ${count(openings.new)} ${plural(openings.new, "договора", "договоров", "договоров")}, долг ${money(openings.debt)}.`
-                : openings.same
-                  ? `Сальдо на ${formatDay(sinceDay)} перенесено: ${count(openings.same)} ${plural(openings.same, "договор", "договора", "договоров")}.`
-                  : contracts.missing
-                    ? "Сальдо из таблицы перенесётся у заведённых договоров."
-                    : "Сальдо на этот день в таблице нет."}
+              {[
+                since.current
+                  ? `оплаты ведутся с ${formatDay(since.current)}`
+                  : `начало - ${formatDay(since.proposed)}, последний наступивший месяц таблицы с «Сальдо Начало»`,
+                openings.new
+                  ? `сальдо у ${count(openings.new)} ${plural(openings.new, "договора", "договоров", "договоров")} на ${money(openings.debt)}`
+                  : openings.same
+                    ? `сальдо перенесено у ${count(openings.same)}`
+                    : contracts.missing
+                      ? "сальдо - после договоров"
+                      : "сальдо на этот день в таблице нет",
+              ].join(" · ")}
             </p>
             {!since.current || openings.new ? (
               <StepButton step="since" next={next} busy={busy} onRun={run}>
@@ -294,7 +293,7 @@ export function StartScreen() {
                 </button>
               </>
             ) : (
-              <p className="start-text">Появятся, как только начнётся учёт: сальдо + начисления - оплаты.</p>
+              <p className="start-text">после шага 3</p>
             )}
           </div>
         </li>
@@ -352,10 +351,7 @@ function Connect({ onConnected }: { onConnected: () => void }) {
       }}
     >
       <p className="start-title">Сводная таблица</p>
-      <p className="start-text">
-        Таблица Google, где строка - договор за месяц: наше юрлицо, клиент, № договора, сумма, «Период с». По ней KORT заведёт юрлица,
-        договоры и сальдо и покажет, кто сколько должен.
-      </p>
+      <p className="start-text">Google Таблица, где строка - договор за месяц</p>
       <label className="start-field">
         <span className="fin-label">Ссылка на таблицу</span>
         <input

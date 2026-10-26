@@ -167,11 +167,18 @@ export function Accruals({ contractId, seq }: { contractId: string; seq: number 
             const bucket = buckets.get(row.month);
             const paidCode = money ? paidText(bucket, row.book, value.window.includes(row.month) && row.month <= current) : "";
             const act = value.acts?.[row.month];
+            // «Верно у KORT» (сверка): расхождение начисления решено - месяц не отмечается.
+            const settled = Boolean(row.verified);
             const codes = [
-              ...row.codes.map((code) => codeText(code, row.book)),
+              ...(settled ? [] : row.codes.map((code) => codeText(code, row.book))),
               ...(paidCode ? [paidCode] : []),
               ...(act?.codes ?? []).map((code) => ACT_CODES[code]),
             ];
+            const aside = settled
+              ? `верно у KORT: ${row.codes.map((code) => codeText(code, row.book)).join(", ")}`
+              : row.codes.length
+                ? (row.hint ?? "")
+                : "";
             return (
             <div key={row.month} role="listitem">
               <div className="acc-row" data-off={codes.length ? "true" : undefined}>
@@ -186,7 +193,10 @@ export function Accruals({ contractId, seq }: { contractId: string; seq: number 
                 </span>
                 {money ? <PaidCell bucket={bucket} month={row.month} since={money.since} current={current} /> : null}
                 {value.book ? <BookCell book={row.book} withAct={!value.acts} /> : null}
-                <span className="acc-codes">{codes.join(" · ")}</span>
+                <span className="acc-codes">
+                  {codes.join(" · ")}
+                  {aside ? <small>{aside}</small> : null}
+                </span>
                 {value.acts ? <ActLine act={act} accrued={Boolean(row.kort && !row.kort.skipped && Number(row.kort.amount))} past={row.month < currentMonth} /> : null}
                 <span className="acc-acts">
                   {canEdit && row.kort?.adjustment ? (

@@ -446,8 +446,7 @@ function BillsBody({ preview, entity, toKort }: { preview: SwitchPreview; entity
       </div>
       {toKort ? (
         <p className="text-xs fin-muted">
-          Список, число у пункта «Счета», бот и шаблон Excel возьмут счета {entity.code} у KORT. Счёт, у которого есть строка в таблице,
-          записывается в неё, как раньше; без строки - в KORT.
+          Счета {entity.code} в списке, боте и шаблоне - у KORT; счёт со строкой в таблице пишется в неё, без строки - в KORT.
         </p>
       ) : null}
     </>
@@ -509,10 +508,7 @@ function PaymentsBody({ preview, entity, toKort }: { preview: SwitchPaymentsPrev
         <p className="text-sm">«Оплачено» договоров {entity.code} не изменится.</p>
       )}
       {toKort ? (
-        <p className="text-xs fin-muted">
-          «Оплачено» и «Остаток» реестра, «Разовых», листов и выгрузки возьмут оплаты договоров {entity.code} у KORT - из журнала и 1С,
-          разнесённых по договорам.
-        </p>
+        <p className="text-xs fin-muted">«Оплачено» и «Остаток» договоров {entity.code} - по оплатам KORT из журнала и 1С.</p>
       ) : null}
     </>
   );

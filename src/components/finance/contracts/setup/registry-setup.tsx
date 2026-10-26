@@ -24,7 +24,6 @@ import { boot, holdLive, useRegistry } from "@/components/finance/contracts/stor
 import { gsap, prefersReducedMotion } from "@/components/motion/gsap";
 import { EntitiesTab } from "@/components/finance/contracts/setup/entities-tab";
 import { FieldsTab } from "@/components/finance/contracts/setup/fields-tab";
-import { LayersTab } from "@/components/finance/contracts/setup/layers-tab";
 import { SummaryTab } from "@/components/finance/contracts/setup/summary-tab";
 import { TipLayer, tip } from "@/components/finance/contracts/setup/tip";
 import { clearUndo } from "@/components/finance/contracts/setup/undo";
@@ -33,7 +32,7 @@ import { revertLast } from "@/components/finance/contracts/setup/use-setup-actio
 import { ViewsTab } from "@/components/finance/contracts/setup/views-tab";
 import { useSessionState } from "@/components/session-state";
 
-type Tab = "fields" | "views" | "entities" | "summary" | "layers";
+type Tab = "fields" | "views" | "entities" | "summary";
 
 /**
  * Вкладки - по тому, что человек настраивает: колонки договора (со списками
@@ -60,11 +59,6 @@ const TABS: { key: Tab; title: string; tip: string }[] = [
     key: "summary",
     title: "Сводка оплат",
     tip: "Google Таблица, из которой «Разовые» берут «Оплачено» - по номеру договора и клиенту.",
-  },
-  {
-    key: "layers",
-    title: "Слои",
-    tip: "Шаблон «Компания услуг по договорам» и чем компания от него отличается; что задают отделы и люди.",
   },
 ];
 
@@ -171,7 +165,6 @@ export function RegistrySetup({ onBack, backLabel = "Реестр" }: { onBack: 
         {tab === "views" ? <ViewsTab /> : null}
         {tab === "entities" ? <EntitiesTab /> : null}
         {tab === "summary" ? <SummaryTab /> : null}
-        {tab === "layers" ? <LayersTab /> : null}
       </div>
       <UndoLine />
     </div>

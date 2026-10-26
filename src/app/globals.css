@@ -5182,6 +5182,8 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .acc-amount { display: flex; flex-direction: column; text-align: right; font-variant-numeric: tabular-nums; }
 .acc-book { color: var(--fin-text-soft); overflow-wrap: anywhere; }
 .acc-codes { color: var(--fin-fail); font-size: 0.75rem; }
+/* Почему месяц расходится или «верно у KORT» - тихо, под отметкой: это не отказ. */
+.acc-codes small { display: block; color: var(--fin-text-soft); }
 .acc-acts { white-space: nowrap; text-align: right; }
 .acc-form { margin: 0.25rem 0 0.5rem; }
 .party-form .input-field.acc-form-amount { flex: 0 0 9rem; }
@@ -5246,11 +5248,15 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .shadow-contract { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.6rem; min-width: 0; }
 .shadow-contract .creg-num { text-align: left; }
 .shadow-client { overflow-wrap: anywhere; }
+/* В таблице сверки имя переносится по словам: узкий экран прокручивает таблицу, а не рвёт «Курманга|лиев». */
+.shadow-table .shadow-client { overflow-wrap: break-word; }
 .shadow-text { min-width: 0; overflow-wrap: anywhere; }
 .shadow-acts { display: inline-flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-end; gap: 0 0.25rem; white-space: nowrap; }
 .shadow-error { flex-basis: 100%; font-size: 0.75rem; color: var(--fin-fail); white-space: normal; }
 .shadow-codes { flex-wrap: wrap; row-gap: 0.5rem; }
 .shadow-table td { vertical-align: top; }
+.shadow-table td.shadow-decide { text-align: right; white-space: nowrap; }
+.shadow-codes .shadow-bulk { margin-left: auto; }
 
 /* ─── «Сверка → Оплаты» (ядро, фаза 4) ─── */
 .paid-settings { display: grid; gap: 0.5rem; padding: 0.75rem 0; border-top: 1px solid var(--fin-line); border-bottom: 1px solid var(--fin-line); }
@@ -5363,33 +5369,14 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .book-columns { display: grid; gap: 0.5rem; margin-top: 1.25rem; }
 /* «Слова таблицы» - та же раскладка, что у колонок: значение, как понимается, выбор смысла. */
 .table-words { display: grid; gap: 0.75rem; margin-top: 1.5rem; }
-/* «Слои»: шаблон, компания, отделы, люди - друг под другом, отличия компании списком. */
-.layers { display: grid; gap: 1.25rem; max-width: 56rem; }
-.layer { display: grid; gap: 0.4rem; padding-bottom: 1rem; border-bottom: 1px solid var(--fin-line); }
-.layer-title { margin: 0; font-size: 0.9375rem; font-weight: 600; }
-.layer-line { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); overflow-wrap: anywhere; }
-.layer-line .fin-strong { color: var(--fin-text); }
-.layer-list { display: grid; gap: 0.25rem; }
-.layer-items { display: grid; margin: 0; padding: 0; list-style: none; }
-.layer-item {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.25rem 0.75rem;
-  padding: 0.3rem 0;
-  border-top: 1px solid var(--fin-line);
-  font-size: 0.8125rem;
-}
-.layer-item-what { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
-.layer-note { font-size: 0.75rem; color: var(--fin-text-soft); }
 .table-words-part { display: grid; gap: 0.35rem; }
 .table-words-title { margin: 0; font-size: 0.8125rem; font-weight: 600; }
-.book-columns-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; }
-.book-columns-head .setup-summary-title, .book-columns-head .setup-summary-meta { margin: 0; }
-.book-columns-head .fin-mine { margin: 0; }
-.book-columns-list { display: grid; }
-.book-column {
+.book-columns-head, .table-words-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; }
+.book-columns-head .setup-summary-title, .book-columns-head .setup-summary-meta,
+.table-words-head .setup-summary-title, .table-words-head .setup-summary-meta { margin: 0; }
+.book-columns-head .fin-mine, .table-words-head .fin-mine { margin: 0; }
+.book-columns-list, .table-words-list { display: grid; }
+.book-column, .table-word {
   display: grid;
   grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr) minmax(0, 1.3fr);
   align-items: baseline;
@@ -5398,15 +5385,15 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
   border-bottom: 1px solid var(--fin-line);
   font-size: 0.8125rem;
 }
-.book-column > * { min-width: 0; overflow-wrap: anywhere; }
-.book-column-title { font-weight: 600; }
-.book-column-problem { color: var(--fin-fail); }
+.book-column > *, .table-word > * { min-width: 0; overflow-wrap: anywhere; }
+.book-column-title, .table-word-text { font-weight: 600; }
+.book-column-problem, .table-word-unknown { color: var(--fin-fail); }
 .book-column-extra { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.75rem; }
 .book-column-name { display: inline-flex; align-items: baseline; gap: 0.35rem; }
-.book-column-pick { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-.book-column-pick .choice { min-width: 12rem; }
+.book-column-pick, .table-word-pick { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.book-column-pick .choice, .table-word-pick .choice { min-width: 12rem; }
 @media (max-width: 767px) {
-  .book-column { grid-template-columns: minmax(0, 1fr); }
+  .book-column, .table-word { grid-template-columns: minmax(0, 1fr); }
 }
 /* «Карта группы»: узлы - тушью по плите, плательщик НДС - жирной рамкой,
    режим не записан - пунктирной; договоры между своими - сплошной стрелкой,
