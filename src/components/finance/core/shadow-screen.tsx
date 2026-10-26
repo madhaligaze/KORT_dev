@@ -34,7 +34,7 @@ import { useRegistryBoot } from "@/components/finance/contracts/registry-cards";
 import { useRegistry } from "@/components/finance/contracts/store";
 import { ActsShadow } from "@/components/finance/core/acts-screen";
 import { PaymentsShadow } from "@/components/finance/core/payments-screen";
-import { ProposalActions } from "@/components/finance/core/proposal";
+import { ProposalActions, type Verified } from "@/components/finance/core/proposal";
 import { SaldoShadowView } from "@/components/finance/core/saldo-screen";
 import { SwitchView } from "@/components/finance/core/switch-screen";
 import { bareNumber, contractMoney, dayTitle, formatDay, formatTime, plural } from "@/components/finance/format";
@@ -46,6 +46,7 @@ type View = "proposals" | "lines" | "unknown";
 /** Порядок и подписи видов предложений: сначала то, что меняет расчёт всех месяцев. */
 const KINDS: { kind: ShadowProposalKind; title: string }[] = [
   { kind: "billing", title: "Как начислять" },
+  { kind: "status", title: "Статус против таблицы" },
   { kind: "period_day", title: "День периода" },
   { kind: "billing_from", title: "Начало начислений" },
   { kind: "executor_from", title: "Исполнитель с даты" },
@@ -72,7 +73,8 @@ function messageOf(exc: unknown, fallback: string): string {
   return exc instanceof Error && exc.message ? exc.message : fallback;
 }
 
-type LineFilter = ShadowCode | "" | "slip" | "verified";
+/** «alone» - расходится, а предложения нет: решить «Верно у KORT» или поправить договор в карточке. */
+type LineFilter = ShadowCode | "" | "alone" | "slip" | "verified";
 
 function lineKey(line: { contract_id: string; month: string }): string {
   return `${line.contract_id}|${line.month}`;
@@ -195,8 +197,9 @@ function AccrualsShadow({
   const [applied, setApplied] = useState<Set<string>>(() => new Set());
   // Решения «верно у KORT» до пересчёта: месяц уходит из расходящихся сразу, а не через пересчёт.
   const [decided, setDecided] = useState<Map<string, ShadowDecision | null>>(() => new Map());
-  // Пачка «верно у KORT» возвращается целиком - кнопкой у сообщения о записи.
-  const [batch, setBatch] = useState<{ id: string; done: number } | null>(null);
+  // Пачка «верно у KORT» возвращается целиком - кнопкой у сообщения о записи;
+  // `proposal` - предложение, вместо которого решили: вернули - оно снова на экране.
+  const [batch, setBatch] = useState<{ id: string; done: number; proposal?: string } | null>(null);
   const [note, setNote] = useState("");
   const later = useRef(0);
   const reload = useCallback(() => {
@@ -245,6 +248,12 @@ function AccrualsShadow({
     setNote(text);
     reload();
   };
+  const onVerified = (proposal: ShadowProposal) => (result: Verified) => {
+    setApplied((current) => new Set(current).add(proposal.key));
+    setBatch({ id: result.batch, done: result.done, proposal: proposal.key });
+    setNote(result.text);
+    reload();
+  };
   const onDecided = (line: ShadowLine, decision: ShadowDecision | null, text: string) => {
     setDecided((current) => new Map(current).set(lineKey(line), decision));
     setBatch(null);
@@ -277,6 +286,14 @@ function AccrualsShadow({
         for (const line of data.lines) if (verdictOf(line)?.batch === batch.id) next.set(lineKey(line), null);
         return next;
       });
+      const back = batch.proposal;
+      if (back) {
+        setApplied((current) => {
+          const next = new Set(current);
+          next.delete(back);
+          return next;
+        });
+      }
       setBatch(null);
       setNote(`Вернули ${result.done} ${plural(result.done, "решение", "решения", "решений")} «верно у KORT» - месяцы снова расходятся`);
       reload();
@@ -354,7 +371,7 @@ function AccrualsShadow({
             <>
               {" · "}
               <button type="button" className="fin-link-btn" disabled={undoing} onClick={undoBatch}>
-                Вернуть все {batch.done}
+                {batch.done > 1 ? `Вернуть все ${batch.done}` : "Вернуть"}
               </button>
             </>
           ) : null}
@@ -369,6 +386,7 @@ function AccrualsShadow({
           proposals={proposals}
           onOpen={openContract}
           onApplied={onApplied}
+          onVerified={onVerified}
           onBulk={(text) => {
             setBatch(null);
             setNote(text);
@@ -562,12 +580,14 @@ function Proposals({
   proposals,
   onOpen,
   onApplied,
+  onVerified,
   onBulk,
 }: {
   data: ShadowView;
   proposals: ShadowProposal[];
   onOpen: (id: string) => void;
   onApplied: (proposal: ShadowProposal) => (text: string) => void;
+  onVerified: (proposal: ShadowProposal) => (result: Verified) => void;
   onBulk: (text: string) => void;
 }) {
   const [confirm, setConfirm] = useState<ShadowProposalKind | null>(null);
@@ -606,7 +626,7 @@ function Proposals({
             <div key={proposal.key} className="shadow-proposal">
               <ContractCell data={data} id={proposal.contract_id} onOpen={onOpen} />
               <span className="shadow-text">{proposal.text}</span>
-              <ProposalActions proposal={proposal} disabled={busy} onApplied={onApplied(proposal)} />
+              <ProposalActions proposal={proposal} disabled={busy} onApplied={onApplied(proposal)} onVerified={onVerified(proposal)} />
             </div>
           ))}
         </section>
@@ -674,8 +694,16 @@ function Lines({
   const settled = data.lines.filter((line) => verdictOf(line));
   const slips = open.filter(slipped);
   const slipContracts = new Set(slips.map((line) => line.contract_id)).size;
+  const proposed = new Set(data.proposals.flatMap((proposal) => proposal.months.map((month) => lineKey({ contract_id: proposal.contract_id, month }))));
+  const alone = open.filter((line) => !proposed.has(lineKey(line)));
   const lines =
-    filter === "verified" ? settled : filter === "slip" ? slips : open.filter((line) => !filter || line.codes.includes(filter));
+    filter === "verified"
+      ? settled
+      : filter === "slip"
+        ? slips
+        : filter === "alone"
+          ? alone
+          : open.filter((line) => !filter || line.codes.includes(filter));
   const count = (key: ShadowCode) => open.filter((line) => line.codes.includes(key)).length;
   const chip = (key: LineFilter, title: string, value: number) =>
     value || filter === key ? (
@@ -709,6 +737,7 @@ function Lines({
         <button type="button" className="fin-chip" data-on={filter === "" ? "" : undefined} onClick={() => setFilter("")}>
           Все {open.length}
         </button>
+        {chip("alone", "без предложения", alone.length)}
         {(Object.keys(CODE_TITLES) as ShadowCode[]).map((key) => chip(key, CODE_TITLES[key], count(key)))}
         {chip("slip", "ошибка периода в таблице", slips.length)}
         {chip("verified", "верно у KORT", settled.length)}
@@ -751,7 +780,13 @@ function Lines({
         </div>
       ) : (
         <p className="creg-empty">
-          {filter === "verified" ? "Решений «верно у KORT» нет" : filter === "slip" ? "Ошибок периода в таблице больше нет" : "Расхождений нет"}
+          {filter === "verified"
+            ? "Решений «верно у KORT» нет"
+            : filter === "slip"
+              ? "Ошибок периода в таблице больше нет"
+              : filter === "alone"
+                ? "У всех расхождений есть предложение"
+                : "Расхождений нет"}
         </p>
       )}
       <ConfirmDialog

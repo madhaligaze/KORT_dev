@@ -2382,7 +2382,8 @@ export type ShadowProposalKind =
   | "adjust"
   | "pause"
   | "stop"
-  | "end";
+  | "end"
+  | "status";
 
 export type ShadowProposal = {
   key: string;
@@ -2393,6 +2394,8 @@ export type ShadowProposal = {
   months: string[];
   /** Вопрос: «from»/«month» - с этого месяца или только этот; «end»/«pause» - закончился или стоит. */
   options: string[];
+  /** Подписи ответов, которых нет в интерфейсе заранее: статусы компании. */
+  labels?: Record<string, string>;
 };
 
 export type ShadowContract = {
@@ -2588,6 +2591,8 @@ export type ContractMonths = {
     paused: boolean;
     hint?: string;
     verified?: ShadowDecision | null;
+    /** НДС счёта и АВР месяца - у исполнителя-плательщика на день «Периода с»; иначе пусто. */
+    vat?: { mode: "included" | "on_top" | "none"; rate: string; net: string; vat: string; gross: string } | null;
   }[];
   book: boolean;
   window: string[];
@@ -3052,6 +3057,12 @@ export const coreApi = {
     request<{ ok: boolean; id: string; text: string }>("/core/shadow/verify", {
       method: "POST",
       body: JSON.stringify({ contract_id: contractId, month }),
+    }),
+  /** «Верно у KORT» вместо предложения: его расходящиеся месяцы без решения. */
+  verifyProposal: (contractId: string, months: string[]) =>
+    request<{ ok: boolean; text: string; batch: string; done: number }>("/core/shadow/verify-proposal", {
+      method: "POST",
+      body: JSON.stringify({ contract_id: contractId, months }),
     }),
   unverify: (documentId: string) =>
     request<{ ok: boolean; text: string }>(`/core/shadow/verify/${documentId}`, { method: "DELETE" }),

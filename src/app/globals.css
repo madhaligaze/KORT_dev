@@ -5235,10 +5235,15 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .shadow-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
 .shadow-source { flex: 1 1 20rem; margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
 .shadow-groups { display: grid; gap: 0.25rem; }
+/* Строка предложения раскладывается по ширине своего списка, а не окна: рядом
+   бывает раскрытая колонка разделов, и на 800 px текст сжимался до 94 px. */
+.shadow-groups, .shadow-unknown { container-type: inline-size; }
 .shadow-group .card-section { margin-top: 1rem; }
 .shadow-proposal {
   display: grid;
-  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr) auto;
+  /* Ответов бывает три («Статус «На исполнении» · Статус «Исполнен» · Верно у KORT») - они
+     переносятся внутри своей колонки, а не отнимают ширину у текста и договора. */
+  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr) minmax(min-content, 16rem);
   align-items: baseline;
   column-gap: 1rem;
   padding: 0.5rem 0;
@@ -5723,7 +5728,9 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
   .vat-client { grid-template-columns: auto minmax(0, 1fr); row-gap: 0.15rem; }
   .vat-client .fin-num { grid-column: 2; }
 }
-@media (max-width: 767px) {
-  .shadow-proposal { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.25rem; }
-  .shadow-text { grid-column: 1 / -1; grid-row: 2; }
+@container (max-width: 44rem) {
+  /* Узко: договор, под ним текст, под ним ответы - иначе ответы сжимали договор до нулевой ширины. */
+  .shadow-proposal { grid-template-columns: minmax(0, 1fr); row-gap: 0.25rem; }
+  .shadow-text { grid-column: 1; grid-row: 2; }
+  .shadow-proposal > .shadow-acts { grid-row: 3; justify-content: flex-start; }
 }

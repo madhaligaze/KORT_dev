@@ -83,6 +83,12 @@ function amountText(accrual: AccrualOut): string {
   return accrual.amount ? contractMoney(accrual.amount) : "-";
 }
 
+/** НДС месяца для счёта и АВР: «в т.ч. НДС 16% 16 000» или «+ НДС 16% 16 000 = 116 000». */
+function vatText(vat: NonNullable<ContractMonths["months"][number]["vat"]>): string {
+  const part = `НДС ${vat.rate}% ${contractMoney(vat.vat)}`;
+  return vat.mode === "on_top" ? `+ ${part} = ${contractMoney(vat.gross)}` : `в т.ч. ${part}`;
+}
+
 export function Accruals({ contractId, seq }: { contractId: string; seq: number }) {
   const schema = useRegistry((s) => s.schema);
   const contract = useRegistry((s) => s.byId.get(contractId));
@@ -188,6 +194,7 @@ export function Accruals({ contractId, seq }: { contractId: string; seq: number 
                 </span>
                 <span className="acc-amount">
                   {row.kort ? amountText(row.kort) : <span className="fin-muted">-</span>}
+                  {row.vat ? <small>{vatText(row.vat)}</small> : null}
                   {row.kort?.adjustment ? <small>поправка: {row.kort.adjustment.reason}</small> : null}
                   {row.paused ? <small>приостановлен</small> : null}
                 </span>
