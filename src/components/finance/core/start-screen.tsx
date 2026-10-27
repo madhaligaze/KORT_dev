@@ -26,6 +26,7 @@ import {
 } from "@/components/finance/api";
 import { BookColumns } from "@/components/finance/core/book-columns";
 import { IntakeFiles } from "@/components/finance/core/intake-files";
+import { OnecStart } from "@/components/finance/core/onec-start";
 import { openSection } from "@/components/finance/core/open";
 import { contractMoney, formatDay, plural } from "@/components/finance/format";
 import { useSessionState } from "@/components/session-state";
@@ -111,6 +112,7 @@ export function StartScreen() {
     return (
       <div className="start-screen">
         <IntakeFiles />
+        <OnecStart />
         <Connect onConnected={reload} />
       </div>
     );

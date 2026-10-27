@@ -909,6 +909,7 @@ const ONEC_KIND: Record<OnecDoc["kind"], string> = {
   sale: "АВР",
   sf: "счёт-фактура",
   esf: "ЭСФ",
+  refund: "возврат",
 };
 const ONEC_ORDER: OnecDoc["kind"][] = ["invoice", "payment", "sale", "sf", "esf"];
 

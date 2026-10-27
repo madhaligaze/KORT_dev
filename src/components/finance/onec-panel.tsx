@@ -39,6 +39,7 @@ const KIND_TITLE: Record<OnecDoc["kind"], string> = {
   sf: "Счёт-фактура",
   esf: "ЭСФ",
   payment: "Поступление",
+  refund: "Возврат покупателю",
 };
 
 const COUNT_TITLE: Array<[OnecDoc["kind"], string]> = [
@@ -47,6 +48,7 @@ const COUNT_TITLE: Array<[OnecDoc["kind"], string]> = [
   ["sf", "с-ф"],
   ["esf", "ЭСФ"],
   ["payment", "поступлений"],
+  ["refund", "возвратов"],
 ];
 
 const WHY: Record<OnecLoose["state"], string> = {

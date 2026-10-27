@@ -801,7 +801,7 @@ export type BankOption = {
 };
 
 /** Вид документа 1С: счёт на оплату, реализация (АВР), счёт-фактура, ЭСФ, поступление. */
-export type OnecKind = "invoice" | "sale" | "sf" | "esf" | "payment";
+export type OnecKind = "invoice" | "sale" | "sf" | "esf" | "payment" | "refund";
 
 /** База 1С компании - чтение через автоматический REST-сервис (OData). */
 export type OnecBase = {
@@ -2796,6 +2796,35 @@ export type IntakeSheet = {
 };
 export type IntakeFile = { file: string; pdf?: boolean; error?: string; sheets: IntakeSheet[] };
 
+/** Вход из 1С (`core/onec_start.py`): что заведём из базы - по шагам. */
+export type OnecStartDraft = {
+  key: string;
+  label: string;
+  number: string;
+  customer: string;
+  signed: string | null;
+  billing: "month" | "total" | "";
+  amount: string | null;
+  billing_from: string | null;
+  changes: { from: string; amount: string | null }[];
+  pauses: { from: string; to: string }[];
+  last_day: string | null;
+  outliers: string[];
+  acts: number;
+  contract_id: string | null;
+};
+export type OnecStartPlan = {
+  base: { id: string; title: string; organization: string; bin: string };
+  entity: { id: string | null; name: string; bin: string };
+  participants: { counts: Partial<Record<"same" | "alias" | "bin" | "create" | "dispute", number>>; items: unknown[] };
+  contracts: { known: number; new: number; questions: OnecStartDraft[]; items: OnecStartDraft[] };
+  since: { current: string | null; proposed: string | null };
+  openings: { since: string | null; contracts: number; debt: string | null; missing: { party: string; contract: string; opening: string | null; why: string }[]; problems: string[] } | null;
+  payments: { source: "journal" | "1c" | null };
+};
+export type OnecStartStep = "entity" | "participants" | "contracts" | "since" | "payments";
+export type OnecStartAnswer = { end?: string; active?: boolean; pause?: boolean };
+
 export type StartPlan = {
   /** Сводная таблица подключена; `book` пуст - ещё читается или отказ (`error`). */
   connected: boolean;
@@ -3016,6 +3045,20 @@ function withEntity(path: string, entity?: string): string {
 }
 
 export const coreApi = {
+  onecStart: (baseId: string) => request<OnecStartPlan>(`/core/onec-start/${baseId}`),
+  onecStartOsv: (baseId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ start: string | null; contracts: number; opening: string; problems: string[] }>(
+      `/core/onec-start/${baseId}/osv`,
+      { method: "POST", body: form },
+    );
+  },
+  onecStartStep: (baseId: string, step: OnecStartStep, answers: Record<string, OnecStartAnswer> = {}) =>
+    request<{ done: number; waiting?: string[]; point?: { id: string; title: string; kind: string } | null; missing?: unknown[] }>(
+      `/core/onec-start/${baseId}/${step}`,
+      { method: "POST", body: JSON.stringify({ answers }) },
+    ),
   /** Приёмник: что KORT видит в каждом листе файла - ничего не пишет. */
   intake: (file: File) => {
     const form = new FormData();
