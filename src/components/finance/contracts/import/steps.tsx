@@ -31,12 +31,15 @@ import {
   dictOf,
   splitRef,
   text,
+  type BinItem,
   type BlockItem,
   type Brief,
   type Decide,
   type Decisions,
   type DiffItem,
   type EndDateItem,
+  type HiddenChoice,
+  type HiddenItem,
   type LooseItem,
   type NumberItem,
   type OrphanItem,
@@ -825,5 +828,110 @@ export function rulesSummary(items: RuleItem[]): string {
   return (
     `${items.length} ${plural(items.length, "правило", "правила", "правил")} · в листы попадут ${caught} из ${total} строк` +
     (extra ? ` · лишних ${extra}` : "")
+  );
+}
+
+// ── Скрытые строки ───────────────────────────────────────────────────────────
+
+export function hiddenSummary(items: HiddenItem[], decisions: Decisions): string {
+  if (!items.length) return "скрытых строк нет";
+  const count = `${items.length} ${plural(items.length, "строка спрятана", "строки спрятаны", "строк спрятано")}`;
+  if (decisions.hidden === "skip") return `${count} · пропускаются`;
+  if (decisions.hidden === "take") return `${count} · заведутся`;
+  return count;
+}
+
+export function HiddenStep({ items, decisions, decide }: { items: HiddenItem[]; decisions: Decisions; decide: Decide }) {
+  if (!items.length) return <p className="fin-soft">Скрытых строк нет</p>;
+  const value = decisions.hidden === "skip" || decisions.hidden === "take" ? (decisions.hidden as HiddenChoice) : null;
+  return (
+    <div className={styles.stack}>
+      <p className={styles.line}>
+        Эти строки спрятаны в самом файле: черновик, который не заключили, отказ, старая запись. Без ответа они не
+        заведутся.
+      </p>
+      <ChoiceLine
+        label="Скрытые строки"
+        items={[
+          { value: "skip", label: "Пропустить" },
+          { value: "take", label: "Завести" },
+        ]}
+        value={value}
+        onChange={(next) => decide({ hidden: next })}
+      />
+      <table className="proto-table">
+        <thead>
+          <tr>
+            <th>Лист</th>
+            <th>Строка</th>
+            <th>Номер</th>
+            <th>Контрагент</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((row) => (
+            <tr key={row.ref}>
+              <td>{row.sheet}</td>
+              <td className="fin-mono">{row.line}</td>
+              <td className="fin-mono">{text(row.number)}</td>
+              <td>{text(row.customer) || text(row.executor)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── БИН сторон ───────────────────────────────────────────────────────────────
+
+export function binsSummary(items: BinItem[]): string {
+  if (!items.length) return "колонки БИН нет";
+  const taken = items.filter((item) => item.bin).length;
+  const refused = items.filter((item) => item.refused.length || item.conflict.length).length;
+  return [`БИН у ${taken}`, refused ? `не принято у ${refused}` : ""].filter(Boolean).join(" · ");
+}
+
+export function BinsStep({ items }: { items: BinItem[] }) {
+  if (!items.length) return <p className="fin-soft">В файле нет колонки БИН/ИИН</p>;
+  const refused = items.filter((item) => item.refused.length || item.conflict.length);
+  const taken = items.filter((item) => item.bin);
+  return (
+    <div className={styles.stack}>
+      <p className={styles.line}>
+        Номер записывается участнику, только если контрольная цифра сходится и у участника номера ещё нет. Номер,
+        который уже стоит у другого участника, не записывается: это, похоже, один участник, их сводят в «Участниках».
+      </p>
+      {refused.length ? (
+        <table className="proto-table">
+          <thead>
+            <tr>
+              <th>Не принято</th>
+              <th>В файле</th>
+              <th>Почему</th>
+            </tr>
+          </thead>
+          <tbody>
+            {refused.map((item) => (
+              <tr key={item.name}>
+                <td>{item.name}</td>
+                <td className="fin-mono">{item.conflict.length ? item.conflict.join(" · ") : item.refused[0]?.raw}</td>
+                <td>{item.conflict.length ? "два разных номера у одного имени" : item.refused[0]?.error}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {taken.length ? (
+        <ul className={styles.rows}>
+          {taken.map((item) => (
+            <li key={item.name} className={styles.row}>
+              <span className={styles.grow}>{item.name}</span>
+              <span className="fin-mono">{item.bin}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }

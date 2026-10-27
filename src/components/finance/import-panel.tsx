@@ -10,6 +10,7 @@ import {
   type ImportRow,
   financeApi,
 } from "@/components/finance/api";
+import { takeHandOff } from "@/components/finance/core/hand-off";
 import { PreviewView } from "@/components/finance/preview-view";
 import { readSession, useSessionScope, writeSession } from "@/components/session-state";
 
@@ -154,6 +155,12 @@ export function ImportPanel({ accounts, onChanged, onNext }: Props) {
       setBusy(false);
     }
   };
+
+  // Выписка из приёмника («Первые шаги → Файлы компании») - сразу в разбор.
+  useEffect(() => {
+    const handed = takeHandOff("statement");
+    if (handed) void send(handed);
+  }, []);
 
   return (
     <div className="flex flex-col gap-4">

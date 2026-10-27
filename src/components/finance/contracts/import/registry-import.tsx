@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { contractsApi, type ContractImportBatch } from "@/components/finance/api";
+import { peekHandOff, takeHandOff } from "@/components/finance/core/hand-off";
 import { readParam, writeParams } from "@/components/finance/address";
 import { plural } from "@/components/finance/format";
 import { ConfirmDialog } from "@/components/finance/ui/confirm-dialog";
@@ -27,8 +28,12 @@ import { FilePick, Phase, isRegistryFile } from "./file-pick";
 import { Finale, type ApplyResult } from "./finale";
 import styles from "./registry-import.module.css";
 import {
+  BinsStep,
   BlocksStep,
   DiffsStep,
+  HiddenStep,
+  binsSummary,
+  hiddenSummary,
   EndDatesStep,
   NumbersStep,
   OrphansStep,
@@ -43,6 +48,8 @@ import {
 import {
   SECTION_KEYS,
   blockLabel,
+  type BinItem,
+  type HiddenItem,
   dictOf,
   isReversed,
   sectionOf,
@@ -83,6 +90,9 @@ type Props = {
 
 export function RegistryImport({ onDone, onCancel }: Props) {
   const [stage, setStage] = useState<Stage>(() => {
+    // Файл из приёмника («Первые шаги → Файлы компании») - сразу в разбор.
+    const handed = peekHandOff("registry");
+    if (handed) return { kind: "parsing", name: handed.name };
     const id = readParam("batch");
     return id ? { kind: "resume", id } : { kind: "pick", error: null };
   });
@@ -126,12 +136,7 @@ export function RegistryImport({ onDone, onCancel }: Props) {
     };
   }, []);
 
-  const upload = useCallback((file: File) => {
-    if (!isRegistryFile(file)) {
-      setStage({ kind: "pick", error: "Реестр загружается из .xlsx" });
-      return;
-    }
-    setStage({ kind: "parsing", name: file.name });
+  const send = useCallback((file: File) => {
     contractsApi.imports
       .upload(file)
       .then((batch) => {
@@ -143,6 +148,24 @@ export function RegistryImport({ onDone, onCancel }: Props) {
         setStage({ kind: "pick", error: error instanceof Error ? error.message : "Файл не разобрался" });
       });
   }, []);
+
+  const upload = useCallback(
+    (file: File) => {
+      if (!isRegistryFile(file)) {
+        setStage({ kind: "pick", error: "Реестр загружается из .xlsx" });
+        return;
+      }
+      setStage({ kind: "parsing", name: file.name });
+      send(file);
+    },
+    [send],
+  );
+
+  // Файл из приёмника: экран уже открыт фазой «Разбираем файл…» - отправить.
+  useEffect(() => {
+    const handed = takeHandOff("registry");
+    if (handed) send(handed);
+  }, [send]);
 
   // Файл, брошенный мимо выбора (пока идёт разбор или открыт протокол),
   // браузер открыл бы вместо страницы - и разбор пропал бы вместе с ней.
@@ -271,6 +294,9 @@ function Protocol({
   const endDates = items<EndDateItem>("end_dates");
   const endCounts = (sectionOf(report, "end_dates")?.counts ?? {}) as Record<string, number>;
   const numbers = items<NumberItem>("numbers");
+  const hidden = items<HiddenItem>("hidden");
+  const bins = items<BinItem>("bins");
+  const hiddenDecided = decisions.hidden === "skip" || decisions.hidden === "take";
   const orphans = items<OrphanItem>("orphans");
   const loose = (sectionOf(report, "orphans")?.loose ?? []) as LooseItem[];
   const numberOnly = (sectionOf(report, "orphans")?.number_only ?? []) as LooseItem[];
@@ -297,6 +323,7 @@ function Protocol({
     if (key === "columns") return openCount > 0;
     if (key === "entities") return !confirmed;
     if (key === "rules") return rulesPending.length > 0;
+    if (key === "hidden") return !hiddenDecided;
     return true;
   });
 
@@ -320,6 +347,8 @@ function Protocol({
     numbers: numbers.length
       ? `${numbers.length} ${plural(numbers.length, "номер", "номера", "номеров")} · предупреждение`
       : "повторов нет",
+    hidden: hiddenSummary(hidden, decisions),
+    bins: binsSummary(bins),
     orphans: orphansSummary(orphans, loose, numberOnly, decisions),
     diffs: diffsSummary(diffs, mainSheet, decisions),
     rules: rulesSummary(rules),
@@ -328,6 +357,7 @@ function Protocol({
     columns: openCount ? `ждут решения: ${openCount}` : undefined,
     entities: confirmed ? undefined : "ждёт решения",
     rules: rulesPending.length ? `ждут решения: ${rulesPending.length}` : undefined,
+    hidden: hidden.length && !hiddenDecided ? "ждёт решения" : undefined,
   };
   const titleOf = (key: SectionKey) => sectionOf(report, key)?.title ?? key;
   const anchor = (key: SectionKey) => `${idBase}-${key}`;
@@ -411,6 +441,8 @@ function Protocol({
     statuses: <StatusesStep items={statuses} decisions={decisions} decide={decide} />,
     end_dates: <EndDatesStep items={endDates} counts={endCounts} decisions={decisions} decide={decide} />,
     numbers: <NumbersStep items={numbers} />,
+    hidden: <HiddenStep items={hidden} decisions={decisions} decide={decide} />,
+    bins: <BinsStep items={bins} />,
     orphans: (
       <OrphansStep
         items={orphans}

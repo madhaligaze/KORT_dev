@@ -2770,6 +2770,32 @@ export type TableWordsView = {
 /** «Первые шаги» (`core/onboarding.py`): что KORT заведёт по сводной таблице - по шагам. */
 export type StartStep = "entities" | "contracts" | "since";
 
+/** Приёмник: форма строки листа (`intake/forms.py`). */
+export type IntakeForm = "participant" | "contract" | "contract_month" | "payment" | "document" | "balance";
+export type IntakeQuestion = {
+  kind: "form" | "hidden" | "column";
+  text: string;
+  options?: { value: string; label: string; example?: string }[];
+  lines?: number[];
+  columns?: number[];
+};
+export type IntakeSheet = {
+  sheet: string;
+  form: IntakeForm | null;
+  form_title: string | null;
+  title?: string;
+  header_line?: number | null;
+  rows: number | null;
+  columns: { index: number; header: string; key: string | null; title: string | null; how: string }[];
+  service?: Record<string, number>;
+  hidden?: number[];
+  alternatives?: { form: IntakeForm; title: string; score: number }[];
+  questions: IntakeQuestion[];
+  refusals: { kind: string; text: string }[];
+  note?: string;
+};
+export type IntakeFile = { file: string; pdf?: boolean; error?: string; sheets: IntakeSheet[] };
+
 export type StartPlan = {
   /** Сводная таблица подключена; `book` пуст - ещё читается или отказ (`error`). */
   connected: boolean;
@@ -2990,6 +3016,12 @@ function withEntity(path: string, entity?: string): string {
 }
 
 export const coreApi = {
+  /** Приёмник: что KORT видит в каждом листе файла - ничего не пишет. */
+  intake: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<IntakeFile>("/core/intake", { method: "POST", body: form });
+  },
   list: (q: string, show: ParticipantsShow = "all", init?: RequestInit) =>
     request<{ items: ParticipantHit[]; total: number }>(
       `/core/participants?q=${encodeURIComponent(q)}&show=${show}`,

@@ -5553,6 +5553,19 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .start-group-what { display: flex; flex-direction: column; }
 .start-group-sum { text-align: right; font-variant-numeric: tabular-nums; }
 .start-connect { display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; }
+/* Приёмник в «Первых шагах»: файлы компании и что KORT в них видит. */
+.intake { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--fin-line); }
+.intake > * { max-width: 100%; }
+.intake-drop { width: min(100%, 36rem); align-self: flex-start; cursor: pointer; }
+.intake-drop-title { font-size: 0.875rem; font-weight: 600; color: var(--fin-text); }
+.intake-input { display: none; }
+.intake-files { display: grid; width: 100%; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--fin-line); }
+.intake-file { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; padding: 0.75rem 0; border-bottom: 1px solid var(--fin-line); min-width: 0; }
+.intake-file > * { max-width: 100%; }
+.intake-file-name { margin: 0; font-size: 0.875rem; font-weight: 600; overflow-wrap: anywhere; }
+.intake-sheet { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.intake-line { margin: 0; font-size: 0.8125rem; overflow-wrap: anywhere; }
+.intake-cols { margin: 0; overflow-wrap: anywhere; }
 .start-field { display: flex; flex-direction: column; gap: 0.25rem; width: min(100%, 36rem); }
 
 .today-screen { display: flex; flex-direction: column; gap: 0.75rem; }

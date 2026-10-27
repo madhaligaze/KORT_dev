@@ -25,6 +25,7 @@ import {
   coreApi,
 } from "@/components/finance/api";
 import { BookColumns } from "@/components/finance/core/book-columns";
+import { IntakeFiles } from "@/components/finance/core/intake-files";
 import { openSection } from "@/components/finance/core/open";
 import { contractMoney, formatDay, plural } from "@/components/finance/format";
 import { useSessionState } from "@/components/session-state";
@@ -106,8 +107,10 @@ export function StartScreen() {
     );
   }
   if (!plan.connected) {
+    // Компания без сводной таблицы начинает с файлов: приёмник называет, что в них.
     return (
       <div className="start-screen">
+        <IntakeFiles />
         <Connect onConnected={reload} />
       </div>
     );

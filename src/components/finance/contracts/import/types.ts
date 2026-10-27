@@ -14,7 +14,7 @@ export type Report = ContractImportBatch["report"];
 
 /** Порядок пунктов протокола - порядок `importer.report`. */
 export const SECTION_KEYS = [
-  "blocks", "columns", "entities", "statuses", "end_dates", "numbers", "orphans", "diffs", "rules",
+  "blocks", "columns", "entities", "statuses", "end_dates", "numbers", "hidden", "bins", "orphans", "diffs", "rules",
 ] as const;
 export type SectionKey = (typeof SECTION_KEYS)[number];
 
@@ -106,6 +106,11 @@ export type DiffItem = {
   take: "main" | "sheet";
 };
 export type Brief = { ref: string; number: unknown; customer: unknown; executor: unknown; type: unknown; subject: unknown };
+/** Строка, спрятанная в файле: заводится только по ответу человека (`decisions.hidden`). */
+export type HiddenItem = Brief & { sheet: string; line: number };
+export type HiddenChoice = "skip" | "take";
+/** БИН второй стороны из колонки «БИН/ИИН»: принятый номер, отказы (контрольная цифра) и спор двух номеров. */
+export type BinItem = { name: string; bin: string; refused: { ref: string; raw: string; error: string }[]; conflict: string[] };
 export type RuleAction = "accept" | "rule" | "empty";
 
 /**
