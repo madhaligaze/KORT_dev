@@ -303,6 +303,8 @@ export function StartScreen() {
           </div>
         </li>
       </ol>
+      {/* 1С юрлиц группы: БИН и написания участникам, договоры, которых в KORT нет. */}
+      <OnecStart revision={revision} partial />
     </div>
   );
 }

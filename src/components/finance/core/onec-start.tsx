@@ -44,8 +44,12 @@ function contractsLabel(made: number, moved: number): string {
   return `Завести ${made} ${word(made)}`;
 }
 
-/** `revision` - перечитать базы (после выгрузки 1С файлами). */
-export function OnecStart({ revision = 0 }: { revision?: number }) {
+/**
+ * `revision` - перечитать базы (после выгрузки 1С файлами). `partial` - компания
+ * со сводной таблицей: из 1С - участники и недостающие договоры, а сальдо и
+ * оплаты у неё из таблицы и выписок, их шаги не показываются.
+ */
+export function OnecStart({ revision = 0, partial = false }: { revision?: number; partial?: boolean }) {
   const [bases, setBases] = useState<OnecBase[] | null>(null);
   useEffect(() => {
     let alive = true;
@@ -76,6 +80,7 @@ export function OnecStart({ revision = 0 }: { revision?: number }) {
           onChanged={changed}
           locked={writing !== null && writing !== base.id}
           onBusy={busyBase}
+          partial={partial}
         />
       ))}
     </>
@@ -88,12 +93,14 @@ function BaseSteps({
   onChanged,
   locked,
   onBusy,
+  partial,
 }: {
   base: OnecBase;
   shared: number;
   onChanged: () => void;
   locked: boolean;
   onBusy: (id: string, on: boolean) => void;
+  partial: boolean;
 }) {
   const [plan, setPlan] = useState<OnecStartPlan | null>(null);
   const [error, setError] = useState("");
@@ -200,18 +207,19 @@ function BaseSteps({
     ? "entity"
     : toParty
       ? "participants"
-      : contractsToMake
+      : contractsToMake && !partial
         ? "contracts"
-        : openings && !since
+        : !partial && openings && !since
           ? "since"
-          : !files && plan.payments.source !== "1c"
+          : !partial && !files && plan.payments.source !== "1c"
             ? "payments"
             : "";
 
   const button = (step: OnecStartStep, label: string) => (
     <button
       type="button"
-      className={next === step ? "btn-primary start-go" : "btn-ghost start-go"}
+      // Со сводной плита - её шаг выше: здесь только рамки, плита на экране одна.
+      className={next === step && !partial ? "btn-primary start-go" : "btn-ghost start-go"}
       disabled={blocked}
       onClick={() => void run(step)}
     >
@@ -231,6 +239,7 @@ function BaseSteps({
       <p className="start-text">
         {plan.base.organization}
         {plan.base.bin ? ` · БИН ${plan.base.bin}` : ""}
+        {partial ? " · сальдо и оплаты - из сводной таблицы и выписок" : ""}
       </p>
       {error ? <p className="party-error">{error}</p> : null}
       <ol className="start-steps">
@@ -273,13 +282,19 @@ function BaseSteps({
               {[
                 `из документов ${plan.contracts.items.length + plan.contracts.known}`,
                 plan.contracts.known ? `уже в KORT ${plan.contracts.known}` : "",
-                plan.contracts.new ? `заведём ${plan.contracts.new}` : "",
-                plan.contracts.no_amount ? `из них без суммы ${plan.contracts.no_amount} - в 1С только оплаты` : "",
+                partial
+                  ? plan.contracts.new + plan.contracts.questions.length
+                    ? `договор в KORT не найден у ${plan.contracts.new + plan.contracts.questions.length}`
+                    : ""
+                  : plan.contracts.new
+                    ? `заведём ${plan.contracts.new}`
+                    : "",
+                !partial && plan.contracts.no_amount ? `из них без суммы ${plan.contracts.no_amount} - в 1С только оплаты` : "",
               ]
                 .filter(Boolean)
                 .join(" · ")}
             </p>
-            {plan.contracts.questions.map((question) => (
+            {(partial ? [] : plan.contracts.questions).map((question) => (
               <div key={question.key} className="onec-question">
                 <p className="start-text">
                   <span className="fin-strong">{question.label}</span> · {question.customer} · последний акт по{" "}
@@ -307,11 +322,27 @@ function BaseSteps({
                 этого юрлица с {item.since ? formatDay(item.since) : "-"}: переведём клиента сюда с этого дня
               </p>
             ))}
-            {contractsToMake ? button("contracts", contractsLabel(contractsToMake - moves.length, moves.length)) : null}
+            {partial ? (
+              // Со сводной договоры уже в KORT, часто строками без номера («БезДог.08-2» в 1С):
+              // завести «недостающие» значило бы задвоить их. Их разбирают документами.
+              plan.contracts.new + plan.contracts.questions.length ? (
+                <button
+                  type="button"
+                  className="btn-ghost start-go"
+                  onClick={() => openSection({ section: "integrations" })}
+                >
+                  Разобрать в «Интеграции → 1С»
+                </button>
+              ) : null
+            ) : contractsToMake ? (
+              button("contracts", contractsLabel(contractsToMake - moves.length, moves.length))
+            ) : null}
             {back("contracts")}
           </div>
         </li>
 
+        {partial ? null : (
+          <>
         <li className="start-step" data-done={since && openings ? "" : undefined}>
           <span className="start-n">4</span>
           <div className="start-body">
@@ -413,6 +444,8 @@ function BaseSteps({
             </button>
           </div>
         </li>
+          </>
+        )}
       </ol>
     </section>
   );
