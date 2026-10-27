@@ -3042,7 +3042,7 @@ export type PaymentsView = {
   entities: { id: string; code: string; name: string; source: "journal" | "1c"; journal: number; onec: number }[];
   without: PaymentWithout[];
   /** Сколько поступлений скрыто: переводы своих юрлиц, отмеченное «не оплаты», решённое «не по договору». */
-  without_hidden: { own: number; ignored: number; decided: number; returned?: number };
+  without_hidden: { own: number; ignored: number; decided: number; returned?: number; deposit?: number };
   book: ShadowView["book"];
   error: string;
   shadow: {
