@@ -2823,7 +2823,15 @@ export type OnecStartPlan = {
   base: { id: string; title: string; organization: string; bin: string; files: boolean };
   entity: { id: string | null; name: string; bin: string };
   participants: { counts: Partial<Record<"same" | "alias" | "bin" | "create" | "dispute", number>>; items: unknown[] };
-  contracts: { known: number; new: number; questions: OnecStartDraft[]; items: OnecStartDraft[]; moves: OnecStartDraft[] };
+  contracts: {
+    known: number;
+    new: number;
+    /** Заведутся без суммы: в 1С по ним только оплаты. */
+    no_amount?: number;
+    questions: OnecStartDraft[];
+    items: OnecStartDraft[];
+    moves: OnecStartDraft[];
+  };
   since: { current: string | null; proposed: string | null };
   openings: { since: string | null; contracts: number; debt: string | null; missing: { party: string; contract: string; opening: string | null; why: string }[]; problems: string[] } | null;
   payments: { source: "journal" | "1c" | null };

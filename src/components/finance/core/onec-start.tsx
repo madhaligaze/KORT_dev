@@ -274,6 +274,7 @@ function BaseSteps({
                 `из документов ${plan.contracts.items.length + plan.contracts.known}`,
                 plan.contracts.known ? `уже в KORT ${plan.contracts.known}` : "",
                 plan.contracts.new ? `заведём ${plan.contracts.new}` : "",
+                plan.contracts.no_amount ? `из них без суммы ${plan.contracts.no_amount} - в 1С только оплаты` : "",
               ]
                 .filter(Boolean)
                 .join(" · ")}
