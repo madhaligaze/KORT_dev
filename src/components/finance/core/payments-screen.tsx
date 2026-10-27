@@ -389,6 +389,7 @@ function Without({ data, onOpen, onDecided }: { data: PaymentsView; onOpen: (id:
     hidden?.own ? `переводы со своих юрлиц ${hidden.own}` : "",
     hidden?.ignored ? `не оплаты по договорам ${hidden.ignored}` : "",
     hidden?.decided ? `решено «не по договору» ${hidden.decided}` : "",
+    hidden?.returned ? `возвращены плательщику ${hidden.returned}` : "",
   ].filter(Boolean);
   if (!data.without.length) {
     return (

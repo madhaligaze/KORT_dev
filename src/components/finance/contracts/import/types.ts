@@ -14,7 +14,7 @@ export type Report = ContractImportBatch["report"];
 
 /** Порядок пунктов протокола - порядок `importer.report`. */
 export const SECTION_KEYS = [
-  "blocks", "columns", "entities", "statuses", "end_dates", "numbers", "hidden", "bins", "orphans", "diffs", "rules",
+  "blocks", "columns", "entities", "statuses", "end_dates", "numbers", "hidden", "bins", "amounts", "orphans", "diffs", "rules",
 ] as const;
 export type SectionKey = (typeof SECTION_KEYS)[number];
 
@@ -51,7 +51,15 @@ export type ColumnItem = {
   decision: ColumnDecision;
 };
 
-export type ColumnsBlock = { block: string; sheet: string; title: string; roles: Roles; columns: ColumnItem[] };
+/** `implied` - значения, выведенные из файла, а не из колонки: отдел листа по его названию. */
+export type ColumnsBlock = {
+  block: string;
+  sheet: string;
+  title: string;
+  roles: Roles;
+  columns: ColumnItem[];
+  implied?: { department?: string };
+};
 
 export type EntityItem = { key: string; names: string[]; executor: number; customer: number; own: boolean; known: string | null };
 export type SimilarGroup = { keys: string[]; names: string[] };
@@ -110,6 +118,8 @@ export type Brief = { ref: string; number: unknown; customer: unknown; executor:
 export type HiddenItem = Brief & { sheet: string; line: number };
 export type HiddenChoice = "skip" | "take";
 /** БИН второй стороны из колонки «БИН/ИИН»: принятый номер, отказы (контрольная цифра) и спор двух номеров. */
+/** Сумма не числом («1,5 млн»): ляжет «Условием суммы», начислений не будет. */
+export type AmountItem = { ref: string; number: string | null; customer: string | null; sheet: string; line: number | null; text: string };
 export type BinItem = { name: string; bin: string; refused: { ref: string; raw: string; error: string }[]; conflict: string[] };
 export type RuleAction = "accept" | "rule" | "empty";
 

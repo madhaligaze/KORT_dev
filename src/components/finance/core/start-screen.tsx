@@ -111,8 +111,8 @@ export function StartScreen() {
     // Компания без сводной таблицы начинает с файлов: приёмник называет, что в них.
     return (
       <div className="start-screen">
-        <IntakeFiles />
-        <OnecStart />
+        <IntakeFiles onChanged={reload} />
+        <OnecStart revision={revision} />
         <Connect onConnected={reload} />
       </div>
     );

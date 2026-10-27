@@ -7,12 +7,14 @@
  * Сервер (`POST /core/intake`) называет смысл строки каждого листа: участник,
  * договор, договор за месяц, платёж, документ, остаток на дату. Здесь это
  * показывается словами, с колонками, которые KORT узнал, вопросами, которые он
- * задаст, и отказами. Реестр и выписка уходят в свой разбор тем же файлом;
- * остальное KORT пока только узнаёт - так и сказано, без обещаний.
+ * задаст, и отказами. Реестр и выписка уходят в свой разбор тем же файлом.
+ * Отчёты 1С - журналы реализаций и счетов, контрагенты, ОСВ - заводятся вместе
+ * одной выгрузкой (`POST /core/onec-files`): база на каждую организацию, и
+ * дальше «Из 1С» шагами. Остальное KORT пока только узнаёт - так и сказано.
  */
 import { useRef, useState } from "react";
 
-import { type IntakeFile, type IntakeSheet, coreApi } from "@/components/finance/api";
+import { type IntakeFile, type IntakeSheet, type OnecFilesResult, coreApi } from "@/components/finance/api";
 import { handOff } from "@/components/finance/core/hand-off";
 import { openSection } from "@/components/finance/core/open";
 import { plural } from "@/components/finance/format";
@@ -20,10 +22,21 @@ import { plural } from "@/components/finance/format";
 type Item = { id: number; file: File; result: IntakeFile | null; error: string };
 
 const ACCEPT = ".xlsx,.xlsm,.xls,.csv,.txt,.tsv,.htm,.html,.xml,.pdf";
+/** Формы строк, которыми говорят отчёты 1С: они заводятся вместе, одной выгрузкой. */
+const ONEC_FORMS = new Set(["document", "participant", "balance"]);
 
-export function IntakeFiles() {
+function isOnec(item: Item): boolean {
+  const sheets = item.result?.sheets ?? [];
+  return Boolean(sheets.length) && sheets.every((sheet) => sheet.form && ONEC_FORMS.has(sheet.form));
+}
+
+/** `onChanged` - выгрузка 1С завела базы: «Из 1С» перечитывает их. */
+export function IntakeFiles({ onChanged }: { onChanged?: () => void }) {
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState(0);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState<OnecFilesResult | null>(null);
+  const [failed, setFailed] = useState("");
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const counter = useRef(0);
@@ -42,6 +55,22 @@ export function IntakeFiles() {
           ),
         )
         .finally(() => setBusy((value) => value - 1));
+    }
+  };
+
+  const onec = items.filter(isOnec);
+  // Список контрагентов один - ещё не выгрузка 1С: без журнала документов заводить нечего.
+  const journals = onec.some((item) => item.result?.sheets.some((sheet) => sheet.form === "document"));
+  const sendOnec = async () => {
+    setSending(true);
+    setFailed("");
+    try {
+      setSent(await coreApi.onecFiles(onec.map((item) => item.file)));
+      onChanged?.();
+    } catch (exc) {
+      setFailed(exc instanceof Error && exc.message ? exc.message : "Выгрузка 1С не завелась");
+    } finally {
+      setSending(false);
     }
   };
 
@@ -90,15 +119,58 @@ export function IntakeFiles() {
       {items.length ? (
         <ul className="intake-files">
           {items.map((item) => (
-            <FileLine key={item.id} item={item} />
+            <FileLine key={item.id} item={item} onec={isOnec(item)} />
           ))}
         </ul>
+      ) : null}
+      {journals ? (
+        <div className="intake-onec">
+          <p className="start-text">
+            Отчёты 1С: {onec.length} {plural(onec.length, "файл", "файла", "файлов")} - журналы документов, контрагенты и ОСВ
+            заводятся вместе, база на каждую организацию
+          </p>
+          <button type="button" className="btn-primary start-go" disabled={sending || Boolean(busy)} onClick={() => void sendOnec()}>
+            {sending ? "Заводим…" : "Завести из 1С"}
+          </button>
+          {failed ? <p className="fin-fail intake-line">{failed}</p> : null}
+          {sent ? <OnecSent result={sent} /> : null}
+        </div>
       ) : null}
     </section>
   );
 }
 
-function FileLine({ item }: { item: Item }) {
+function OnecSent({ result }: { result: OnecFilesResult }) {
+  const bases = Object.values(result.bases);
+  return (
+    <div className="intake-sheet">
+      {bases.map((base) => (
+        <p key={base.title} className="intake-line">
+          <span className="fin-strong">{base.organization}</span> · актов {base.counts.sale ?? 0} · счетов {base.counts.invoice ?? 0}
+        </p>
+      ))}
+      {result.upload.osv ? (
+        <p className="start-note">
+          ОСВ на {result.upload.osv.start ?? "-"} · {result.upload.osv.contracts}{" "}
+          {plural(result.upload.osv.contracts, "договор", "договора", "договоров")}
+        </p>
+      ) : (
+        <p className="start-note">ОСВ по 1210 нет - сальдо на начало учёта загрузите в шагах «Из 1С»</p>
+      )}
+      {result.without_bin.length ? (
+        <p className="start-note">Без БИН в «Контрагентах»: {result.without_bin.join(", ")}</p>
+      ) : null}
+      {[...result.upload.problems, ...result.upload.journals.flatMap((journal) => journal.problems)].map((problem) => (
+        <p key={problem} className="fin-fail intake-line">
+          {problem}
+        </p>
+      ))}
+      <p className="start-note">Дальше - шаги «Из 1С» ниже, по каждой организации</p>
+    </div>
+  );
+}
+
+function FileLine({ item, onec }: { item: Item; onec: boolean }) {
   const result = item.result;
   const forms = new Set((result?.sheets ?? []).map((sheet) => sheet.form));
   const target = forms.has("contract") ? "registry" : forms.has("payment") ? "statement" : null;
@@ -120,6 +192,8 @@ function FileLine({ item }: { item: Item }) {
           >
             {target === "registry" ? "Загрузить как реестр" : "Загрузить как выписку"}
           </button>
+        ) : onec ? (
+          <p className="start-note">Отчёт 1С - заводится вместе с другими кнопкой «Завести из 1С»</p>
         ) : (
           <p className="start-note">Такие строки KORT пока только узнаёт - заводить их отсюда нельзя</p>
         )

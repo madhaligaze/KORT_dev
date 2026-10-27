@@ -31,6 +31,7 @@ import {
   dictOf,
   splitRef,
   text,
+  type AmountItem,
   type BinItem,
   type BlockItem,
   type Brief,
@@ -875,6 +876,45 @@ export function HiddenStep({ items, decisions, decide }: { items: HiddenItem[]; 
               <td className="fin-mono">{row.line}</td>
               <td className="fin-mono">{text(row.number)}</td>
               <td>{text(row.customer) || text(row.executor)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── Суммы не числом ──────────────────────────────────────────────────────────
+
+export function amountsSummary(items: AmountItem[]): string {
+  return items.length ? `${items.length} ${plural(items.length, "сумма", "суммы", "сумм")} не число` : "все суммы - числа";
+}
+
+export function AmountsStep({ items }: { items: AmountItem[] }) {
+  if (!items.length) return <p className="fin-soft">Все суммы прочитаны числами</p>;
+  return (
+    <div className={styles.stack}>
+      <p className={styles.line}>
+        Эти суммы - не число. Договор заведётся, сумма ляжет в «Условие суммы», и начислять его KORT не будет, пока в
+        файле или в карточке не появится число.
+      </p>
+      <table className="proto-table">
+        <thead>
+          <tr>
+            <th>Строка</th>
+            <th>Договор</th>
+            <th>В файле</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <tr key={item.ref}>
+              <td className="fin-mono">
+                {item.sheet ? `${item.sheet} · ` : ""}
+                {item.line ?? "-"}
+              </td>
+              <td>{[item.number, item.customer].filter(Boolean).join(" · ") || "-"}</td>
+              <td className="fin-mono">{item.text}</td>
             </tr>
           ))}
         </tbody>

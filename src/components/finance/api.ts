@@ -1386,8 +1386,9 @@ export type PaymentItem = {
   comment: string;
   /** Номер договора, как его написал источник («№ЮО/84» в журнале). */
   contract_ref?: string;
-  /** `auto` - по стороне, `number` - по номеру договора из источника, `manual` - человек, `open` - спорный. */
-  how: "auto" | "number" | "manual" | "open";
+  /** `auto` - по стороне, `number` - по номеру договора из источника, `purpose` - по номеру из
+   * назначения платежа, `manual` - человек, `open` - спорный. */
+  how: "auto" | "number" | "purpose" | "manual" | "open";
 };
 
 export type ContractPayments = { summary: PaymentSummary | null; items: PaymentItem[] };
@@ -2803,7 +2804,8 @@ export type OnecStartDraft = {
   number: string;
   customer: string;
   signed: string | null;
-  billing: "month" | "total" | "";
+  /** `documents` - сумма месяца по счетам и актам 1С (аренда с коммунальными по счётчикам). */
+  billing: "month" | "total" | "documents" | "";
   amount: string | null;
   billing_from: string | null;
   changes: { from: string; amount: string | null }[];
@@ -2812,18 +2814,36 @@ export type OnecStartDraft = {
   outliers: string[];
   acts: number;
   contract_id: string | null;
+  /** Договор другого нашего ТОО, клиента которого перевели на юрлицо базы: с какого числа. */
+  moved_from: string | null;
+  since: string | null;
 };
 export type OnecStartPlan = {
-  base: { id: string; title: string; organization: string; bin: string };
+  /** `files` - база из выгрузок 1С файлами, без поступлений: оплаты - из выписок банка. */
+  base: { id: string; title: string; organization: string; bin: string; files: boolean };
   entity: { id: string | null; name: string; bin: string };
   participants: { counts: Partial<Record<"same" | "alias" | "bin" | "create" | "dispute", number>>; items: unknown[] };
-  contracts: { known: number; new: number; questions: OnecStartDraft[]; items: OnecStartDraft[] };
+  contracts: { known: number; new: number; questions: OnecStartDraft[]; items: OnecStartDraft[]; moves: OnecStartDraft[] };
   since: { current: string | null; proposed: string | null };
   openings: { since: string | null; contracts: number; debt: string | null; missing: { party: string; contract: string; opening: string | null; why: string }[]; problems: string[] } | null;
   payments: { source: "journal" | "1c" | null };
 };
 export type OnecStartStep = "entity" | "participants" | "contracts" | "since" | "payments";
-export type OnecStartAnswer = { end?: string; active?: boolean; pause?: boolean };
+export type OnecStartAnswer = { end?: string; active?: boolean; pause?: boolean; move?: boolean };
+/** Выгрузка 1С файлами (`onec/files.py`): базы организаций и что в файлах. */
+export type OnecFilesResult = {
+  bases: Record<string, { organization: string; title: string; counts: Partial<Record<"sale" | "invoice", number>> }>;
+  without_bin: string[];
+  upload: {
+    journals: { file: string; sheet: string; kind: "sale" | "invoice"; documents: number; organizations: string[]; problems: string[] }[];
+    parties: number;
+    with_bin: number;
+    osv: { start: string | null; contracts: number; organizations: string[] } | null;
+    organizations: string[];
+    skipped: string[];
+    problems: string[];
+  };
+};
 
 export type StartPlan = {
   /** Сводная таблица подключена; `book` пуст - ещё читается или отказ (`error`). */
@@ -3022,7 +3042,7 @@ export type PaymentsView = {
   entities: { id: string; code: string; name: string; source: "journal" | "1c"; journal: number; onec: number }[];
   without: PaymentWithout[];
   /** Сколько поступлений скрыто: переводы своих юрлиц, отмеченное «не оплаты», решённое «не по договору». */
-  without_hidden: { own: number; ignored: number; decided: number };
+  without_hidden: { own: number; ignored: number; decided: number; returned?: number };
   book: ShadowView["book"];
   error: string;
   shadow: {
@@ -3054,8 +3074,20 @@ export const coreApi = {
       { method: "POST", body: form },
     );
   },
+  /** Сальдо 1210 на первое число прямо из базы 1С по REST - вместо ОСВ файлом. */
+  onecStartBalances: (baseId: string, day: string) =>
+    request<{ start: string | null; contracts: number; opening: string; problems: string[] }>(
+      `/core/onec-start/${baseId}/balances`,
+      { method: "POST", body: JSON.stringify({ day }) },
+    ),
+  /** 1С без интернета: журналы, контрагенты и ОСВ одной выгрузкой - в базы организаций. */
+  onecFiles: (files: File[]) => {
+    const form = new FormData();
+    for (const file of files) form.append("files", file);
+    return request<OnecFilesResult>("/core/onec-files", { method: "POST", body: form });
+  },
   onecStartStep: (baseId: string, step: OnecStartStep, answers: Record<string, OnecStartAnswer> = {}) =>
-    request<{ done: number; waiting?: string[]; point?: { id: string; title: string; kind: string } | null; missing?: unknown[] }>(
+    request<{ done: number; waiting?: string[]; moved?: string[]; point?: { id: string; title: string; kind: string } | null; missing?: unknown[] }>(
       `/core/onec-start/${baseId}/${step}`,
       { method: "POST", body: JSON.stringify({ answers }) },
     ),

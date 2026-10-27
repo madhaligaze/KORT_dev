@@ -1,15 +1,17 @@
 "use client";
 
 /**
- * Вход из 1С в «Первых шагах»: компания с базой 1С в интернете и ОСВ по 1210
- * - до «Нам должны», без таблиц.
+ * Вход из 1С в «Первых шагах»: компания с базой 1С в интернете или с
+ * выгрузками 1С файлами, и ОСВ по 1210 - до «Нам должны», без таблиц.
  *
  * Сервер (`core/onec_start.py`) считает каждый шаг до записи: наше юрлицо по
  * БИН организации, участники по БИН с написаниями 1С, договоры с условиями по
  * актам, сальдо из ОСВ, источник оплат. Здесь шаги показаны числами, а
  * единственный вопрос - «договор закончился?», когда акты кончились раньше
- * прошлого месяца: без ответа такой договор не заводится. Следующий шаг -
- * единственная плита на экране.
+ * прошлого месяца: без ответа такой договор не заводится. Договор, который
+ * KORT уже ведёт у другого нашего ТОО, - перевод клиента на юрлицо базы с
+ * первого её документа. У базы из файлов поступлений нет: оплаты юрлица -
+ * выписки банка. Следующий шаг - единственная плита на экране.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -35,7 +37,15 @@ function money(value: string | null | undefined): string {
   return contractMoney(Math.round(Number(value)));
 }
 
-export function OnecStart() {
+function contractsLabel(made: number, moved: number): string {
+  const word = (value: number) => plural(value, "договор", "договора", "договоров");
+  if (made && moved) return `Завести ${made} ${word(made)} и перевести ${moved}`;
+  if (moved) return `Перевести ${moved} ${word(moved)}`;
+  return `Завести ${made} ${word(made)}`;
+}
+
+/** `revision` - перечитать базы (после выгрузки 1С файлами). */
+export function OnecStart({ revision = 0 }: { revision?: number }) {
   const [bases, setBases] = useState<OnecBase[] | null>(null);
   useEffect(() => {
     let alive = true;
@@ -46,21 +56,52 @@ export function OnecStart() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [revision]);
+  // Шаг одной базы меняет план другой: «Тумар Офис» завёл договоры - у «Тумар
+  // Плюс» те же договоры становятся переводом. Каждый шаг перечитывает все базы.
+  const [shared, setShared] = useState(0);
+  const changed = useCallback(() => setShared((value) => value + 1), []);
+  // Пока пишется шаг одной базы, шаги других ждут: два шага разом спорят за
+  // одни счётчики компании (стенд 27.10 - взаимоблокировка Postgres).
+  const [writing, setWriting] = useState<string | null>(null);
+  const busyBase = useCallback((id: string, on: boolean) => setWriting((was) => (on ? id : was === id ? null : was)), []);
   if (!bases || !bases.length) return null;
   return (
     <>
       {bases.map((base) => (
-        <BaseSteps key={base.id} base={base} />
+        <BaseSteps
+          key={base.id}
+          base={base}
+          shared={shared}
+          onChanged={changed}
+          locked={writing !== null && writing !== base.id}
+          onBusy={busyBase}
+        />
       ))}
     </>
   );
 }
 
-function BaseSteps({ base }: { base: OnecBase }) {
+function BaseSteps({
+  base,
+  shared,
+  onChanged,
+  locked,
+  onBusy,
+}: {
+  base: OnecBase;
+  shared: number;
+  onChanged: () => void;
+  locked: boolean;
+  onBusy: (id: string, on: boolean) => void;
+}) {
   const [plan, setPlan] = useState<OnecStartPlan | null>(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState<OnecStartStep | "osv" | "">("");
+  const [busy, setBusy] = useState<OnecStartStep | "osv" | "rest" | "">("");
+  const [restDay, setRestDay] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  });
   const [answers, setAnswers] = useState<Record<string, OnecStartAnswer>>({});
   const [points, setPoints] = useState<Partial<Record<OnecStartStep, string>>>({});
   const [revision, setRevision] = useState(0);
@@ -75,8 +116,13 @@ function BaseSteps({ base }: { base: OnecBase }) {
     return () => {
       alive = false;
     };
-  }, [base.id, revision]);
-  const reload = useCallback(() => setRevision((value) => value + 1), []);
+  }, [base.id, revision, shared]);
+  useEffect(() => onBusy(base.id, Boolean(busy)), [base.id, busy, onBusy]);
+  const blocked = Boolean(busy) || locked;
+  const reload = useCallback(() => {
+    setRevision((value) => value + 1);
+    onChanged();
+  }, [onChanged]);
 
   const run = async (step: OnecStartStep) => {
     setBusy(step);
@@ -120,6 +166,19 @@ function BaseSteps({ base }: { base: OnecBase }) {
     }
   };
 
+  const takeRest = async () => {
+    setBusy("rest");
+    setError("");
+    try {
+      await coreApi.onecStartBalances(base.id, restDay);
+      reload();
+    } catch (exc) {
+      setError(messageOf(exc, "Остатки из 1С не прочитались"));
+    } finally {
+      setBusy("");
+    }
+  };
+
   if (!plan) {
     return (
       <section className="onec-start" aria-label={`Из 1С: ${base.title}`}>
@@ -132,7 +191,9 @@ function BaseSteps({ base }: { base: OnecBase }) {
   const counts = plan.participants.counts;
   const toParty = (counts.create ?? 0) + (counts.bin ?? 0);
   const unanswered = plan.contracts.questions.filter((question) => !answers[question.key]);
-  const contractsToMake = plan.contracts.new + plan.contracts.questions.length - unanswered.length;
+  const moves = plan.contracts.moves ?? [];
+  const contractsToMake = plan.contracts.new + plan.contracts.questions.length - unanswered.length + moves.length;
+  const files = plan.base.files;
   const openings = plan.openings;
   const since = plan.since.current;
   const next: OnecStartStep | "" = !plan.entity.id
@@ -143,7 +204,7 @@ function BaseSteps({ base }: { base: OnecBase }) {
         ? "contracts"
         : openings && !since
           ? "since"
-          : plan.payments.source !== "1c"
+          : !files && plan.payments.source !== "1c"
             ? "payments"
             : "";
 
@@ -151,7 +212,7 @@ function BaseSteps({ base }: { base: OnecBase }) {
     <button
       type="button"
       className={next === step ? "btn-primary start-go" : "btn-ghost start-go"}
-      disabled={Boolean(busy)}
+      disabled={blocked}
       onClick={() => void run(step)}
     >
       {busy === step ? "Записываем…" : label}
@@ -159,7 +220,7 @@ function BaseSteps({ base }: { base: OnecBase }) {
   );
   const back = (step: OnecStartStep) =>
     points[step] ? (
-      <button type="button" className="fin-link-btn start-aside" disabled={Boolean(busy)} onClick={() => void undo(step)}>
+      <button type="button" className="fin-link-btn start-aside" disabled={blocked} onClick={() => void undo(step)}>
         Вернуть
       </button>
     ) : null;
@@ -239,7 +300,13 @@ function BaseSteps({ base }: { base: OnecBase }) {
                 />
               </div>
             ))}
-            {contractsToMake ? button("contracts", `Завести ${contractsToMake} ${plural(contractsToMake, "договор", "договора", "договоров")}`) : null}
+            {moves.map((item) => (
+              <p key={item.key} className="start-note">
+                <span className="fin-strong">{item.label}</span> · {item.customer} - уже в KORT у другого нашего ТОО; документы 1С
+                этого юрлица с {item.since ? formatDay(item.since) : "-"}: переведём клиента сюда с этого дня
+              </p>
+            ))}
+            {contractsToMake ? button("contracts", contractsLabel(contractsToMake - moves.length, moves.length)) : null}
             {back("contracts")}
           </div>
         </li>
@@ -270,7 +337,28 @@ function BaseSteps({ base }: { base: OnecBase }) {
             )}
             {since ? <p className="start-state">учёт оплат с {formatDay(since)}</p> : null}
             {openings && !since ? button("since", `Начать учёт с ${openings.since ? formatDay(openings.since) : "-"} и перенести сальдо`) : null}
-            <button type="button" className="fin-link-btn start-aside" disabled={Boolean(busy)} onClick={() => file.current?.click()}>
+            {!files && !since ? (
+              <div className="onec-rest">
+                <label className="start-note" htmlFor={`rest-${base.id}`}>
+                  Остатки 1210 из 1С на
+                </label>
+                <input
+                  id={`rest-${base.id}`}
+                  type="date"
+                  className="input-field onec-rest-day"
+                  value={restDay}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    // Учёт - с первого числа месяца: любой выбранный день становится первым числом его месяца.
+                    if (value) setRestDay(`${value.slice(0, 7)}-01`);
+                  }}
+                />
+                <button type="button" className="btn-ghost start-go" disabled={blocked} onClick={() => void takeRest()}>
+                  {busy === "rest" ? "Читаем 1С…" : "Взять из 1С"}
+                </button>
+              </div>
+            ) : null}
+            <button type="button" className="fin-link-btn start-aside" disabled={blocked} onClick={() => file.current?.click()}>
               {busy === "osv" ? "Читаем ОСВ…" : openings ? "Другая ОСВ" : "Загрузить ОСВ"}
             </button>
             <input
@@ -287,11 +375,15 @@ function BaseSteps({ base }: { base: OnecBase }) {
           </div>
         </li>
 
-        <li className="start-step" data-done={plan.payments.source === "1c" ? "" : undefined}>
+        <li className="start-step" data-done={plan.payments.source === "1c" || files ? "" : undefined}>
           <span className="start-n">5</span>
           <div className="start-body">
             <p className="start-title">Оплаты</p>
-            {plan.payments.source === "1c" ? (
+            {files ? (
+              <p className="start-text">
+                В выгрузке 1С поступлений нет - оплаты юрлица из выписок банка: загрузите их в «Файлах компании»
+              </p>
+            ) : plan.payments.source === "1c" ? (
               <p className="start-state">поступления 1С - оплаты юрлица</p>
             ) : (
               <>

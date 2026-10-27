@@ -28,10 +28,12 @@ import { FilePick, Phase, isRegistryFile } from "./file-pick";
 import { Finale, type ApplyResult } from "./finale";
 import styles from "./registry-import.module.css";
 import {
+  AmountsStep,
   BinsStep,
   BlocksStep,
   DiffsStep,
   HiddenStep,
+  amountsSummary,
   binsSummary,
   hiddenSummary,
   EndDatesStep,
@@ -48,6 +50,7 @@ import {
 import {
   SECTION_KEYS,
   blockLabel,
+  type AmountItem,
   type BinItem,
   type HiddenItem,
   dictOf,
@@ -296,6 +299,7 @@ function Protocol({
   const numbers = items<NumberItem>("numbers");
   const hidden = items<HiddenItem>("hidden");
   const bins = items<BinItem>("bins");
+  const amounts = items<AmountItem>("amounts");
   const hiddenDecided = decisions.hidden === "skip" || decisions.hidden === "take";
   const orphans = items<OrphanItem>("orphans");
   const loose = (sectionOf(report, "orphans")?.loose ?? []) as LooseItem[];
@@ -349,6 +353,7 @@ function Protocol({
       : "повторов нет",
     hidden: hiddenSummary(hidden, decisions),
     bins: binsSummary(bins),
+    amounts: amountsSummary(amounts),
     orphans: orphansSummary(orphans, loose, numberOnly, decisions),
     diffs: diffsSummary(diffs, mainSheet, decisions),
     rules: rulesSummary(rules),
@@ -443,6 +448,7 @@ function Protocol({
     numbers: <NumbersStep items={numbers} />,
     hidden: <HiddenStep items={hidden} decisions={decisions} decide={decide} />,
     bins: <BinsStep items={bins} />,
+    amounts: <AmountsStep items={amounts} />,
     orphans: (
       <OrphansStep
         items={orphans}

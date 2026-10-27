@@ -133,6 +133,14 @@ export function ColumnsMap({
       <p className={styles.mapRoles}>
         <RolesText roles={group.blocks[0].roles} />
       </p>
+      {group.blocks
+        .filter((block) => block.implied?.department)
+        .map((block) => (
+          <p key={block.block} className={styles.mapRoles}>
+            Отдел строк листа «{block.sheet}» - «{block.implied?.department}»: колонки «Отдел» в листе нет, а в других
+            листах файла отдел каждой строки - название листа
+          </p>
+        ))}
       <MapBody key={group.key} group={group} decisions={decisions} decide={decide} fields={fields} />
     </div>
   );

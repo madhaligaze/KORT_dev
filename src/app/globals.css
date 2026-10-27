@@ -5564,6 +5564,10 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .intake-file > * { max-width: 100%; }
 .intake-file-name { margin: 0; font-size: 0.875rem; font-weight: 600; overflow-wrap: anywhere; }
 .intake-sheet { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.onec-rest { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; }
+.onec-rest-day { width: auto; min-width: 0; max-width: 11rem; }
+.intake-onec { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; padding-top: 0.9rem; min-width: 0; }
+.intake-onec > * { max-width: 100%; }
 .intake-line { margin: 0; font-size: 0.8125rem; overflow-wrap: anywhere; }
 .intake-cols { margin: 0; overflow-wrap: anywhere; }
 /* Вход из 1С в «Первых шагах»: шаги по базе, как у сводной таблицы. */
