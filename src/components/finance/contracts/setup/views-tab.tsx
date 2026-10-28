@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * «Листы»: листы-отборы реестра и «Разовых».
+ * «Листы»: листы-отборы реестра и сохранённых видов договоров («Разовые ЮО»).
  *
  * Лист ничего не хранит - он показывает договоры, подходящие под его правило
  * (`views.py`). Лист бывает поделён на части с заголовком - «АГЕНТСКИЙ
@@ -30,7 +30,7 @@
 import { useMemo, useState } from "react";
 
 import { type RegistryView, type ViewBlock, type ViewFilter, contractsApi } from "@/components/finance/api";
-import { bookTitle, viewCounts } from "@/components/finance/contracts/schema";
+import { bookTitle, booksOf, viewCounts } from "@/components/finance/contracts/schema";
 import { useRegistry } from "@/components/finance/contracts/store";
 import { plural } from "@/components/finance/format";
 import { ArrowDownIcon, ArrowUpIcon, ChevronRightIcon, CloseIcon } from "@/components/icons";
@@ -58,8 +58,6 @@ function canon(filter: ViewFilter | null | undefined): string {
   });
 }
 
-/** Книги листов: реестр (карточки и «Таблица») и «Разовые». */
-const BOOK_KEYS = ["", "oneoff"];
 
 function contractsCount(count: number): string {
   return `${count} ${plural(count, "договор", "договора", "договоров")}`;
@@ -90,10 +88,11 @@ export function ViewsTab() {
 
   const views = useMemo(() => [...(schema?.views ?? [])].sort((a, b) => a.position - b.position), [schema]);
   const counts = useMemo(() => viewCounts(views, byId.values()), [views, byId]);
-  // Листы реестра и «Разовых» - разными группами: у каждой книги свой порядок.
+  // Листы каждого вида договоров - своей группой: у каждой книги свой порядок.
+  // Книги - виды договоров (`core/views.py`); реестр - всегда первым.
   const groups = useMemo(
     () =>
-      BOOK_KEYS.map((key) => ({
+      ["", ...booksOf(schema).map((book) => book.key).filter(Boolean)].map((key) => ({
         key,
         title: bookTitle(schema, key),
         views: views.filter((item) => (item.book ?? "") === key),
@@ -240,14 +239,23 @@ export function ViewsTab() {
           >
             + Лист
           </button>
-          <span className="setup-book-pick" role="group" aria-label="Куда новый лист">
-            <span className="fin-muted">в</span>
-            {BOOK_KEYS.map((key) => (
-              <button key={key || "main"} type="button" aria-pressed={newBook === key} onClick={() => setNewBook(key)}>
-                {bookTitle(schema, key)}
-              </button>
-            ))}
-          </span>
+          {/* Выбор книги - только когда видов договоров больше одного: у новой
+              компании лист один куда - в реестр. */}
+          {groups.length > 1 ? (
+            <span className="setup-book-pick" role="group" aria-label="Куда новый лист">
+              <span className="fin-muted">в</span>
+              {groups.map((group) => (
+                <button
+                  key={group.key || "main"}
+                  type="button"
+                  aria-pressed={newBook === group.key}
+                  onClick={() => setNewBook(group.key)}
+                >
+                  {group.title}
+                </button>
+              ))}
+            </span>
+          ) : null}
           {action.error("add") ? (
             <span className="setup-error setup-add-error" role="alert">
               {action.error("add")}

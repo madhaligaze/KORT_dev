@@ -44,7 +44,7 @@ function num(value: number, style: Style): StaffCell {
   return { v: Math.round(value * 100) / 100, t: 2, s: style };
 }
 
-export function staffMatrix(source: StaffSource, book = "oneoff"): StaffMatrix {
+export function staffMatrix(source: StaffSource, book: string): StaffMatrix {
   const table = staffTable(source, book);
   const cells: Record<number, Record<number, StaffCell>> = {};
   let row = 0;

@@ -96,7 +96,7 @@ export function mainOf(schema: RegistrySchema | null, book: string) {
   );
 }
 
-export function staffTable(source: StaffSource, book = "oneoff"): StaffTable | null {
+export function staffTable(source: StaffSource, book: string): StaffTable | null {
   const { schema, byId, order, people, parties, summary, shares } = source;
   const main = mainOf(schema, book);
   if (!schema || !main) return null;

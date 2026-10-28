@@ -628,6 +628,66 @@ button[data-tip], label[data-tip], [data-tip] input, [data-tip] button { cursor:
   .setup-side-move, .setup-rule-x { transition: none; }
 }
 
+/* ─── Виды ─── */
+.setup-views-saved { max-width: 1080px; }
+.setup-vrow,
+.setup-vtemplate {
+  display: grid;
+  /* Колонка кнопок - постоянной ширины: у каждой строки своя сетка, и по
+     содержимому «Что» и «Чей» съезжали у вида с тремя кнопками. */
+  grid-template-columns: minmax(12rem, 1.4fr) 8rem 7rem 15rem 9rem;
+  grid-template-areas: "name source owner pin action";
+  align-items: center;
+  column-gap: 0.75rem;
+  min-height: var(--fin-row-h);
+  padding: 0.375rem 0.25rem;
+  border-bottom: 1px solid var(--fin-line);
+  font-size: 0.875rem;
+}
+.setup-vtemplate {
+  grid-template-columns: minmax(12rem, 1fr) minmax(12rem, auto) 9rem;
+  grid-template-areas: "name pin action";
+}
+.setup-vhead { min-height: 2rem; padding-block: 0; }
+.setup-vname { grid-area: name; display: flex; flex-direction: column; min-width: 0; }
+.setup-vname-main { font-weight: 450; overflow-wrap: anywhere; }
+.setup-vnote { grid-column: 1 / -1; margin: 0; font-size: 0.75rem; color: var(--fin-text-soft); }
+.setup-vname .setup-vnote { grid-column: auto; }
+.setup-vnote.setup-error { color: var(--fin-fail); }
+.setup-vsource { grid-area: source; color: var(--fin-text-soft); }
+.setup-vowner { grid-area: owner; }
+.setup-vowner[data-code="true"] { font-family: var(--font-mono); font-size: 0.8125rem; }
+.setup-vpin { grid-area: pin; display: inline-flex; flex-wrap: wrap; gap: 0.25rem 0; }
+.setup-vaction { grid-area: action; display: inline-flex; align-items: center; justify-content: flex-end; gap: 0.25rem; }
+.setup-vtitle { margin: 1.5rem 0 0.25rem; font-size: 0.9375rem; font-weight: 500; color: var(--fin-text); }
+@container (max-width: 899px) {
+  .setup-vhead { display: none; }
+  .setup-vrow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "name   name"
+      "source owner"
+      "pin    action";
+    row-gap: 0.375rem;
+    padding-block: 0.625rem;
+  }
+  .setup-vtemplate {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "name name"
+      "pin  action";
+    row-gap: 0.375rem;
+    padding-block: 0.625rem;
+  }
+  .setup-vrow :is(.setup-vsource, .setup-vowner)::before {
+    content: attr(data-label);
+    margin-right: 0.5rem;
+    font-family: var(--font-sans, inherit);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+}
+
 /* ─── «Сводка оплат» ─── */
 .setup-summary { max-width: 720px; display: grid; gap: 1.25rem; }
 .setup-summary-now { display: grid; gap: 0.25rem; justify-items: start; padding-bottom: 1rem; border-bottom: 1px solid var(--fin-line); }

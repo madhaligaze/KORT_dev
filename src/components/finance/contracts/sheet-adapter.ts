@@ -69,7 +69,7 @@ import {
   type ViewBlock,
   contractsApi,
 } from "@/components/finance/api";
-import { bookDepartmentId, departmentText, listText } from "@/components/finance/contracts/schema";
+import { bookDepartmentId, bookOf, departmentText, listText } from "@/components/finance/contracts/schema";
 import { type BookShare, blockTally, bookAmount, bookPart, bookShareOf, shareNote } from "@/components/finance/contracts/book-share";
 import { STAFF_SHEET, type StaffMatrix, staffMatrix, staffSnapshot } from "@/components/finance/contracts/staff-sheet";
 import {
@@ -1254,7 +1254,7 @@ export type Built = {
   first: string;
   /** Правила выпадающих списков, уже лежащие в снимке: лист → правило → отпечаток. */
   rules: Map<string, Map<string, string>>;
-  /** Книга листов (`""` - реестр, `oneoff` - «Разовые»); `state` уже урезан по ней. */
+  /** Книга листов - ключ вида договоров (`""` - реестр); `state` уже урезан по ней. */
   book: string;
   /** Лист «По сотрудникам» у «Разовых» (`staff-sheet.ts`); у реестра - нет. */
   staff: StaffMatrix | null;
@@ -1393,8 +1393,9 @@ export function buildRegistry(
     rules.set(layout.key, new Map(specs.map((spec) => [spec.uid, spec.sig])));
   }
 
-  // «Разовые»: сводки по сотрудникам - последним листом книги, как у юротдела.
-  const staff = book === "oneoff" && layouts.length ? staffMatrix(state, book) : null;
+  // Вид с группировкой «По сотрудникам» - сводки по людям последним листом
+  // книги, как у юротдела в «Разовых» (`core/views.py`).
+  const staff = book && bookOf(state.schema, book)?.groups.includes("people") && layouts.length ? staffMatrix(state, book) : null;
   if (staff) sheets[STAFF_SHEET] = staffSnapshot(staff);
 
   const unitId = `creg-${Date.now().toString(36)}`;

@@ -53,9 +53,7 @@ type Entry = { key: string; title: string; kind: Kind; options: PopOption[]; arc
 /** Системные поля, по которым сервер отбирает (`facts_of`). */
 const FILTERABLE_SYSTEM = new Set([
   "status", "type", "subject", "economic_role", "department", "executor", "customer", "people",
-  "billing", "end_kind", "number", "note", "amount_terms",
-  // Числа: «Срок, мес < 2» (листы «до 2 мес»), «Остаток (сводка) > 0» («Остатки»).
-  "amount", "age_months", "summary_paid", "summary_remaining",
+  "billing", "end_kind", "number", "note", "amount_terms", "amount",
 ]);
 
 const VIRTUAL_TITLES: Record<string, string> = {
@@ -138,6 +136,11 @@ function catalog({ schema, parties, people }: Ctx): Entry[] {
       default:
         out.push({ key: field.key, title, kind: "text", options: [] });
     }
+  }
+  // Меры видов - числами: «Срок, мес < 2» (листы «до 2 мес»), «Остаток > 0»
+  // («Остатки»). Не поля договора, но отбирать по ним можно (`core/views.py`).
+  for (const measure of schema.measures ?? []) {
+    out.push({ key: measure.key, title: lowerFirst(measure.title), kind: "number", options: [] });
   }
   out.push({
     key: "phase",

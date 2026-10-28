@@ -2309,7 +2309,7 @@ label.auth-row-label { cursor: pointer; }
 }
 
 /* ─── «Разовые»: откуда оплата и сводка по сотрудникам ─── */
-.creg-oneoff-top {
+.creg-book-top {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -2317,7 +2317,7 @@ label.auth-row-label { cursor: pointer; }
   gap: 0.5rem 1rem;
   margin: 0 0 0.5rem;
 }
-.creg-oneoff-line { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); display: flex; flex-wrap: wrap; gap: 0 0.5rem; align-items: baseline; }
+.creg-book-line { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); display: flex; flex-wrap: wrap; gap: 0 0.5rem; align-items: baseline; }
 .creg-staff { display: grid; gap: 0.75rem; padding-bottom: 1rem; }
 .creg-staff-title { margin: 0.5rem 0 0; font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; color: var(--fin-text); }
 .creg-staff-scroll { overflow-x: auto; }

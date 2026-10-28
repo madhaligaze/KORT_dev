@@ -24,3 +24,14 @@ export function openSection(go: SectionGo): void {
   if (typeof window === "undefined" || !go.section) return;
   window.dispatchEvent(new CustomEvent<SectionGo>(SECTION_EVENT, { detail: go }));
 }
+
+/**
+ * Виды изменились (сохранён, закреплён, убран - `core/views.py`): колонка
+ * разделов перечитывает их сразу, а не со следующей сменой схемы.
+ */
+export const VIEWS_EVENT = "kort:views";
+
+export function viewsChanged(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(VIEWS_EVENT));
+}

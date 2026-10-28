@@ -64,7 +64,7 @@ type Props = {
   onOpenCard: (id: string | null, ctx?: { view: string; block: number }) => void;
   /** Договор открытой карточки: его строка отмечена, лист к ней прокручивается. */
   openId: string | null;
-  /** Книга листов: `""` - реестр («Таблица»), `oneoff` - «Разовые». */
+  /** Книга листов - ключ вида договоров: `""` - реестр («Таблица»). */
   book?: string;
   /** Соседи открытой карточки по листу - для её стрелок ↑ ↓. */
   onNeighbors?: (around: { prev: string | null; next: string | null }) => void;

@@ -6,12 +6,48 @@
  * из кода; скрытых полей в схеме нет вовсе - нет поля, нет колонки, нет строки
  * в карточке.
  */
-import type { Contract, ListValue, Party, RegistryField, RegistrySchema, RegistryView } from "@/components/finance/api";
+import type {
+  Contract,
+  ListValue,
+  Party,
+  RegistryBook,
+  RegistryField,
+  RegistrySchema,
+  RegistryView,
+} from "@/components/finance/api";
 
 export const CLOSED_PHASES = new Set(["fulfilled", "terminated", "failed"]);
 
+/**
+ * Поле договора или мера вида («Оплачено», «Остаток», «Срок, мес»): меры не
+ * поля договора (`core/views.MEASURES`), но лист показывает их колонкой и
+ * правило отбирает по ним - только чтение.
+ */
 export function fieldOf(schema: RegistrySchema | null, key: string): RegistryField | undefined {
-  return schema?.fields.find((item) => item.key === key);
+  const found = schema?.fields.find((item) => item.key === key);
+  if (found) return found;
+  const measure = schema?.measures?.find((item) => item.key === key);
+  if (!measure) return undefined;
+  return {
+    key: measure.key,
+    type: measure.type as RegistryField["type"],
+    title: measure.title,
+    system: true,
+    editable: false,
+    required: false,
+    hidden: false,
+    position: 0,
+  };
+}
+
+/** Виды договоров из схемы; старый сервер присылал строки ключей - тогда пусто. */
+export function booksOf(schema: RegistrySchema | null): RegistryBook[] {
+  const books = schema?.books ?? [];
+  return books.filter((item): item is RegistryBook => typeof item === "object" && item !== null);
+}
+
+export function bookOf(schema: RegistrySchema | null, book: string): RegistryBook | undefined {
+  return booksOf(schema).find((item) => item.key === book);
 }
 
 export function listValue(schema: RegistrySchema | null, field: string, id: unknown): ListValue | undefined {
@@ -133,19 +169,21 @@ export function viewCounts(
 }
 
 /**
- * Отдел, которым отобраны все листы книги, - его код: «Разовые» с условием
- * «отдел - ЮО» в каждой группе каждого блока - это «Разовые ЮО». Хоть один
- * блок без такого условия или отделы разные - пусто.
+ * Отдел, долей которого вид показывает сумму договора, - его код: «Разовые ЮО»
+ * - вид отдела ЮО с мерой доли. Вид компании или без меры доли - пусто.
  */
 export function bookDepartment(schema: RegistrySchema | null, book: string): string {
   const id = bookDepartmentId(schema, book);
   return id ? departmentText(schema, id) : "";
 }
 
-/** То же, идентификатором отдела. Правило одно с сервером (`views.book_department`). */
+/** То же, идентификатором отдела: владелец вида с мерой доли (`core/views.share_department`). */
 export function bookDepartmentId(schema: RegistrySchema | null, book: string): string {
+  if (!schema || !book) return "";
+  if (booksOf(schema).length) return bookOf(schema, book)?.share_department ?? "";
+  // Старый сервер: отдел - из условия «отдел - …» в каждой группе каждого блока.
   const views = (schema?.views ?? []).filter((view) => (view.book ?? "") === book);
-  if (!schema || !book || !views.length) return "";
+  if (!views.length) return "";
   let found: string | null = null;
   for (const view of views) {
     for (const block of view.blocks) {
@@ -164,11 +202,11 @@ export function bookDepartmentId(schema: RegistrySchema | null, book: string): s
   return found ?? "";
 }
 
-/** Подпись книги в колонке и заголовке: «Реестр», «Разовые ЮО». */
+/** Подпись книги в колонке и заголовке - название вида: «Реестр», «Разовые ЮО». */
 export function bookTitle(schema: RegistrySchema | null, book: string): string {
-  if (!book) return "Реестр";
-  const code = bookDepartment(schema, book);
-  return code ? `Разовые ${code}` : "Разовые";
+  const found = bookOf(schema, book);
+  if (found) return found.title;
+  return book ? book : "Реестр";
 }
 
 /** Выбор значений поля в блоке листа (`choices`): id значений или `null` - весь список. */

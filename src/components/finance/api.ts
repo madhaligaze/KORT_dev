@@ -1435,7 +1435,7 @@ export type RegistryView = {
   key: string;
   title: string;
   main: boolean;
-  /** Книга листа: `""` - реестр (карточки и «Таблица»), `oneoff` - «Разовые». */
+  /** Книга листа - ключ вида договоров (`core/views.py`): `""` - реестр. */
   book?: string;
   position: number;
   blocks: ViewBlock[];
@@ -1452,9 +1452,35 @@ export type OwnEntity = {
   accounts: { id: string; name: string; number: string }[];
 };
 
+/** Владелец вида: компания, отдел (код - в подписи «Разовые ЮО») или сам человек. */
+export type ViewOwner =
+  | { kind: "company" }
+  | { kind: "department"; id: string; code: string; title: string }
+  | { kind: "user"; id: string };
+
+/** Вид договоров в схеме реестра - книга листов (`core/views.book_out`). */
+export type RegistryBook = {
+  key: string;
+  title: string;
+  owner: ViewOwner;
+  filter: ViewFilter;
+  measures: string[];
+  groups: string[];
+  forms: string[];
+  /** Отдел, долей которого вид показывает сумму договора («Разовые ЮО» - доля ЮО). */
+  share_department: string | null;
+};
+
+/** Мера вида колонкой листа: «Оплачено», «Остаток», «Срок, мес». */
+export type MeasureDef = { key: string; title: string; type: string };
+
 export type RegistrySchema = {
   schema_rev: number;
   fields: RegistryField[];
+  /** Виды договоров - книги листов. У старого сервера - строки ключей. */
+  books?: RegistryBook[] | string[];
+  /** Меры видов - колонки и условия листов, но не поля договора. */
+  measures?: MeasureDef[];
   /** Действующие значения - их предлагают выборы. */
   lists: Record<string, ListValue[]>;
   /** Значения в архиве - только чтобы подписать договоры, где они стоят. */
@@ -3141,7 +3167,60 @@ function withEntity(path: string, entity?: string): string {
   return `${path}${path.includes("?") ? "&" : "?"}entity=${encodeURIComponent(entity)}`;
 }
 
+/** Источник вида: договоры листами, «Долги», «Не выставлены». */
+export type ViewSource = "contracts" | "debts" | "unbilled";
+
+/** Вид - сохранённый вопрос к ядру (`core/views.py`). */
+export type CoreView = {
+  id: string;
+  key: string;
+  title: string;
+  source: ViewSource;
+  owner: ViewOwner;
+  filter: ViewFilter | Record<string, never>;
+  measures: string[];
+  groups: string[];
+  forms: string[];
+  params: Record<string, string>;
+  /** Кому в колонке: всем, владельцу, никому. */
+  pin: "all" | "owner" | "";
+  position: number;
+  template: string;
+  /** Стоит ли в колонке у этого человека. */
+  pinned: boolean;
+  editable: boolean;
+};
+
+export type ViewTemplate = { key: string; title: string; source: ViewSource; note: string; department: boolean };
+
+export type ViewsList = {
+  views: CoreView[];
+  templates: ViewTemplate[];
+  measures: { key: string; title: string; type: string; note: string }[];
+  sources: Record<ViewSource, { title: string; forms: { key: string; title: string }[]; groups: { key: string; title: string }[] }>;
+};
+
+export type ViewChange = {
+  template?: string;
+  title?: string;
+  source?: ViewSource;
+  owner?: "company" | "me" | { department: string };
+  filter?: ViewFilter;
+  measures?: string[];
+  groups?: string[];
+  forms?: string[];
+  params?: Record<string, string>;
+  pin?: "all" | "owner" | "";
+  position?: number;
+};
+
 export const coreApi = {
+  /** Виды компании, которые человек видит, с отметкой «в колонке» (`core/views.py`). */
+  views: () => request<ViewsList>("/core/views"),
+  viewCreate: (change: ViewChange) => request<CoreView>("/core/views", { method: "POST", body: JSON.stringify(change) }),
+  viewUpdate: (id: string, change: ViewChange) =>
+    request<CoreView>(`/core/views/${id}`, { method: "PATCH", body: JSON.stringify(change) }),
+  viewRemove: (id: string) => request<{ ok: boolean }>(`/core/views/${id}`, { method: "DELETE" }),
   onecStart: (baseId: string) => request<OnecStartPlan>(`/core/onec-start/${baseId}`),
   onecStartOsv: (baseId: string, file: File) => {
     const form = new FormData();
@@ -3297,9 +3376,11 @@ export const coreApi = {
     }),
   setOpening: (contractId: string, amount: string | null, basis: DebtBasis = "accruals") =>
     request<{ ok: boolean }>(`/core/contracts/${contractId}/opening`, { method: "PUT", body: JSON.stringify({ amount, basis }) }),
-  debts: (params: { as_of?: string; group: DebtGroup; basis: DebtBasis; side: DebtDirection }, init?: RequestInit) => {
+  /** `view` - вид «Долги» (`core/views.py`): долги только договоров под его отбором. */
+  debts: (params: { as_of?: string; group: DebtGroup; basis: DebtBasis; side: DebtDirection; view?: string }, init?: RequestInit) => {
     const query = new URLSearchParams({ group: params.group, basis: params.basis, side: params.side });
     if (params.as_of) query.set("as_of", params.as_of);
+    if (params.view) query.set("view", params.view);
     return request<DebtsView>(`/core/debts?${query.toString()}`, init);
   },
   debtsShadow: (basis: DebtBasis, entity?: string) => request<SaldoShadow>(withEntity(`/core/debts/shadow?basis=${basis}`, entity)),

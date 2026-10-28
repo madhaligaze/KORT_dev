@@ -1220,7 +1220,7 @@ const schemaBooks = new WeakMap<RegistrySchema, Map<string, RegistrySchema>>();
 const stateBooks = new WeakMap<RegistryState, Map<string, RegistryState>>();
 const scopedSchemas = new WeakSet<RegistrySchema>();
 
-/** Лист в книге `book`: `""` - реестр, `oneoff` - «Разовые». */
+/** Лист в книге `book` - виде договоров (`core/views.py`): `""` - реестр. */
 export function inBook(view: { book?: string }, book: string): boolean {
   return (view.book ?? "") === book;
 }

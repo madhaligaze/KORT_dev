@@ -1,17 +1,15 @@
 "use client";
 
 /**
- * «Разовые» - книга листов тех же договоров вида «Разовая услуга».
+ * Над книгой вида («Разовые ЮО» и любой сохранённый вид договоров): «Обновить»
+ * сводной таблицы и «По сотрудникам».
  *
- * Повторяет книгу юротдела BBC «Разовые» (27.09.2026): весь список, отборы
- * незавершённых по сроку («до 2 мес» … «6+ мес»), «Остатки» и две сводки по
- * сотрудникам. Листы - обычные листы реестра книги `oneoff` (правятся в
- * «Настроить реестр» → «Листы»), сводки по сотрудникам - здесь, из того же
- * хранилища: в книге это были формулы над листом «Разовые», и отдельного
- * хранения у них нет.
- *
- * «Оплачено» - из книги-сводки компании («Осн.Общая сводка BBC 2026»), как
- * колонка Q книги: по номеру договора и клиенту (`contracts/summary.py`).
+ * Вид договоров - книга листов тех же договоров (`core/views.py`). Его меры
+ * «Оплачено» и «Остаток» - из сводной таблицы компании по номеру договора и
+ * клиенту (`contracts/summary.py`), а у юрлица на KORT и у компании без
+ * сводной - из оплат KORT. Группировка «По сотрудникам» - здесь, из того же
+ * хранилища: в книге юротдела, откуда она пришла (27.09.2026), это были
+ * формулы над листом, и отдельного хранения у них нет.
  */
 import { useEffect, useMemo, useState } from "react";
 
@@ -38,35 +36,26 @@ export function useSummaryRefresh(): void {
 }
 
 /**
- * Над «Разовыми» - одна кнопка «Обновить» (29.09.2026).
+ * Над видом - одна кнопка «Обновить» (29.09.2026).
  *
- * Прежде здесь стояла строка «„Оплачено“ - из книги „Осн.Общая сводка BBC
- * 2026“, лист …, прочитана в …» - внутренняя логика, которую «знать и
- * читать никому не надо». Сводка перечитывается сама (`useSummaryRefresh`,
- * сервер держит книгу две минуты); кнопка - перечитать сейчас. Когда книга
- * прочитана, видно в подсказке кнопки. Отказ чтения - словами и розой:
- * иначе «Оплачено» стояло бы старым молча.
+ * Прежде здесь стояла строка «„Оплачено“ - из книги …, лист …, прочитана в
+ * …» - внутренняя логика, которую «знать и читать никому не надо». Сводка
+ * перечитывается сама (`useSummaryRefresh`, сервер держит таблицу две
+ * минуты); кнопка - перечитать сейчас. Когда таблица прочитана, видно в
+ * подсказке кнопки. Отказ чтения - словами и розой: иначе «Оплачено» стояло
+ * бы старым молча. Без сводной кнопки нет: оплаты - из KORT, перечитывать
+ * нечего (этап 2, шаг 6; прежде здесь звали «Подключить сводку оплат»).
  */
-export function SummaryLine({ onSetup }: { onSetup?: () => void }) {
+export function SummaryLine() {
   const source = useRegistry((s) => s.summarySource);
   const schemaSource = useRegistry((s) => s.schema?.summary ?? null);
   const ready = useRegistry((s) => s.phase === "ready");
   const [busy, setBusy] = useState(false);
   useSummaryRefresh();
   const shown: SummarySource | null = source ?? schemaSource;
-  if (!ready) return null;
-  if (!shown) {
-    // Не подключена - действие только тому, кто может подключить.
-    return onSetup ? (
-      <p className="creg-oneoff-line">
-        <button type="button" className="fin-link-btn" onClick={onSetup}>
-          Подключить сводку оплат
-        </button>
-      </p>
-    ) : null;
-  }
+  if (!ready || !shown) return null;
   return (
-    <p className="creg-oneoff-line">
+    <p className="creg-book-line">
       {shown.error ? <span className="fin-fail">{shown.error}</span> : null}
       <button
         type="button"
@@ -89,11 +78,12 @@ export function SummaryLine({ onSetup }: { onSetup?: () => void }) {
 }
 
 /**
- * Две сводки книги «Разовые» по сотрудникам: общая (все договоры) и «на
- * исполнении» с разбивкой суммы по месяцу строки в сводке. Считает
- * `staffTable` - тот же подсчёт, что у листа «По сотрудникам» в таблице.
+ * «По сотрудникам» книги вида двумя таблицами: общая (все договоры) и «на
+ * исполнении» с разбивкой суммы по месяцу - строки сводной таблицы, а без неё
+ * месяцу начисления. Считает `staffTable` - тот же подсчёт, что у листа «По
+ * сотрудникам» в таблице.
  */
-export function OneoffStaff() {
+export function BookStaff({ book }: { book: string }) {
   const schema = useRegistry((s) => s.schema);
   const byId = useRegistry((s) => s.byId);
   const order = useRegistry((s) => s.order);
@@ -106,8 +96,8 @@ export function OneoffStaff() {
   }, []);
 
   const data = useMemo(
-    () => staffTable({ schema, byId, order, people, parties, summary, shares }),
-    [schema, byId, order, people, parties, summary, shares],
+    () => staffTable({ schema, byId, order, people, parties, summary, shares }, book),
+    [schema, byId, order, people, parties, summary, shares, book],
   );
   if (!schema || !data) return null;
   const { rows, totals, months, older, olderOf } = data;
@@ -156,7 +146,7 @@ export function OneoffStaff() {
       </div>
       {totals.shared ? <p className="creg-staff-note">{sharedNote(totals.shared)}</p> : null}
 
-      <h2 className="creg-staff-title">На исполнении - по месяцу в сводке</h2>
+      <h2 className="creg-staff-title">На исполнении - {schema.summary ? "по месяцу в сводке" : "по месяцу начисления"}</h2>
       <div className="creg-staff-scroll">
         <table className="fin-table creg-staff-table">
           <thead>

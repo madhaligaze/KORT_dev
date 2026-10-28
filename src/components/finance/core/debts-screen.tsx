@@ -21,6 +21,7 @@ import { type ReactNode, useEffect, useState } from "react";
 
 import { can } from "@/components/finance/access";
 import {
+  type CoreView,
   type DebtAge,
   type DebtBasis,
   type DebtContract,
@@ -85,9 +86,14 @@ function agingLine(aging: DebtRow["aging"]): string {
 }
 
 /** Раздел «Долги»: долги по договорам и ожидания журнала. */
-export function DebtsSection({ me, expectations }: { me: Me; expectations: ReactNode }) {
+/**
+ * `view` - вид «Долги» (`core/views.py`): его сторона, основание и группа -
+ * выбор по умолчанию, отбор вида («отдел - ЮО») сужает договоры на сервере.
+ * Выбор человека у каждого вида свой.
+ */
+export function DebtsSection({ me, expectations, view }: { me: Me; expectations: ReactNode; view?: CoreView }) {
   const contracts = can(me, "contracts", "view");
-  const [view, setView] = useSessionState<"contracts" | "plans">("core.debts.view", "contracts");
+  const [shown, setShown] = useSessionState<"contracts" | "plans">("core.debts.view", "contracts");
   if (!contracts) return <>{expectations}</>;
   return (
     <div className="debts-screen">
@@ -98,22 +104,24 @@ export function DebtsSection({ me, expectations }: { me: Me; expectations: React
             ["plans", "Ожидания"],
           ] as ["contracts" | "plans", string][]
         ).map(([key, title]) => (
-          <button key={key} type="button" className="fin-chip" data-on={view === key ? "" : undefined} onClick={() => setView(key)}>
+          <button key={key} type="button" className="fin-chip" data-on={shown === key ? "" : undefined} onClick={() => setShown(key)}>
             {title}
           </button>
         ))}
       </nav>
-      {view === "contracts" ? <DebtsScreen me={me} /> : expectations}
+      {shown === "contracts" ? <DebtsScreen key={view?.key ?? ""} me={me} source={view} /> : expectations}
     </div>
   );
 }
 
-function DebtsScreen({ me }: { me: Me }) {
+function DebtsScreen({ me, source }: { me: Me; source?: CoreView }) {
   // Договор из списка открывается карточкой - ей нужен реестр.
   useRegistryBoot(me);
-  const [side, setSide] = useSessionState<DebtDirection>("core.debts.side", "receivable");
-  const [group, setGroup] = useSessionState<DebtGroup>("core.debts.group", "client");
-  const [basis, setBasis] = useSessionState<DebtBasis>("core.debts.basis", "accruals");
+  const scope = source?.key ? `.${source.key}` : "";
+  const preset = source?.params ?? {};
+  const [side, setSide] = useSessionState<DebtDirection>(`core.debts.side${scope}`, (preset.side as DebtDirection) || "receivable");
+  const [group, setGroup] = useSessionState<DebtGroup>(`core.debts.group${scope}`, (preset.group as DebtGroup) || "client");
+  const [basis, setBasis] = useSessionState<DebtBasis>(`core.debts.basis${scope}`, (preset.basis as DebtBasis) || "accruals");
   // Пусто - сегодня компании; день держится, пока вкладка открыта.
   const [day, setDay] = useSessionState("core.debts.day", "");
   const [text, setText] = useState(() => (day ? formatDay(day) : ""));
@@ -130,7 +138,7 @@ function DebtsScreen({ me }: { me: Me }) {
   useEffect(() => {
     const controller = new AbortController();
     coreApi
-      .debts({ side, group, basis, as_of: day || undefined }, { signal: controller.signal })
+      .debts({ side, group, basis, as_of: day || undefined, view: source?.key || undefined }, { signal: controller.signal })
       .then((next) => {
         setData(next);
         setError(next.error);
@@ -144,7 +152,7 @@ function DebtsScreen({ me }: { me: Me }) {
         if (!controller.signal.aborted) setAnswered(asked);
       });
     return () => controller.abort();
-  }, [side, group, basis, day, revision, asked]);
+  }, [side, group, basis, day, revision, asked, source?.key]);
 
   // Другая сторона или группа - другие строки: раскрытое прежде не значит ничего.
   const chooseSide = (key: DebtDirection) => {
