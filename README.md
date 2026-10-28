@@ -64,7 +64,7 @@ pnpm lint && pnpm build
 
 ## Деплой
 
-Как у PDF-CONVERTER: два репозитория, два сервиса Railway.
+Два репозитория, два сервиса Railway.
 
 | Репозиторий | Что в нём | Сервис Railway |
 | --- | --- | --- |
@@ -72,8 +72,7 @@ pnpm lint && pnpm build
 | [madhaligaze/KORT_backend](https://github.com/madhaligaze/KORT_backend) | содержимое `backend/` в корне | **API**: `Dockerfile`, миграции в ENTRYPOINT, проверка `/api/v1/health/live` |
 
 Правка в `backend/` пушится в оба: сначала сюда, потом те же файлы - в
-KORT_backend (`git subtree split --prefix=backend` или поштучно, как в
-PDF-CONVERTER).
+KORT_backend (`git subtree split --prefix=backend` или поштучно.
 
 ### Переменные
 
@@ -87,7 +86,7 @@ PDF-CONVERTER).
 
 | Переменная | Значение |
 | --- | --- |
-| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` - своя база KORT, не база PDF-CONVERTER |
+| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` - своя база KORT |
 | `ENVIRONMENT` | `production` |
 | `ALLOWED_ORIGINS` | публичный адрес фронта |
 | `FINANCE_SERVICE_ACCOUNT_JSON` | JSON сервисного аккаунта Google (в PDF-CONVERTER - `BBC_SERVICE_ACCOUNT_JSON`) |
@@ -95,7 +94,7 @@ PDF-CONVERTER).
 | `FINANCE_SUPPORT_BOT_TOKEN` | токен бота поддержки @kort_support_bot - только у API прода |
 | `FINANCE_SUPPORT_CHAT_ID` | закрытый канал поддержки «KORT support»: `-1004474041636` |
 
-### Данные с прода PDF-CONVERTER
+### Данные с прода
 
 После первого старта API (он создаст пустую схему):
 
