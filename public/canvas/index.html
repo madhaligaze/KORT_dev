@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KORT - холст</title>
+<!--
+  Второй фронт KORT (этап 2, шаг 7): простой холст только на вызовах API
+  модели - /finance/model/describe, ask, explain, propose, apply, undo,
+  changes. Ни одного маршрута экранов и ни одной правки сервера: проверка
+  того, что новый экран складывается из вызовов без новой работы на сервере.
+  Тема - та же, что выбрана в KORT (localStorage «theme»).
+-->
+<script>
+  try {
+    var stored = localStorage.getItem("theme");
+    if (stored === "light" || stored === "dark") document.documentElement.setAttribute("data-theme", stored);
+  } catch (e) {}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geologica:wght@300;400;600&family=Martian+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --paper: #f2f0e6;
+  --ink: #0e100f;
+  --soft: #5a5950;
+  --rule: #cdcabf;
+  --wash: #e6e3d8;
+  --loss: #a1344a;
+  --text: "Geologica", "Segoe UI", system-ui, sans-serif;
+  --mark: "Martian Mono", ui-monospace, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0e100f; --ink: #fffce1; --soft: #a7a592; --rule: #34362f; --wash: #181a17; --loss: #e57d90;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0e100f; --ink: #fffce1; --soft: #a7a592; --rule: #34362f; --wash: #181a17; --loss: #e57d90;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); font: 400 15px/1.5 var(--text); }
+button, input, select { font: inherit; color: inherit; }
+.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px; padding: 20px 24px 14px; border-bottom: 1px solid var(--ink); }
+.top h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
+.top .who { color: var(--soft); }
+.top .live { margin-left: auto; font-family: var(--mark); font-size: 12px; color: var(--soft); }
+.top .live[data-state="lost"] { color: var(--loss); }
+.ask { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 24px; border-bottom: 1px solid var(--rule); }
+.ask label { color: var(--soft); font-size: 13px; }
+.ask select, .ask input { background: transparent; border: 1px solid var(--rule); padding: 5px 8px; border-radius: 0; }
+.ask select option { background: var(--paper); color: var(--ink); }
+.btn { background: transparent; border: 1px solid var(--rule); padding: 5px 12px; cursor: pointer; border-radius: 0; }
+.btn:hover { border-color: var(--ink); }
+.btn.plate { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.board { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; padding: 16px 24px 48px; }
+.card { border: 1px solid var(--rule); background: var(--paper); display: flex; flex-direction: column; min-width: 0; }
+.card header { display: flex; align-items: baseline; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--rule); }
+.card header h2 { margin: 0; font-size: 16px; font-weight: 600; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.card header .src { font-family: var(--mark); font-size: 11px; color: var(--soft); }
+.card header .x { border: none; background: none; cursor: pointer; color: var(--soft); padding: 0 2px; }
+.card .meta { display: flex; gap: 12px; flex-wrap: wrap; padding: 8px 12px; color: var(--soft); font-size: 13px; }
+.card .meta input { background: transparent; border: 1px solid var(--rule); padding: 2px 6px; font-size: 13px; border-radius: 0; }
+.card .total { padding: 4px 12px 8px; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.card .total span { color: var(--soft); font-size: 13px; }
+.card table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.card td, .card th { padding: 5px 12px; border-top: 1px solid var(--rule); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.card th { color: var(--soft); font-weight: 400; }
+.card td.n, .card th.n { text-align: right; white-space: nowrap; }
+.card .more { padding: 6px 12px 10px; color: var(--soft); font-size: 12px; }
+.card .note { padding: 10px 12px; color: var(--soft); }
+.card .error { padding: 10px 12px; color: var(--loss); }
+.num { background: none; border: none; padding: 0; cursor: pointer; font-family: var(--mark); font-size: 12.5px; border-bottom: 1px dotted var(--soft); }
+.num:hover { border-bottom-color: var(--ink); }
+.plain { font-family: var(--mark); font-size: 12.5px; }
+.row-act { background: none; border: none; color: var(--soft); cursor: pointer; padding: 0; font-size: 12px; }
+.row-act:hover { color: var(--ink); }
+.veil { position: fixed; inset: 0; background: color-mix(in srgb, var(--paper) 70%, transparent); display: grid; place-items: center; padding: 16px; z-index: 10; }
+.veil[hidden] { display: none; }
+.dialog { width: min(640px, 100%); max-height: 86vh; overflow: auto; background: var(--paper); border: 1px solid var(--ink); }
+.dialog header { display: flex; gap: 8px; align-items: baseline; padding: 14px 16px; border-bottom: 1px solid var(--rule); }
+.dialog header h3 { margin: 0; font-size: 18px; font-weight: 600; flex: 1; }
+.dialog .body { padding: 12px 16px 16px; }
+.crumbs { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--soft); margin-bottom: 8px; }
+.crumbs button { background: none; border: none; padding: 0; cursor: pointer; color: var(--soft); text-decoration: underline; font-size: 12px; }
+.value { font-family: var(--mark); font-size: 22px; }
+.formula { color: var(--soft); margin: 2px 0 10px; }
+.parts { list-style: none; margin: 0; padding: 0; }
+.parts li { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; padding: 6px 0; border-top: 1px solid var(--rule); align-items: baseline; }
+.parts li .sign { font-family: var(--mark); color: var(--soft); }
+.parts li .what { min-width: 0; overflow-wrap: anywhere; }
+.parts li .fact { display: block; font-size: 12px; color: var(--soft); }
+.parts .inner { grid-column: 2 / 4; margin: 4px 0 0; padding-left: 10px; border-left: 1px solid var(--rule); }
+.check { margin-top: 10px; font-size: 13px; color: var(--soft); }
+.check[data-exact="false"] { color: var(--loss); }
+.form { display: grid; gap: 10px; }
+.form label { display: grid; gap: 4px; font-size: 13px; color: var(--soft); }
+.form input, .form select { background: transparent; border: 1px solid var(--rule); padding: 6px 8px; border-radius: 0; }
+.form select option { background: var(--paper); color: var(--ink); }
+.changes { margin: 8px 0; padding: 0; list-style: none; }
+.changes li { border-top: 1px solid var(--rule); padding: 6px 0; font-size: 13px; }
+.refusal { color: var(--loss); font-size: 13px; }
+.done { font-size: 13px; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.empty { padding: 40px 24px; color: var(--soft); }
+.empty a { color: inherit; }
+@media (max-width: 520px) {
+  .top, .ask, .board { padding-left: 16px; padding-right: 16px; }
+  .board { grid-template-columns: 1fr; }
+  .top .live { margin-left: 0; width: 100%; }
+}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Холст</h1>
+  <span class="who" id="who">-</span>
+  <span class="live" id="live">-</span>
+</div>
+<div class="ask" id="ask" hidden>
+  <label for="add-view">Вид</label>
+  <select id="add-view"></select>
+  <button class="btn" id="add">На холст</button>
+  <span style="flex-basis: 16px"></span>
+  <label for="add-source">Вопрос</label>
+  <select id="add-source"></select>
+  <select id="add-group"></select>
+  <select id="add-department"></select>
+  <button class="btn" id="add-question">Спросить</button>
+</div>
+<main class="board" id="board"></main>
+<div class="veil" id="veil" hidden><div class="dialog" id="dialog" role="dialog" aria-modal="true"></div></div>
+<script src="canvas.js"></script>
+</body>
+</html>
