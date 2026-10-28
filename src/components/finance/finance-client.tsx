@@ -541,9 +541,16 @@ function navKey(section: Section): Section {
   return registryOf(section)?.nav ?? section;
 }
 
-/** Раздел из адреса, хранилища или ссылки: известный, раздел вида или прежний адрес «Разовых». */
+/**
+ * Раздел из адреса, хранилища или ссылки: известный, раздел вида или прежний адрес «Разовых».
+ *
+ * «Реестр» (`contracts`) с 28.10 - пункт вида, а не строка колонки в коде, и
+ * без отдельной строки здесь его адрес не узнавался: «Скопировать ссылку» в
+ * карточке договора (`?s=contracts&id=…`) открывала «Сегодня».
+ */
 function sectionOf(value: string | null | undefined): Section | null {
   if (!value) return null;
+  if (value === "contracts") return "contracts";
   if (value in LEGACY_SECTIONS) return LEGACY_SECTIONS[value];
   if (STATIC_SECTIONS.some((item) => item.key === value)) return value as Section;
   return VIEW_SECTION.test(value) ? (value as Section) : null;
@@ -1891,11 +1898,15 @@ export function FinanceClient() {
             // Реестр - заголовком, его виды - рядом: «Карточки · Таблица».
             // Заголовок не пересобирается при смене вида (ключ - реестр и его
             // подпись): буквы поднимаются, только когда сменился сам реестр.
+            // Подпись в ключе - та, что показана (из схемы реестра), а не
+            // название пункта колонки: схема приходит позже видов, и по
+            // прямому адресу листа («?s=contracts-oneoff») буквы оставались
+            // от ключа - «oneoff» вместо «Разовые ЮО».
             // На узком окне заголовков нет - виды встают своим рядом под
             // лентой разделов (`fin-modes` ниже).
             <div className="fin-title-bar fin-reg-title">
               <SplitReveal
-                key={`title-${registry.nav}-${sectionItem?.title ?? ""}`}
+                key={`title-${registry.nav}-${bookTitle(registrySchema, registry.book)}`}
                 as="h1"
                 className="fin-section-title"
                 duration={0.9}
