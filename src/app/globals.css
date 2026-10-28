@@ -5570,6 +5570,25 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .intake-onec > * { max-width: 100%; }
 .intake-line { margin: 0; font-size: 0.8125rem; overflow-wrap: anywhere; }
 .intake-cols { margin: 0; overflow-wrap: anywhere; }
+/* Разметка таблицы отдела: лист, колонки шапки и что каждая значит. */
+.intake-layout { display: flex; flex-direction: column; align-items: flex-start; gap: 0.75rem; width: 100%; padding-top: 0.5rem; min-width: 0; }
+.intake-layout > * { max-width: 100%; }
+.intake-layout-sheet { display: flex; flex-direction: column; gap: 0.4rem; width: 100%; min-width: 0; }
+.intake-layout-cols { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 0.5rem 1rem; width: 100%; }
+.intake-layout-col { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.intake-layout-head { font-size: 0.75rem; color: var(--fin-text-soft); overflow-wrap: anywhere; }
+.intake-layout-select {
+  height: 1.875rem; max-width: 100%; padding: 0 0.5rem; border-radius: 0; border: 1px solid var(--fin-line);
+  /* Непрозрачный фон: полупрозрачный система кладёт на белое, и в тёмной теме список пустой. */
+  background-color: var(--bg-raised); color: var(--fin-text); font: inherit; font-size: 0.8125rem;
+}
+.intake-layout-select option { background-color: var(--bg-raised); color: var(--text-primary); }
+.intake-layout-go { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.intake-layout-plan { width: 100%; padding-top: 0.5rem; border-top: 1px solid var(--fin-line); }
+@media (max-width: 640px) {
+  .intake-layout-select { height: 2.75rem; font-size: 16px; }
+  .intake-layout-cols { grid-template-columns: minmax(0, 1fr); }
+}
 /* Вход из 1С в «Первых шагах»: шаги по базе, как у сводной таблицы. */
 .onec-start { display: flex; flex-direction: column; gap: 0.5rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--fin-line); min-width: 0; }
 .onec-start > * { max-width: 100%; }

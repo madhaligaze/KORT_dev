@@ -2774,11 +2774,75 @@ export type StartStep = "entities" | "contracts" | "since";
 /** Приёмник: форма строки листа (`intake/forms.py`). */
 export type IntakeForm = "participant" | "contract" | "contract_month" | "payment" | "document" | "balance";
 export type IntakeQuestion = {
-  kind: "form" | "hidden" | "column";
+  kind: "form" | "hidden" | "column" | "date_order";
   text: string;
   options?: { value: string; label: string; example?: string }[];
   lines?: number[];
   columns?: number[];
+};
+/** Разметка листа человеком (`intake/layout.py`): форма, колонки, порядок даты, чьи договоры. */
+export type IntakeLayout = {
+  form: string;
+  columns?: Record<string, string>;
+  date_order?: string;
+  executor?: string;
+  department?: string;
+  billing?: string;
+  as_of?: string;
+  month?: string;
+  hidden?: string;
+  skip?: boolean;
+  sheet?: string;
+};
+export type IntakeAnswers = { sheets: Record<string, IntakeLayout>; questions: Record<string, string> };
+export type IntakeFormInfo = { key: IntakeForm; title: string; fields: { key: string; title: string }[] };
+/** Вопрос предложения: разметка листа (`setup`) или данные (`questions`). */
+export type IntakeAsk = {
+  kind: string;
+  key?: string;
+  text: string;
+  sheet?: string;
+  line?: number;
+  layout?: boolean;
+  options?: { value: string; label: string; example?: string }[];
+};
+/** Что лист положит в модель (`core/excel.py`, `Proposal.to_dict`) - и где расходится с KORT. */
+export type IntakeProposal = {
+  sheet: string;
+  form: IntakeForm | "";
+  form_title: string | null;
+  rows: number;
+  setup: IntakeAsk[];
+  questions: IntakeAsk[];
+  refusals: { kind: string; text: string }[];
+  ready: boolean;
+  contracts: {
+    new: number;
+    same: number;
+    fill: number;
+    waiting: number;
+    items: { action: string; line?: number; name?: string; number?: string | null; known?: string; why?: string }[];
+  };
+  parties: Record<string, number>;
+  openings: {
+    as_of: string | null;
+    count: number;
+    debt: string | null;
+    items: { line: number; number: string | null; name: string; amount: string; kort: string | null; state: string; take: boolean }[];
+  };
+  ends: { line: number; number: string | null; name: string; end: string; kort: string | null; state: string }[];
+  compare: { kind: string; line?: number; sheet?: string; name?: string; number?: string | null; month?: string; file?: string | null; kort?: string | null; text?: string }[];
+  missing: string[];
+};
+export type IntakePlan = { file: string; sheets: IntakeProposal[] };
+export type IntakeApplied = IntakePlan & {
+  created: number;
+  filled: number;
+  aliases: number;
+  ended: number;
+  openings: number;
+  blocked: string[];
+  point: { id: string; title: string; kind: string } | null;
 };
 export type IntakeSheet = {
   sheet: string;
@@ -2794,8 +2858,13 @@ export type IntakeSheet = {
   questions: IntakeQuestion[];
   refusals: { kind: string; text: string }[];
   note?: string;
+  /** Шапка листа - для разметки; `layout` - разметка, запомненная компанией. */
+  header?: string[];
+  layout?: IntakeLayout;
+  /** Форма, которую кладёт в модель путь таблиц отделов (договор, договор за месяц, остаток на дату). */
+  excel?: boolean;
 };
-export type IntakeFile = { file: string; pdf?: boolean; error?: string; sheets: IntakeSheet[] };
+export type IntakeFile = { file: string; pdf?: boolean; error?: string; sheets: IntakeSheet[]; forms?: IntakeFormInfo[] };
 
 /** Вход из 1С (`core/onec_start.py`): что заведём из базы - по шагам. */
 export type OnecStartDraft = {
@@ -3104,6 +3173,20 @@ export const coreApi = {
     const form = new FormData();
     form.append("file", file);
     return request<IntakeFile>("/core/intake", { method: "POST", body: form });
+  },
+  /** Что таблица положит в модель по разметке - и где расходится с KORT. Ничего не пишет. */
+  intakePlan: (file: File, answers: IntakeAnswers) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("answers", JSON.stringify(answers));
+    return request<IntakePlan>("/core/intake/plan", { method: "POST", body: form });
+  },
+  /** Завести из таблицы пачкой с точкой восстановления; разметка запоминается словарём компании. */
+  intakeApply: (file: File, answers: IntakeAnswers) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("answers", JSON.stringify(answers));
+    return request<IntakeApplied>("/core/intake/apply", { method: "POST", body: form });
   },
   list: (q: string, show: ParticipantsShow = "all", init?: RequestInit) =>
     request<{ items: ParticipantHit[]; total: number }>(

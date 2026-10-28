@@ -10,11 +10,14 @@
  * задаст, и отказами. Реестр и выписка уходят в свой разбор тем же файлом.
  * Отчёты 1С - журналы реализаций и счетов, контрагенты, ОСВ - заводятся вместе
  * одной выгрузкой (`POST /core/onec-files`): база на каждую организацию, и
- * дальше «Из 1С» шагами. Остальное KORT пока только узнаёт - так и сказано.
+ * дальше «Из 1С» шагами. Таблицы отделов любой формы - лист, который KORT не
+ * понял, договор за месяц, остаток на дату - человек размечает один раз
+ * (`excel-layout.tsx`), и они заводятся предложением с числами до записи.
  */
 import { useRef, useState } from "react";
 
 import { type IntakeFile, type IntakeSheet, type OnecFilesResult, coreApi } from "@/components/finance/api";
+import { ExcelLayout } from "@/components/finance/core/excel-layout";
 import { handOff } from "@/components/finance/core/hand-off";
 import { openSection } from "@/components/finance/core/open";
 import { plural } from "@/components/finance/format";
@@ -172,8 +175,18 @@ function OnecSent({ result }: { result: OnecFilesResult }) {
 
 function FileLine({ item, onec }: { item: Item; onec: boolean }) {
   const result = item.result;
-  const forms = new Set((result?.sheets ?? []).map((sheet) => sheet.form));
+  const [marking, setMarking] = useState(false);
+  // Лист, размеченный человеком, - таблица отдела, а не реестр для своего разбора.
+  const plain = (result?.sheets ?? []).filter((sheet) => !sheet.layout);
+  const forms = new Set(plain.map((sheet) => sheet.form));
   const target = forms.has("contract") ? "registry" : forms.has("payment") ? "statement" : null;
+  // Таблица отдела: лист, которого KORT не понял, размеченный раньше, договор за месяц,
+  // остаток на дату («Долги на 01.06» - это может быть и ОСВ 1С, и таблица отдела: решает человек).
+  const table =
+    !result?.pdf &&
+    (result?.sheets ?? []).some(
+      (sheet) => !sheet.form || sheet.layout || sheet.form === "contract_month" || sheet.form === "balance" || (sheet.excel && !target),
+    );
   return (
     <li className="intake-file">
       <p className="intake-file-name">{item.file.name}</p>
@@ -181,23 +194,31 @@ function FileLine({ item, onec }: { item: Item; onec: boolean }) {
       {!result && !item.error ? <p className="start-note">читаем…</p> : null}
       {result?.sheets.map((sheet) => <SheetLine key={sheet.sheet} sheet={sheet} single={result.sheets.length === 1} />)}
       {result && !result.error ? (
-        target ? (
-          <button
-            type="button"
-            className="btn-ghost start-go"
-            onClick={() => {
-              handOff(target, item.file);
-              openSection({ section: target === "registry" ? "contracts-import" : "import" });
-            }}
-          >
-            {target === "registry" ? "Загрузить как реестр" : "Загрузить как выписку"}
-          </button>
-        ) : onec ? (
-          <p className="start-note">Отчёт 1С - заводится вместе с другими кнопкой «Завести из 1С»</p>
-        ) : (
-          <p className="start-note">Такие строки KORT пока только узнаёт - заводить их отсюда нельзя</p>
-        )
+        <div className="intake-layout-go">
+          {target ? (
+            <button
+              type="button"
+              className="btn-ghost start-go"
+              onClick={() => {
+                handOff(target, item.file);
+                openSection({ section: target === "registry" ? "contracts-import" : "import" });
+              }}
+            >
+              {target === "registry" ? "Загрузить как реестр" : "Загрузить как выписку"}
+            </button>
+          ) : null}
+          {table && !marking ? (
+            <button type="button" className="btn-ghost start-go" onClick={() => setMarking(true)}>
+              {target || onec ? "Это таблица отдела" : "Разметить таблицу"}
+            </button>
+          ) : null}
+          {onec ? <p className="start-note">Отчёт 1С - заводится вместе с другими кнопкой «Завести из 1С»</p> : null}
+          {!target && !table && !onec ? (
+            <p className="start-note">Такие строки KORT пока только узнаёт - заводить их отсюда нельзя</p>
+          ) : null}
+        </div>
       ) : null}
+      {marking && result ? <ExcelLayout file={item.file} described={result} /> : null}
     </li>
   );
 }
