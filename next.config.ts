@@ -32,9 +32,7 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: SECURITY_HEADERS }];
   },
-  // KORT выделен из раздела «Финансы» (/finance) PDF-CONVERTER. Разосланные
-  // ссылки-приглашения вида /finance?phone=… должны приводить ко входу:
-  // адрес меняется, параметры остаются.
+  //
   async redirects() {
     return [{ source: "/finance", destination: "/", permanent: false }];
   },

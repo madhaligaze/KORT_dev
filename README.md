@@ -89,7 +89,7 @@ KORT_backend (`git subtree split --prefix=backend` или поштучно.
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` - своя база KORT |
 | `ENVIRONMENT` | `production` |
 | `ALLOWED_ORIGINS` | публичный адрес фронта |
-| `FINANCE_SERVICE_ACCOUNT_JSON` | JSON сервисного аккаунта Google (в PDF-CONVERTER - `BBC_SERVICE_ACCOUNT_JSON`) |
+| `FINANCE_SERVICE_ACCOUNT_JSON` | JSON сервисного аккаунта Google - `BBC_SERVICE_ACCOUNT_JSON`) |
 | `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` / `_KEY` | по желанию, распознавание сканов |
 | `FINANCE_SUPPORT_BOT_TOKEN` | токен бота поддержки @kort_support_bot - только у API прода |
 | `FINANCE_SUPPORT_CHAT_ID` | закрытый канал поддержки «KORT support»: `-1004474041636` |
@@ -99,7 +99,7 @@ KORT_backend (`git subtree split --prefix=backend` или поштучно.
 После первого старта API (он создаст пустую схему):
 
 ```
-SOURCE_DATABASE_URL=<база PDF-CONVERTER> TARGET_DATABASE_URL=<база KORT>   bash backend/scripts/copy_from_pdf_converter.sh
+SOURCE_DATABASE_URL=<база> TARGET_DATABASE_URL=<база KORT>   bash backend/scripts/copy_from_pdf_converter.sh
 ```
 
 Скрипт переносит схему `finance` целиком, ставит ревизию 0023, сверяет счёт
