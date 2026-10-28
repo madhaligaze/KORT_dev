@@ -47,6 +47,9 @@ const ME = `${FINANCE}/auth/me`;
 const LOGOUT = `${FINANCE}/auth/logout`;
 const CONTRACTS = `${FINANCE}/contracts`;
 const CHANGES = `${CONTRACTS}/changes`;
+/** API модели (этап 2, шаг 7): подписка и схема компании - шлюз первым из клиентов на вызовах. */
+const MODEL_CHANGES = `${FINANCE}/model/changes`;
+const DESCRIBE = `${FINANCE}/model/describe`;
 /** Готовность API вместе с базой: живой процесс без базы - тоже «нет связи». */
 const READY = "/api/v1/health/ready";
 const SESSION_COOKIE = "fin_session";
@@ -62,6 +65,10 @@ const PROBE_EVERY = 3_000;
 const FLUSH_EVERY = 3_000;
 /** Прочитать реестр заранее, если человек давно его не открывал. */
 const WARM_EVERY = 10 * 60_000;
+/** Подписка: сервер держит запрос до 25 с, пока ничего не изменилось. */
+const FOLLOW_WAIT = 25;
+/** После сбоя подписки - пауза, а не частый стук. */
+const FOLLOW_RETRY = 5_000;
 
 const WRITE_OFFLINE = "Нет связи с сервером. Без связи это не выполнить - попробуйте, когда связь вернётся.";
 const READ_OFFLINE =
@@ -90,6 +97,11 @@ type Batch = {
   people?: Record<string, unknown>;
 };
 type All = Batch & { contracts: { id: string }[] };
+type Follow = { cookie: string; cursor: string | null; stop: boolean };
+type ModelChanges = {
+  cursor?: string;
+  contracts?: { removed?: string[]; rows?: { id: string }[]; parties?: Record<string, unknown>; people?: Record<string, unknown>; seq?: number };
+};
 
 class Unreached extends Error {}
 
@@ -170,7 +182,7 @@ function parse<T>(text: string): T | null {
 
 /** Сохраняется только то, что можно показать без связи: чтение учёта, а не файлы и не опрос. */
 function cacheable(path: string): boolean {
-  if (!path.startsWith(`${FINANCE}/`) || path === CHANGES) return false;
+  if (!path.startsWith(`${FINANCE}/`) || path === CHANGES || path === MODEL_CHANGES) return false;
   if (path.startsWith(`${FINANCE}/auth/`)) return path === ME;
   return !/\.(xlsx|xls|pdf|csv|zip|ogg|webm)$/i.test(path);
 }
@@ -189,6 +201,8 @@ export class Gateway {
   /** Лист → когда реестр читали заранее и когда он сам освежался опросом. */
   private warmedAt = new Map<string, number>();
   private freshAt = new Map<string, number>();
+  /** Учётка → подписка на изменения: реестр свежий, даже когда окно на другом разделе. */
+  private follows = new Map<string, Follow>();
 
   constructor(private readonly options: Options) {
     this.upstream = options.upstreams[0];
@@ -240,6 +254,8 @@ export class Gateway {
   }
 
   stop(): void {
+    for (const follow of this.follows.values()) follow.stop = true;
+    this.follows.clear();
     this.flush();
     if (this.probing) clearInterval(this.probing);
     this.server?.close();
@@ -499,7 +515,11 @@ export class Gateway {
       }
       this.put(`cache/${owner}`, ME, type, text);
       const access = me.access?.contracts;
-      if (access && access !== "none") this.warm(owner, token ? `${SESSION_COOKIE}=${token}` : cookie);
+      if (access && access !== "none") {
+        const own = token ? `${SESSION_COOKIE}=${token}` : cookie;
+        this.warm(owner, own);
+        this.follow(owner, own);
+      }
       return;
     }
     if (!account) return;
@@ -557,6 +577,9 @@ export class Gateway {
   }
 
   private forget(account: string): void {
+    const follow = this.follows.get(account);
+    if (follow) follow.stop = true;
+    this.follows.delete(account);
     for (const scope of [...this.registries.keys()]) if (scope.startsWith(`cache/${account}/`)) this.registries.delete(scope);
     this.companies.delete(account);
     this.options.vault.drop(`cache/${account}`);
@@ -574,7 +597,7 @@ export class Gateway {
     if (Date.now() - last < WARM_EVERY) return;
     this.warmedAt.set(scope, Date.now());
     void (async () => {
-      for (const rest of [`${CONTRACTS}/schema`, CONTRACTS, `${CONTRACTS}/people`]) {
+      for (const rest of [`${CONTRACTS}/schema`, CONTRACTS, `${CONTRACTS}/people`, DESCRIBE]) {
         try {
           const answer = await fetch(`${this.upstream}${rest}`, {
             headers: { cookie, "x-kort-desktop": this.options.version },
@@ -588,6 +611,81 @@ export class Gateway {
           return;
         }
       }
+    })();
+  }
+
+  /**
+   * Подписка шлюза на изменения (API модели, `GET /model/changes`): сервер
+   * держит запрос, пока ничего не изменилось, и отвечает сразу после правки.
+   * Изменённые договоры ложатся в сохранённый реестр, как ответ опроса
+   * страницы, - но и тогда, когда окно открыто не на реестре. Начинается с
+   * номера сохранённого реестра (`contracts_since`): правки между ним и
+   * подпиской не теряются. Сервер без API модели (404), выход (401), другая
+   * версия (409) - подписка останавливается, реестр держат опрос страницы и
+   * чтение заранее, как раньше.
+   */
+  private follow(account: string, cookie: string): void {
+    const known = this.follows.get(account);
+    if (known) {
+      known.cookie = cookie;
+      return;
+    }
+    const state: Follow = { cookie, cursor: null, stop: false };
+    this.follows.set(account, state);
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    void (async () => {
+      while (!state.stop) {
+        if (!this.status.online) {
+          await pause(FOLLOW_RETRY);
+          continue;
+        }
+        const scope = this.scopeOf(account);
+        let query: string;
+        if (state.cursor) query = `?cursor=${encodeURIComponent(state.cursor)}&wait=${FOLLOW_WAIT}&include=contracts`;
+        else {
+          const seq = this.registries.get(scope)?.all.seq ?? parse<All>(this.get(scope, CONTRACTS)?.body ?? "")?.seq;
+          query = seq !== undefined ? `?contracts_since=${seq}&include=contracts` : "";
+        }
+        try {
+          const answer = await fetch(`${this.upstream}${MODEL_CHANGES}${query}`, {
+            headers: { cookie: state.cookie, "x-kort-desktop": this.options.version, "x-kort-model": "1" },
+            cache: "no-store",
+            signal: AbortSignal.timeout((FOLLOW_WAIT + 15) * 1000),
+          });
+          if (edge(answer)) {
+            await answer.body?.cancel();
+            await pause(FOLLOW_RETRY);
+            continue;
+          }
+          if ([401, 403, 404, 409].includes(answer.status)) {
+            await answer.body?.cancel();
+            this.options.log(`подписка остановлена: ${answer.status}`);
+            break;
+          }
+          if (!answer.ok) {
+            await answer.body?.cancel();
+            await pause(FOLLOW_RETRY);
+            continue;
+          }
+          const body = parse<ModelChanges>(await answer.text());
+          if (state.stop || !body) continue;
+          const batch = body.contracts;
+          if (batch && (batch.rows?.length || batch.removed?.length || batch.seq !== undefined)) {
+            this.overlay(this.scopeOf(account), {
+              contracts: batch.rows ?? [],
+              removed: batch.removed ?? [],
+              parties: batch.parties,
+              people: batch.people,
+              seq: batch.seq,
+            });
+            this.freshAt.set(this.scopeOf(account), Date.now());
+          }
+          if (body.cursor) state.cursor = body.cursor;
+        } catch {
+          await pause(FOLLOW_RETRY);
+        }
+      }
+      if (this.follows.get(account) === state) this.follows.delete(account);
     })();
   }
 }
