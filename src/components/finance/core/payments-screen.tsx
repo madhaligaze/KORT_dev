@@ -35,6 +35,8 @@ const NO_CATEGORY = "\u0000";
 
 const WHY: Record<PaymentWithout["candidates"][number]["why"], string> = {
   спор: "спор",
+  "за другого": "плательщик - не сторона договора",
+  возврат: "возврат клиенту",
   номер: "по номеру",
   клиент: "тот же клиент",
   сумма: "та же сумма",
@@ -385,6 +387,25 @@ function Without({ data, onOpen, onDecided }: { data: PaymentsView; onOpen: (id:
       setBusy("");
     }
   };
+  /** Разделить, как в 1С: часть каждому договору (О2). */
+  const split = async (item: PaymentWithout) => {
+    const parts = item.split ?? [];
+    setBusy(item.operation_id);
+    setError("");
+    try {
+      await coreApi.paymentSplit(item.operation_id, parts.map((part) => ({ contract_id: part.id, amount: part.amount })));
+      setGone((current) => new Set(current).add(item.operation_id));
+      onDecided(
+        `Оплата ${formatDay(item.paid_at)} на ${money(item.amount)} - ${parts
+          .map((part) => `${bareNumber(part.number) || "без номера"} ${money(part.amount)}`)
+          .join(", ")}`,
+      );
+    } catch (exc) {
+      setError(messageOf(exc, "Не записалось"));
+    } finally {
+      setBusy("");
+    }
+  };
   const hiddenText = [
     hidden?.own ? `переводы со своих юрлиц ${hidden.own}` : "",
     hidden?.ignored ? `не оплаты по договорам ${hidden.ignored}` : "",
@@ -425,7 +446,7 @@ function Without({ data, onOpen, onDecided }: { data: PaymentsView; onOpen: (id:
       {items.map((item) => (
         <div key={item.operation_id} className="paid-item" data-id={item.operation_id}>
           <span className="paid-item-when fin-mono">{formatDay(item.paid_at)}</span>
-          <span className="paid-item-sum">{money(item.amount)}</span>
+          <span className="paid-item-sum">{money(item.direction === "out" ? `-${item.amount}` : item.amount)}</span>
           <span className="paid-item-who">
             <span>
               {item.payer || "плательщик не указан"}
@@ -436,6 +457,12 @@ function Without({ data, onOpen, onDecided }: { data: PaymentsView; onOpen: (id:
             <small className="fin-muted">{[item.account, item.category].filter(Boolean).join(" · ")}</small>
           </span>
           <span className="paid-item-acts">
+            {item.split?.length ? (
+              <button type="button" className="fin-link-btn" disabled={busy === item.operation_id} onClick={() => void split(item)}>
+                Разделить, как в 1С:{" "}
+                {item.split.map((part) => `${bareNumber(part.number) || "без номера"} ${money(part.amount)}`).join(" · ")}
+              </button>
+            ) : null}
             {item.candidates.map((candidate) => (
               <span key={candidate.id} className="paid-candidate">
                 <button
@@ -444,7 +471,7 @@ function Without({ data, onOpen, onDecided }: { data: PaymentsView; onOpen: (id:
                   disabled={busy === item.operation_id}
                   onClick={() => void decide(item, "link", candidate.id, candidate.number)}
                 >
-                  К {bareNumber(candidate.number) || "договору"}
+                  {candidate.why === "возврат" ? "Возврат по" : "К"} {bareNumber(candidate.number) || "договору"}
                 </button>
                 <button type="button" className="fin-link-btn fin-muted" onClick={() => onOpen(candidate.id)}>
                   {candidate.customer || "договор"}

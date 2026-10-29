@@ -1659,7 +1659,7 @@ export type ContractImportBatch = {
     sections: ContractImportSection[];
     blocking: string[];
     totals: { create: number; update: number; main_rows: number };
-    result?: { created: number; failed: { ref: string; error: string }[] };
+    result?: { created: number; updated?: number; failed: { ref: string; error: string }[] };
   };
 };
 
@@ -1874,7 +1874,7 @@ export const contractsApi = {
     decide: (id: string, decisions: Record<string, unknown>) =>
       request<ContractImportBatch>(`${C}/imports/${id}/decide`, { method: "POST", body: JSON.stringify({ decisions }) }),
     apply: (id: string) =>
-      request<{ result: { created: number; failed: { ref: string; error: string }[] } }>(
+      request<{ result: { created: number; updated?: number; failed: { ref: string; error: string }[] } }>(
         `${C}/imports/${id}/apply`,
         { method: "POST" },
       ),
@@ -2663,7 +2663,17 @@ export type PaymentWithout = {
   contract_ref: string;
   hint: [string, string] | null;
   disputed: boolean;
-  candidates: { id: string; number: string; customer: string; executor_id: string | null; why: "спор" | "номер" | "клиент" | "сумма" }[];
+  /** `out` - возврат клиенту, к которому KORT предлагает договор (О6). */
+  direction?: "in" | "out";
+  candidates: {
+    id: string;
+    number: string;
+    customer: string;
+    executor_id: string | null;
+    why: "спор" | "за другого" | "возврат" | "номер" | "клиент" | "сумма";
+  }[];
+  /** Части, как бухгалтер разделил ту же оплату в 1С (О2). */
+  split?: { id: string; number: string; amount: string }[];
 };
 
 /** Основание долга и сальдо: по начислениям (что должен по договору) или по АВР (по выставленным актам). */
@@ -3373,6 +3383,11 @@ export const coreApi = {
     request<{ operation_id: string; action: string; contract_id: string | null }>(`/core/payments/${operationId}/decide`, {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+  paymentSplit: (operationId: string, parts: { contract_id: string; amount: string }[]) =>
+    request<{ operation_id: string; parts: { contract_id: string; amount: string }[] }>(`/core/payments/${operationId}/split`, {
+      method: "POST",
+      body: JSON.stringify({ parts }),
     }),
   setOpening: (contractId: string, amount: string | null, basis: DebtBasis = "accruals") =>
     request<{ ok: boolean }>(`/core/contracts/${contractId}/opening`, { method: "PUT", body: JSON.stringify({ amount, basis }) }),

@@ -33,9 +33,11 @@ import {
   BlocksStep,
   DiffsStep,
   HiddenStep,
+  KnownStep,
   amountsSummary,
   binsSummary,
   hiddenSummary,
+  knownSummary,
   EndDatesStep,
   NumbersStep,
   OrphansStep,
@@ -53,6 +55,7 @@ import {
   type AmountItem,
   type BinItem,
   type HiddenItem,
+  type KnownItem,
   dictOf,
   isReversed,
   sectionOf,
@@ -302,6 +305,9 @@ function Protocol({
   const amounts = items<AmountItem>("amounts");
   const hiddenDecided = decisions.hidden === "skip" || decisions.hidden === "take";
   const orphans = items<OrphanItem>("orphans");
+  const known = items<KnownItem>("known");
+  const knownChosen = dictOf<string>(decisions, "known");
+  const knownOpen = known.filter((item) => item.question && !knownChosen[item.ref]).length;
   const loose = (sectionOf(report, "orphans")?.loose ?? []) as LooseItem[];
   const numberOnly = (sectionOf(report, "orphans")?.number_only ?? []) as LooseItem[];
   const rulesPending = pendingRules((sectionOf(report, "rules")?.pending ?? []) as string[], decisions);
@@ -328,6 +334,7 @@ function Protocol({
     if (key === "entities") return !confirmed;
     if (key === "rules") return rulesPending.length > 0;
     if (key === "hidden") return !hiddenDecided;
+    if (key === "known") return knownOpen > 0;
     return true;
   });
 
@@ -355,6 +362,7 @@ function Protocol({
     bins: binsSummary(bins),
     amounts: amountsSummary(amounts),
     orphans: orphansSummary(orphans, loose, numberOnly, decisions),
+    known: knownSummary(known, decisions),
     diffs: diffsSummary(diffs, mainSheet, decisions),
     rules: rulesSummary(rules),
   };
@@ -363,6 +371,7 @@ function Protocol({
     entities: confirmed ? undefined : "ждёт решения",
     rules: rulesPending.length ? `ждут решения: ${rulesPending.length}` : undefined,
     hidden: hidden.length && !hiddenDecided ? "ждёт решения" : undefined,
+    known: knownOpen ? `ждут решения: ${knownOpen}` : undefined,
   };
   const titleOf = (key: SectionKey) => sectionOf(report, key)?.title ?? key;
   const anchor = (key: SectionKey) => `${idBase}-${key}`;
@@ -460,6 +469,7 @@ function Protocol({
         decide={decide}
       />
     ),
+    known: <KnownStep items={known} decisions={decisions} decide={decide} />,
     diffs: <DiffsStep items={diffs} mainSheet={mainSheet} decisions={decisions} decide={decide} />,
     rules: <RulesStep items={rules} statuses={statuses} subjects={subjects} decisions={decisions} decide={decide} />,
   };

@@ -41,6 +41,7 @@ import {
   type EndDateItem,
   type HiddenChoice,
   type HiddenItem,
+  type KnownItem,
   type LooseItem,
   type NumberItem,
   type OrphanItem,
@@ -968,6 +969,94 @@ export function BinsStep({ items }: { items: BinItem[] }) {
             <li key={item.name} className={styles.row}>
               <span className={styles.grow}>{item.name}</span>
               <span className="fin-mono">{item.bin}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+// ── Уже в KORT ───────────────────────────────────────────────────────────────
+
+/** Что строка допишет найденному договору - словами полей. */
+const FILL_WORDS: Record<string, string> = {
+  number: "номер",
+  signed_at: "дата",
+  amount: "сумма",
+  department: "отдел",
+  people: "ответственные",
+  note: "примечание",
+  subject: "предмет",
+};
+
+export function knownSummary(items: KnownItem[], decisions: Decisions): string {
+  if (!items.length) return "договоров KORT в файле нет";
+  const chosen = dictOf<string>(decisions, "known");
+  const open = items.filter((item) => item.question && !chosen[item.ref]).length;
+  const differ = items.filter((item) => item.compare.length).length;
+  return [
+    `${items.length} ${plural(items.length, "строка нашла", "строки нашли", "строк нашли")} свой договор`,
+    differ ? `расходится ${differ}` : "",
+    open ? `вопросов ${open}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+export function KnownStep({ items, decisions, decide }: { items: KnownItem[]; decisions: Decisions; decide: Decide }) {
+  if (!items.length) return <p className="fin-soft">Договоров, которые KORT уже знает, в файле нет</p>;
+  const chosen = dictOf<string>(decisions, "known");
+  const asked = items.filter((item) => item.question);
+  const differ = items.filter((item) => !item.question && item.compare.length);
+  const quiet = items.filter((item) => !item.question && !item.compare.length);
+  return (
+    <div className={styles.stack}>
+      <p className={styles.line}>
+        Эти договоры KORT уже знает - из 1С или прежней загрузки. Второй раз они не заведутся: файл допишет только
+        пустое. Где файл расходится с KORT, KORT считает своё.
+      </p>
+      {asked.map((item) => (
+        <div key={item.ref} className={styles.stack}>
+          <p className={styles.line}>{item.question?.text}</p>
+          <ChoiceLine
+            label={`${item.name} ${item.number ?? ""}`.trim()}
+            items={item.question?.options ?? []}
+            value={chosen[item.ref] ?? null}
+            onChange={(next) => decide({ known: { [item.ref]: next } })}
+          />
+        </div>
+      ))}
+      {differ.length ? (
+        <table className="proto-table">
+          <thead>
+            <tr>
+              <th>Договор</th>
+              <th>В файле</th>
+              <th>У KORT</th>
+              <th>Что это</th>
+            </tr>
+          </thead>
+          <tbody>
+            {differ.flatMap((item) =>
+              item.compare.map((line, index) => (
+                <tr key={`${item.ref}-${index}`}>
+                  <td>{[item.number, item.name].filter(Boolean).join(" · ")}</td>
+                  <td className="fin-mono">{line.file ?? "-"}</td>
+                  <td className="fin-mono">{line.kort ?? "-"}</td>
+                  <td>{line.text}</td>
+                </tr>
+              )),
+            )}
+          </tbody>
+        </table>
+      ) : null}
+      {quiet.length ? (
+        <ul className={styles.rows}>
+          {quiet.map((item) => (
+            <li key={item.ref} className={styles.row}>
+              <span className={styles.grow}>{[item.number ?? "без номера", item.name].join(" · ")}</span>
+              <span className="fin-soft">{item.fill.length ? `допишется: ${item.fill.map((key) => FILL_WORDS[key] ?? key).join(", ")}` : "без изменений"}</span>
             </li>
           ))}
         </ul>

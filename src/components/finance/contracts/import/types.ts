@@ -14,7 +14,7 @@ export type Report = ContractImportBatch["report"];
 
 /** Порядок пунктов протокола - порядок `importer.report`. */
 export const SECTION_KEYS = [
-  "blocks", "columns", "entities", "statuses", "end_dates", "numbers", "hidden", "bins", "amounts", "orphans", "diffs", "rules",
+  "blocks", "columns", "entities", "statuses", "end_dates", "numbers", "hidden", "bins", "amounts", "orphans", "known", "diffs", "rules",
 ] as const;
 export type SectionKey = (typeof SECTION_KEYS)[number];
 
@@ -121,6 +121,22 @@ export type HiddenChoice = "skip" | "take";
 /** Сумма не числом («1,5 млн»): ляжет «Условием суммы», начислений не будет. */
 export type AmountItem = { ref: string; number: string | null; customer: string | null; sheet: string; line: number | null; text: string };
 export type BinItem = { name: string; bin: string; refused: { ref: string; raw: string; error: string }[]; conflict: string[] };
+/**
+ * Строка, чей договор KORT уже знает (1С, прежняя загрузка): не заводится
+ * второй раз, дописывает пустое. `how`: `number` - по номеру у юрлица,
+ * `only` - единственный договор стороны без номера («Основной договор» 1С).
+ */
+export type KnownItem = {
+  ref: string;
+  contract_id: string;
+  how: "number" | "only";
+  number: string | null;
+  name: string;
+  fill: string[];
+  compare: { field: string; file: string | null; kort: string | null; text: string }[];
+  question: { kind: string; key: string; text: string; options: { value: string; label: string }[] } | null;
+  answer?: string | null;
+};
 export type RuleAction = "accept" | "rule" | "empty";
 
 /**

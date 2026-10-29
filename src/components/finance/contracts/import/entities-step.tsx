@@ -159,7 +159,15 @@ export function EntitiesStep({
 
 export function entitiesSummary(items: EntityItem[], decisions: Decisions): string {
   const entities = dictOf(decisions, "entities");
-  const chosen = Array.isArray(entities.own) ? (entities.own as string[]) : null;
-  const own = chosen ? chosen.length : items.filter((item) => item.own).length;
-  return `${own} ${plural(own, "юрлицо", "юрлица", "юрлиц")} из ${items.length} ${plural(items.length, "кандидата", "кандидатов", "кандидатов")}`;
+  const chosen = Array.isArray(entities.own) ? new Set(entities.own as string[]) : null;
+  const picked = items.filter((item) => (chosen ? chosen.has(item.key) : item.own));
+  // Два написания одного знакомого юрлица («Тумар Сервис» и «ТОО "Тумар Сервис"») - одно юрлицо.
+  const own = new Set(picked.map((item) => item.known ?? item.key)).size;
+  const known = new Set(picked.filter((item) => item.known).map((item) => item.known)).size;
+  return [
+    `${own} ${plural(own, "юрлицо", "юрлица", "юрлиц")} из ${items.length} ${plural(items.length, "кандидата", "кандидатов", "кандидатов")}`,
+    known ? `уже в KORT ${known}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
