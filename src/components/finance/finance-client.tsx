@@ -265,7 +265,7 @@ function NoSections({ onCabinet }: { onCabinet: () => void }) {
 /**
  * Табличный вид грузится только по требованию: Univer тянет за собой канвас и
  * при импорте обращается к `window`, поэтому серверная отрисовка его роняет
- * («Path2D is not defined»). Тот же приём, что в «Книгах» и «Таблицах».
+ * («Path2D is not defined»).
  */
 const TableView = dynamic(() => import("./table-view").then((m) => m.TableView), {
   ssr: false,
@@ -1295,8 +1295,7 @@ export function FinanceClient() {
    * разделе, и по нему обновляются и сводка слева, и открытый экран.
    *
    * Счётчик, а не флаг: два изменения подряд с флагом дали бы одну
-   * перезагрузку, и вторая правка осталась бы не видна - та же ошибка, что
-   * ловили в «Книгах» на быстром наборе.
+   * перезагрузку, и вторая правка осталась бы не видна на быстром наборе.
    */
   const [revision, setRevision] = useState(0);
   const reload = useCallback(() => setRevision((value) => value + 1), []);
