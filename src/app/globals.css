@@ -1694,10 +1694,7 @@ label.auth-row-label { cursor: pointer; }
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
 }
-@media (min-width: 768px) {
-  /* Колонка тянется на всю высоту ряда - подложка и линия до низа плиты. */
-  .fin-plate { grid-template-columns: auto minmax(0, 1fr); align-items: stretch; }
-}
+/* С 31.10.2026 колонки нет: места - строкой над разделом (`.fin-places`). */
 
 /* ─── Внутренний слой колонки ─── */
 .fin-aside-inner { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
@@ -2102,23 +2099,50 @@ label.auth-row-label { cursor: pointer; }
 }
 .fin-tabs::-webkit-scrollbar { display: none; }
 
-@media (max-width: 767.98px) {
-  /* Лента на узком окне прилипает к верху - ровно как колонка на широком:
-     в длинном журнале до вкладок не нужно листать обратно. Подложка плиты
-     под лентой, чтобы строки не просвечивали сквозь неё. */
-  .fin-tabs {
-    position: sticky;
-    top: var(--fin-head-h, 0px);
-    z-index: 20;
-    background: var(--fin-plate);
-  }
+/* Строка мест прилипает к шапке на любой ширине: в длинном реестре до мест не
+   нужно листать обратно. Подложка плиты под строкой, чтобы строки раздела не
+   просвечивали; «Ещё» - листом под строкой, вне прокрутки ленты. */
+.fin-places {
+  position: sticky;
+  top: var(--fin-head-h, 0px);
+  z-index: 20;
+  background: var(--fin-plate);
+  border-bottom: 1px solid var(--fin-line);
 }
 @media (min-width: 768px) {
-  /* Разделы живут в колонке слева, лента остаётся телефону. Правило стоит
-     ПОСЛЕ объявления `.fin-tabs`: то же правило выше по файлу проигрывало по
-     порядку, и на десктопе показывались обе навигации сразу. */
-  .fin-tabs { display: none; }
+  .fin-tabs { padding: 0.75rem 1.5rem 0.25rem; }
 }
+.fin-more {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 1rem;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 17rem;
+  max-width: calc(100vw - 2rem);
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 0.35rem 0;
+  background: var(--fin-plate);
+  border: 1px solid var(--fin-text);
+  border-radius: var(--radius-card);
+}
+.fin-more-row { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding: 0 0.9rem; }
+.fin-more-row .fin-link-btn { font-size: 0.75rem; white-space: nowrap; }
+.fin-more-item {
+  flex: 1;
+  padding: 0.45rem 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.9375rem;
+  color: var(--fin-text);
+  text-align: left;
+  cursor: pointer;
+}
+.fin-more-item:hover { text-decoration: underline; text-underline-offset: 3px; }
+.fin-more-item[data-on="true"] { font-weight: 650; }
 .fin-tab {
   display: inline-flex;
   align-items: center;
@@ -5653,6 +5677,110 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
   cursor: pointer;
 }
 .today-calm-title { font-weight: 600; }
+/* «Сегодня» с этапа 3 (`core/home-screen.tsx`): решить, под угрозой, пришло.
+   Вопрос - лист с волосяной рамкой, варианты - прямоугольники: предложенный
+   KORT - плитой, остальные - рамкой. Цвет - только у отказа и у прихода денег. */
+.home-screen { display: flex; flex-direction: column; gap: 1rem; }
+.home-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+@media (min-width: 1000px) { .home-grid { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); } }
+.home-col { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+.home-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fin-text);
+}
+.home-count { font-family: var(--font-martian), ui-monospace, monospace; font-size: 0.8125rem; font-weight: 400; color: var(--fin-text-soft); }
+.home-calm { margin: 0; font-size: 0.875rem; color: var(--fin-text-soft); }
+.home-refusal { margin: 0; font-size: 0.8125rem; color: var(--fin-expense); }
+.home-questions { display: flex; flex-direction: column; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
+.home-kind { display: flex; flex-direction: column; gap: 0.6rem; }
+.home-kind + .home-kind { padding-top: 0.75rem; border-top: 1px solid var(--fin-line); }
+.home-kind-head { display: flex; align-items: baseline; gap: 0.5rem; margin: 0; font-size: 0.9375rem; font-weight: 600; color: var(--fin-text); }
+.home-kind-more { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; }
+.home-kind-more:empty { display: none; }
+.home-q {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.875rem 1rem 1rem;
+  border: 1px solid var(--fin-line);
+  border-radius: var(--radius-card);
+  min-width: 0;
+}
+.home-q-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 0.75rem; }
+.home-q-title { font-size: 0.9375rem; font-weight: 600; color: var(--fin-text); }
+.home-q-meta { display: inline-flex; align-items: baseline; gap: 0.6rem; font-size: 0.875rem; }
+.home-q-text { margin: 0; font-size: 0.875rem; color: var(--fin-text); overflow-wrap: anywhere; }
+.home-q-reason { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
+.home-q-options { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.home-q-options .btn-ghost[aria-pressed="true"] { border-width: 2px; font-weight: 600; }
+.home-prop {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--fin-text);
+  border-radius: var(--radius-card);
+}
+.home-prop-k { font-family: var(--font-martian), ui-monospace, monospace; font-size: 0.6875rem; color: var(--fin-text-soft); }
+.home-prop-list { display: grid; gap: 0.25rem; margin: 0; padding: 0; list-style: none; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.home-pick-list { display: grid; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--fin-line); }
+.home-pick {
+  display: grid;
+  grid-template-columns: minmax(5rem, auto) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.45rem 0;
+  border: 0;
+  border-bottom: 1px solid var(--fin-line);
+  background: none;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--fin-text);
+  text-align: left;
+  cursor: pointer;
+}
+.home-pick:hover span:nth-child(2) { text-decoration: underline; text-underline-offset: 3px; }
+.home-arrived { display: flex; flex-direction: column; gap: 0.5rem; padding-top: 1rem; border-top: 1px solid var(--fin-line); }
+.home-arrived-line { margin: 0; font-size: 0.875rem; }
+.home-latest summary { cursor: pointer; font-size: 0.8125rem; color: var(--fin-text-soft); }
+.home-latest ul { display: grid; margin: 0.5rem 0 0; padding: 0; list-style: none; }
+.home-latest li {
+  display: grid;
+  grid-template-columns: 6rem minmax(5rem, auto) minmax(5rem, auto) minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--fin-line);
+  font-size: 0.8125rem;
+}
+@media (max-width: 640px) {
+  .home-latest li { grid-template-columns: minmax(0, 1fr) auto; }
+  .home-latest li > span:nth-child(2), .home-latest li > span:nth-child(3) { display: none; }
+  .home-pick { grid-template-columns: minmax(0, 1fr); gap: 0.1rem; }
+}
+/* «Деньги вперёд» (`core/cash-calendar.tsx`): разрывы и день за днём. Выходной -
+   тише, сегодня - весом, минус в остатке - весом и знаком, без цвета. */
+.cal-screen { display: flex; flex-direction: column; gap: 1.25rem; }
+.cal-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.cal-entity { width: auto; min-width: 12rem; }
+.cal-gaps { display: flex; flex-direction: column; gap: 0.75rem; }
+.cal-hints { display: grid; gap: 0.25rem; margin: 0; padding-left: 1.1rem; font-size: 0.8125rem; color: var(--fin-text); }
+.cal-scroll { overflow-x: auto; }
+.cal-table { width: 100%; min-width: 30rem; border-collapse: collapse; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.cal-table th { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--fin-text); font-family: var(--font-martian), ui-monospace, monospace; font-size: 0.6875rem; font-weight: 400; color: var(--fin-text-soft); text-align: left; }
+.cal-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--fin-line); }
+.cal-table .num { text-align: right; white-space: nowrap; }
+.cal-table tr[data-off="true"] td { color: var(--fin-text-soft); }
+.cal-table tr[data-today="true"] td { font-weight: 650; }
+.cal-table td[data-low="true"] { font-weight: 700; }
+.cal-today { font-size: 0.75rem; font-weight: 600; }
+/* Строка после действия: место держится, в покое пусто. */
+.home-live { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; min-height: 2.25rem; font-size: 0.875rem; }
 /* «Прибыль» и «Деньги» по договорам: месяцы года - колонками, название
    группы держится слева при прокрутке; прогноз - тише, итог - весом. */
 .revenue-screen, .revenue-body { display: flex; flex-direction: column; gap: 0.75rem; }

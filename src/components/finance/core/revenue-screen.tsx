@@ -71,10 +71,12 @@ export function RevenueSection({
   me: Me;
   section: "profit" | "cash";
   measure: RevenueMeasure;
-  journal: ReactNode;
+  journal?: ReactNode;
 }) {
   const [view, setView] = useSessionState<"journal" | "contracts">(`core.revenue.${section}.view`, "journal");
-  if (!can(me, "contracts", "view")) return <>{journal}</>;
+  if (!can(me, "contracts", "view")) return <>{journal ?? <p className="creg-empty">Договоры вам не открыты</p>}</>;
+  // Журнал денег снят 31.10.2026: выручка - по договорам, без чипа «По журналу».
+  if (!journal) return <RevenueScreen section={section} measure={measure} />;
   return (
     <div className="revenue-screen">
       <nav className="fin-mine shadow-what" aria-label="Откуда числа">

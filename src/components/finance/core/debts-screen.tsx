@@ -91,10 +91,12 @@ function agingLine(aging: DebtRow["aging"]): string {
  * выбор по умолчанию, отбор вида («отдел - ЮО») сужает договоры на сервере.
  * Выбор человека у каждого вида свой.
  */
-export function DebtsSection({ me, expectations, view }: { me: Me; expectations: ReactNode; view?: CoreView }) {
+export function DebtsSection({ me, expectations, view }: { me: Me; expectations?: ReactNode; view?: CoreView }) {
   const contracts = can(me, "contracts", "view");
   const [shown, setShown] = useSessionState<"contracts" | "plans">("core.debts.view", "contracts");
-  if (!contracts) return <>{expectations}</>;
+  if (!contracts) return <>{expectations ?? <p className="creg-empty">Долги по договорам вам не открыты</p>}</>;
+  // Ожиданий журнала денег с 31.10.2026 нет (журнал снят): только долги по договорам, без чипов.
+  if (!expectations) return <DebtsScreen key={view?.key ?? ""} me={me} source={view} />;
   return (
     <div className="debts-screen">
       <nav className="fin-mine shadow-what" aria-label="Какие долги">

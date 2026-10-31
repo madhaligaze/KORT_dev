@@ -3466,3 +3466,134 @@ export const habitsApi = {
       keepalive,
     }),
 };
+// ── API модели (`/finance/model`): вызовы ядра вместо маршрутов под экраны ──
+
+/** Команда «применить»: имя и параметры (`GET /finance/model` → commands). */
+export type ModelCommand = { command: string; params: Record<string, unknown> };
+
+/** Вариант ответа на вопрос: пачка команд и то, чего не хватает от человека (`needs`). */
+export type QuestionOption = {
+  key: string;
+  title: string;
+  hint: string;
+  commands: ModelCommand[];
+  needs: { param: string; type: "contract"; title: string }[];
+  /** Открыт ли вариант спрашивающему - закрытый виден, но не нажимается. */
+  open: boolean;
+  /** Не команда, а место, где решают (сверка с таблицей). */
+  place?: string;
+};
+
+/** Вопрос очереди «решить» (`model/questions.py`). */
+export type ModelQuestion = {
+  key: string;
+  kind: "payment" | "participant_bin" | "participant_twins" | "reconcile";
+  title: string;
+  text: string;
+  reason: string;
+  day: string | null;
+  amount: Money | null;
+  direction: "in" | "out" | null;
+  party: string;
+  count?: number;
+  objects: { type: "operation" | "contract" | "participant"; id: string; title?: string; day?: string; amount?: Money; comment?: string }[];
+  options: QuestionOption[];
+  /** Вариант, который KORT предлагает сам: так разделил бухгалтер в 1С, номер один и свободен. */
+  suggested: string | null;
+};
+
+export type QuestionsAnswer = {
+  rows: ModelQuestion[];
+  /** Сколько вопросов вида всего (`count`) и сколько пришло списком (`shown`): остальные - в своём разделе. */
+  kinds: Record<string, { count: number; shown: number; hidden?: Record<string, number>; empty?: string }>;
+};
+
+/** Куда ведёт пункт: вопрос «спросить» или место, у которого источника пока нет. */
+export type ModelOpen = { source: string; params?: Record<string, string> } | { place: string };
+
+/** Пункт «под угрозой» - числа ядра, те же, что в разделах. */
+export type AttentionItem = {
+  key: "cash" | "vat" | "debts" | "unbilled" | "acts";
+  title: string;
+  amount: Money | null;
+  count: number | null;
+  unit: string;
+  lines: { label: string; amount?: Money | null; count?: number; of?: number; open?: ModelOpen }[];
+  empty: string;
+  note: string;
+  open: ModelOpen | null;
+};
+
+export type ArrivedAnswer = {
+  since: string;
+  rows: { kind: string; source: string; title: string; count: number; amount: Money | null }[];
+  payments: { count: number; amount: Money | null; placed: number; without: number };
+  latest: {
+    kind: string;
+    source: string;
+    title: string;
+    day: string | null;
+    amount: Money | null;
+    contract: { id: string; number: string } | null;
+    party: string;
+  }[];
+  totals: { facts: number };
+};
+
+export type ModelDescribe = {
+  version: string;
+  today: string;
+  home: { questions: string[]; attention: string[]; arrived: boolean; documents: { open: boolean; views: string[] } };
+  commands: { name: string; title: string; open: boolean }[];
+  cursor: string;
+};
+
+/** Предложение: что сделает пачка, прогоном с откатом - до записи. */
+export type ModelProposal = {
+  ready: boolean;
+  /** Отпечаток договоров пачки: поменялись до «применить» - придёт новое предложение. */
+  base: string;
+  commands: { command: number; name: string; title: string; contracts: string[] }[];
+  problems: { command: number; name: string; detail: string; code: string }[];
+  changes: {
+    id: string;
+    number?: string;
+    created?: boolean;
+    deleted?: boolean;
+    fields?: Record<string, { before: unknown; after: unknown }>;
+    debt?: { before: Money | null; after: Money | null };
+  }[];
+};
+
+export type ModelApplied = {
+  commands: { command: number; name: string; title: string; contracts: string[] }[];
+  point: { id: string; title: string } | null;
+  cursor: string;
+};
+
+const MODEL_HEADERS = { "Content-Type": "application/json", "X-Kort-Model": "1.5" };
+
+export const modelApi = {
+  describe: () => request<ModelDescribe>("/model/describe", { headers: MODEL_HEADERS }),
+  ask: <T>(question: Record<string, unknown>, init?: RequestInit) =>
+    request<T>("/model/ask", { method: "POST", headers: MODEL_HEADERS, body: JSON.stringify(question), ...init }),
+  questions: (kind: string, init?: RequestInit) =>
+    modelApi.ask<QuestionsAnswer>({ source: "questions", params: { kind } }, init),
+  attention: (item: string, init?: RequestInit) =>
+    modelApi.ask<{ rows: AttentionItem[] }>({ source: "attention", params: { item } }, init),
+  arrived: (since: string, init?: RequestInit) => modelApi.ask<ArrivedAnswer>({ source: "arrived", params: { since } }, init),
+  propose: (commands: ModelCommand[]) =>
+    request<ModelProposal>("/model/propose", { method: "POST", headers: MODEL_HEADERS, body: JSON.stringify({ commands }) }),
+  apply: (commands: ModelCommand[], expect?: string) =>
+    request<ModelApplied>("/model/apply", {
+      method: "POST",
+      headers: MODEL_HEADERS,
+      body: JSON.stringify(expect ? { commands, expect } : { commands }),
+    }),
+  undo: (point: string) =>
+    request<{ title: string; done: string[]; skipped: string[] }>("/model/undo", {
+      method: "POST",
+      headers: MODEL_HEADERS,
+      body: JSON.stringify({ point }),
+    }),
+};
