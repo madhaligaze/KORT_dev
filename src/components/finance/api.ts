@@ -1472,7 +1472,15 @@ export type RegistryBook = {
 };
 
 /** Мера вида колонкой листа: «Оплачено», «Остаток», «Срок, мес». */
-export type MeasureDef = { key: string; title: string; type: string };
+export type MeasureDef = {
+  key: string;
+  title: string;
+  type: string;
+  /** Формула компании (`core/formulas.py`): текст, что считает (сумма, число, проценты) и знаков после запятой. */
+  formula?: string;
+  kind?: "money" | "number" | "percent";
+  digits?: number;
+};
 
 export type RegistrySchema = {
   schema_rev: number;
@@ -3571,7 +3579,7 @@ export type ModelApplied = {
   cursor: string;
 };
 
-const MODEL_HEADERS = { "Content-Type": "application/json", "X-Kort-Model": "1.5" };
+const MODEL_HEADERS = { "Content-Type": "application/json", "X-Kort-Model": "1.6" };
 
 export const modelApi = {
   describe: () => request<ModelDescribe>("/model/describe", { headers: MODEL_HEADERS }),

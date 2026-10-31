@@ -24,6 +24,7 @@ import { boot, holdLive, useRegistry } from "@/components/finance/contracts/stor
 import { gsap, prefersReducedMotion } from "@/components/motion/gsap";
 import { EntitiesTab } from "@/components/finance/contracts/setup/entities-tab";
 import { FieldsTab } from "@/components/finance/contracts/setup/fields-tab";
+import { FormulasTab } from "@/components/finance/contracts/setup/formulas-tab";
 import { SavedViewsTab } from "@/components/finance/contracts/setup/saved-views-tab";
 import { SummaryTab } from "@/components/finance/contracts/setup/summary-tab";
 import { TipLayer, tip } from "@/components/finance/contracts/setup/tip";
@@ -33,7 +34,7 @@ import { revertLast } from "@/components/finance/contracts/setup/use-setup-actio
 import { ViewsTab } from "@/components/finance/contracts/setup/views-tab";
 import { useSessionState } from "@/components/session-state";
 
-type Tab = "fields" | "views" | "saved" | "entities" | "summary";
+type Tab = "fields" | "views" | "saved" | "formulas" | "entities" | "summary";
 
 /**
  * Вкладки - по тому, что человек настраивает: колонки договора (со списками
@@ -55,6 +56,11 @@ const TABS: { key: Tab; title: string; tip: string }[] = [
     key: "saved",
     title: "Виды",
     tip: "Из чего собрана колонка разделов: реестр, долги и сохранённые виды - чьи они и кому стоят в колонке. Новый вид - из шаблона, на компанию или отдел.",
+  },
+  {
+    key: "formulas",
+    title: "Формулы",
+    tip: "Меры компании - «Оплачено, %», «Остаток, тыс»: считает ядро, лист показывает колонкой, «объяснить» раскрывает до суммы и оплат.",
   },
   {
     key: "entities",
@@ -170,6 +176,7 @@ export function RegistrySetup({ onBack, backLabel = "Реестр" }: { onBack: 
         {tab === "fields" ? <FieldsTab /> : null}
         {tab === "views" ? <ViewsTab /> : null}
         {tab === "saved" ? <SavedViewsTab /> : null}
+        {tab === "formulas" ? <FormulasTab /> : null}
         {tab === "entities" ? <EntitiesTab /> : null}
         {tab === "summary" ? <SummaryTab /> : null}
       </div>

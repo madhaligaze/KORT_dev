@@ -40,6 +40,7 @@ import {
   ensurePayments,
   ensureShares,
   ensureStaff,
+  ensureFormulas,
   ensureSummary,
   forBook,
   getRegistry,
@@ -236,6 +237,35 @@ export function RegistrySheet({ me, onOpenCard, openId, book = "", onNeighbors }
       document.removeEventListener("visibilitychange", refresh);
     };
   }, [usesSummary]);
+
+  // Формулы компании в колонках листа - вызовом «спросить» ядра: раз в минуту, при возвращении
+  // на вкладку и после правок договоров (сумма поменялась - поменялась и формула).
+  const usesFormulas = useMemo(
+    () =>
+      (state.schema?.views ?? []).some(
+        (view) => (view.book ?? "") === book && view.blocks.some((block) => block.columns.some((column) => column.key.startsWith("f_"))),
+      ),
+    [state.schema, book],
+  );
+  useEffect(() => {
+    if (!usesFormulas) return;
+    void ensureFormulas();
+    const refresh = () => {
+      if (document.visibilityState === "visible") void ensureFormulas();
+    };
+    const timer = window.setInterval(refresh, 60_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [usesFormulas]);
+  const seqNow = state.seq;
+  useEffect(() => {
+    if (!usesFormulas || !seqNow) return;
+    const timer = window.setTimeout(() => void ensureFormulas(true), 800);
+    return () => window.clearTimeout(timer);
+  }, [usesFormulas, seqNow, state.schema]);
 
   const ready = state.phase === "ready" && state.schema !== null;
   const scoped = useMemo(() => forBook(state, book).schema, [state, book]);

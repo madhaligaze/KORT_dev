@@ -143,9 +143,16 @@ const SHARES_LABEL = "Доли сотрудников";
  * нужны «Разовым», а в «Все договоры» новой компании встали бы пустыми.
  */
 const EXPLICIT_ONLY = new Set(["summary_paid", "summary_remaining", "age_months"]);
+/** Формула компании (`core/formulas.py`): ключ `f_…`, значение считает ядро (`ensureFormulas`). */
+export const isFormulaKey = (key: string): boolean => key.startsWith("f_");
+const isLive = (key: string): boolean => LIVE_KEYS.has(key) || isFormulaKey(key);
 
 function liveValue(state: RegistryState, id: string, key: string): unknown {
   if (key === SHARES_KEY) return state.shares?.[id];
+  if (isFormulaKey(key)) {
+    const value = state.formulas?.[id]?.[key];
+    return value === null || value === undefined ? undefined : Number(value);
+  }
   if (key === "summary_paid" || key === "summary_remaining") {
     const entry = state.summary?.[id];
     if (entry?.state !== "found") return undefined;
@@ -259,6 +266,20 @@ const EMPTY_BLOCK: ViewBlock = {
 
 export function layoutOf(schema: RegistrySchema, view: RegistryView): ViewLayout {
   const fields = new Map(schema.fields.map((field) => [field.key, field]));
+  // Формулы компании - колонкой листа как меры: только чтение, значение - из ядра.
+  for (const measure of schema.measures ?? []) {
+    if (!measure.formula || fields.has(measure.key)) continue;
+    fields.set(measure.key, {
+      key: measure.key,
+      type: (measure.type === "money" ? "money" : "number") as RegistryField["type"],
+      title: measure.title,
+      system: true,
+      editable: false,
+      required: false,
+      hidden: false,
+      position: 0,
+    });
+  }
   // Отбор без своих колонок - поля схемы в их порядке (скрытых в листе нет).
   const defaults = [...schema.fields]
     .filter((field) => !field.hidden && !EXPLICIT_ONLY.has(field.key))
@@ -861,7 +882,7 @@ function render(model: SheetModel, row: number, ctx: RenderCtx): Rendered {
       if (away) texts.push(away);
     } else {
       const pending = edits?.get(column.key);
-      const stored = LIVE_KEYS.has(column.key) ? liveValue(state, id, column.key) : contract?.values[column.key];
+      const stored = isLive(column.key) ? liveValue(state, id, column.key) : contract?.values[column.key];
       const value = pending && pending.state !== "conflict" ? pending.value : bookValue(column.key, stored, contract, share);
       faces[index] = faceOf(column, value, contract, valueCtx);
       if (column.key === "amount" && contract) {
@@ -1224,7 +1245,7 @@ function fitLayout(layout: ViewLayout, buckets: Map<string, string[]>, ctx: Rend
       const texts: string[] = [];
       for (const id of ids) {
         const contract = state.byId.get(id);
-        const value = LIVE_KEYS.has(column.key) ? liveValue(state, id, column.key) : contract?.values[column.key];
+        const value = isLive(column.key) ? liveValue(state, id, column.key) : contract?.values[column.key];
         const face = faceOf(column, value, contract, valueCtx);
         if (face.v !== null) texts.push(faceText(face));
       }
