@@ -12,6 +12,9 @@
  * * «Под угрозой» - пункты ядра порознь (`ask attention`): медленный не держит
  *   быстрые. Щелчок ведёт туда, где пункт раскрыт списком.
  * * «Пришло» - факты журнала, впервые записанные за неделю (`ask arrived`).
+ * * «С чего начать» - первые шаги компании (`ask start`), пока они не пройдены:
+ *   наше юрлицо с БИН, договоры, деньги. Пустая компания видела здесь «Вопросов
+ *   нет» и «Акты подписаны», а «Первые шаги» лежали в «Ещё» (проход новичка 31.10).
  *
  * Строка внизу - после действия («Применено … · Вернуть»), в покое молчит.
  */
@@ -25,10 +28,13 @@ import {
   type ModelProposal,
   type ModelQuestion,
   type QuestionOption,
+  type HomeStartAnswer,
+  type HomeStartStep,
   coreApi,
   formatDate,
   modelApi,
 } from "@/components/finance/api";
+import { openParticipant } from "@/components/finance/core/open";
 import { contractMoney, plural } from "@/components/finance/format";
 import { ArrowRightIcon } from "@/components/icons";
 import { useSessionScope, writeSession } from "@/components/session-state";
@@ -122,6 +128,8 @@ export function HomeScreen({ onGo, unbilledSection }: { onGo: (section: string) 
   const [live, setLive] = useState<Live>(null);
   const [describeError, setDescribeError] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [showStart, setShowStart] = useState(false);
+  const [start, setStart] = useState<HomeStartAnswer | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -132,6 +140,7 @@ export function HomeScreen({ onGo, unbilledSection }: { onGo: (section: string) 
         setKinds(KIND_ORDER.filter((kind) => described.home.questions.includes(kind)));
         setItems(ITEM_ORDER.filter((item) => described.home.attention.includes(item)));
         setShowArrived(described.home.arrived);
+        setShowStart(Boolean(described.home.start));
       })
       .catch((exc) => alive && setDescribeError(messageOf(exc, "Схема компании не прочиталась")));
     return () => {
@@ -170,14 +179,23 @@ export function HomeScreen({ onGo, unbilledSection }: { onGo: (section: string) 
       .catch((exc) => !signal?.aborted && setArrived({ value: null, error: messageOf(exc, "Не прочиталось") }));
   }, []);
 
+  const loadStart = useCallback((signal?: AbortSignal) => {
+    modelApi
+      .start({ signal })
+      .then(setStart)
+      // Шаги - подсказка, а не данные: не прочитались - экран живёт без них.
+      .catch(() => !signal?.aborted && setStart(null));
+  }, []);
+
   useEffect(() => {
     if (kinds === null) return;
     const controller = new AbortController();
     for (const kind of kinds) loadKind(kind, controller.signal);
     for (const item of items) loadItem(item, controller.signal);
     if (showArrived) loadArrived(controller.signal);
+    if (showStart) loadStart(controller.signal);
     return () => controller.abort();
-  }, [kinds, items, showArrived, revision, loadKind, loadItem, loadArrived]);
+  }, [kinds, items, showArrived, showStart, revision, loadKind, loadItem, loadArrived, loadStart]);
 
   const open = (target: ModelOpen | null | undefined) => {
     if (!target) return;
@@ -224,6 +242,8 @@ export function HomeScreen({ onGo, unbilledSection }: { onGo: (section: string) 
   const loaded = items.map((item) => ({ key: item, slot: attention[item] }));
   const busy = loaded.filter((entry) => !entry.slot?.value?.empty);
   const calm = loaded.filter((entry) => entry.slot?.value?.empty);
+  // Денег ещё не приходило - и вопросов о них быть не может: «KORT разложил всё» было бы неправдой.
+  const noMoney = start?.rows.some((step) => step.key === "money" && !step.done) ?? false;
 
   return (
     <div className="home-screen">
@@ -234,6 +254,16 @@ export function HomeScreen({ onGo, unbilledSection }: { onGo: (section: string) 
         </button>
       </div>
       {describeError ? <p className="home-refusal">{describeError}</p> : null}
+      {start && !start.done ? (
+        <StartBlock
+          steps={start.rows}
+          onGo={onGo}
+          onChanged={() => {
+            loadStart();
+            for (const item of items) loadItem(item);
+          }}
+        />
+      ) : null}
       <div className="home-grid">
         <section className="home-col" aria-labelledby="home-decide">
           <h2 id="home-decide" className="home-head">
@@ -241,7 +271,11 @@ export function HomeScreen({ onGo, unbilledSection }: { onGo: (section: string) 
             {total ? <span className="home-count">{total}</span> : null}
           </h2>
           {kinds !== null && !total && !waiting.length && !failed.length ? (
-            <p className="home-calm">Вопросов нет. KORT разложил всё, что пришло.</p>
+            <p className="home-calm">
+              {noMoney
+                ? "Вопросы появятся, когда в KORT придут выписки банка или 1С."
+                : "Вопросов нет. KORT разложил всё, что пришло."}
+            </p>
           ) : null}
           {waiting.length && !groups.length ? <p className="today-loading">Собираем вопросы…</p> : null}
           {failed.map((kind) => (
@@ -319,6 +353,134 @@ export function HomeScreen({ onGo, unbilledSection }: { onGo: (section: string) 
         ) : null}
       </div>
     </div>
+  );
+}
+
+// ── С чего начать ────────────────────────────────────────────────────────────
+
+/**
+ * Первые шаги: что KORT делает - одной фразой, и три шага до первых чисел.
+ * Пройденный шаг остаётся строкой, тише прочих: видно, сколько пройдено, без
+ * отметок цветом. Действие шага ведёт туда, где его делают, а юрлицо без
+ * единого нашего заводится прямо здесь - без него договору некого назвать
+ * исполнителем.
+ */
+function StartBlock({ steps, onGo, onChanged }: { steps: HomeStartStep[]; onGo: (section: string) => void; onChanged: () => void }) {
+  const [name, setName] = useState("");
+  const [bin, setBin] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const addEntity = async () => {
+    const clean = name.trim();
+    if (!clean) return;
+    setBusy(true);
+    setError("");
+    try {
+      const commands: ModelCommand[] = [
+        { command: "entity.create", params: { name: clean, ...(bin.trim() ? { bin: bin.trim() } : {}) } },
+      ];
+      const proposal = await modelApi.propose(commands);
+      if (proposal.problems.length) {
+        setError(proposal.problems.map((problem) => problem.detail).join("; "));
+        return;
+      }
+      await modelApi.apply(commands, proposal.base);
+      setName("");
+      setBin("");
+      onChanged();
+    } catch (exc) {
+      setError(messageOf(exc, "Юрлицо не завелось"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const actions = (step: HomeStartStep) => {
+    if (step.done) return null;
+    switch (step.key) {
+      case "entity":
+        return step.entity ? (
+          <button type="button" className="btn-ghost btn-sm" onClick={() => openParticipant(step.entity ?? "")}>
+            Вписать БИН и режим налогов
+          </button>
+        ) : (
+          <form
+            className="home-step-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void addEntity();
+            }}
+          >
+            <input
+              className="input-field"
+              aria-label="Название нашего юрлица"
+              placeholder="ТОО «Название»"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+            <input
+              className="input-field"
+              aria-label="БИН нашего юрлица"
+              placeholder="БИН"
+              inputMode="numeric"
+              value={bin}
+              onChange={(event) => setBin(event.target.value)}
+            />
+            <button type="submit" className="btn-ghost btn-sm" disabled={busy || !name.trim()}>
+              {busy ? "Заводим…" : "Завести"}
+            </button>
+          </form>
+        );
+      case "contracts":
+        return (
+          <button type="button" className="btn-ghost btn-sm" onClick={() => onGo("contracts")}>
+            Завести договор или загрузить Excel
+          </button>
+        );
+      case "money":
+        return (
+          <>
+            <button type="button" className="btn-ghost btn-sm" onClick={() => onGo("import")}>
+              Загрузить выписку банка
+            </button>
+            <button type="button" className="btn-ghost btn-sm" onClick={() => onGo("integrations")}>
+              Подключить 1С
+            </button>
+          </>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const left = steps.filter((step) => !step.done).length;
+  return (
+    <section className="home-start" aria-labelledby="home-start">
+      <h2 id="home-start" className="home-head">
+        С чего начать
+        <span className="home-count">
+          {left} {plural(left, "шаг", "шага", "шагов")} из {steps.length}
+        </span>
+      </h2>
+      <p className="home-start-lead">
+        KORT по вашим договорам считает, сколько вам должны и сколько денег придёт. Выписки банка и 1С он сам
+        раскладывает по договорам, а что не смог разложить - спрашивает здесь.
+      </p>
+      <ol className="home-steps">
+        {steps.map((step, index) => (
+          <li key={step.key} className="home-step" data-done={step.done ? "true" : undefined}>
+            <span className="home-step-num">{String(index + 1).padStart(2, "0")}</span>
+            <div className="home-step-body">
+              <span className="home-step-title">{step.title}</span>
+              <span className="home-step-text">{step.done ? `готово · ${step.text}` : step.text}</span>
+            </div>
+            <div className="home-step-acts">{actions(step)}</div>
+          </li>
+        ))}
+      </ol>
+      {error ? <p className="home-refusal">{error}</p> : null}
+    </section>
   );
 }
 

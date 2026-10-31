@@ -384,7 +384,17 @@ export type ImportQuestion = {
   samples: string[];
   options: { value: string; label: string; example: string }[];
   /** Для вопроса о счёте: какой счёт завести, если нужного ещё нет. */
-  create?: { name: string; number: string; currency: string };
+  create?: {
+    name: string;
+    number: string;
+    currency: string;
+    /** Наше юрлицо владельца выписки - по БИН из шапки или имени целиком; нет - решает человек. */
+    group_entity_id?: string | null;
+    owner?: string;
+    /** Остаток на первый день периода по выписке - начальный остаток нового счёта. */
+    starting_balance?: Money | null;
+    period_start?: string | null;
+  };
 };
 
 /** Свой счёт из переводов выписки, которого нет в справочнике. */
@@ -3548,10 +3558,28 @@ export type ArrivedAnswer = {
   totals: { facts: number };
 };
 
+/** Первые шаги компании: шаг пройден по данным - юрлицо с БИН, договор, деньги из любого источника. */
+export type HomeStartStep = {
+  key: "entity" | "contracts" | "money";
+  title: string;
+  done: boolean;
+  text: string;
+  /** Наше юрлицо, которому не хватает БИН (у шага «Наше юрлицо»). */
+  entity?: string | null;
+};
+
+export type HomeStartAnswer = { rows: HomeStartStep[]; done: boolean };
+
 export type ModelDescribe = {
   version: string;
   today: string;
-  home: { questions: string[]; attention: string[]; arrived: boolean; documents: { open: boolean; views: string[] } };
+  home: {
+    questions: string[];
+    attention: string[];
+    arrived: boolean;
+    start?: boolean;
+    documents: { open: boolean; views: string[] };
+  };
   commands: { name: string; title: string; open: boolean }[];
   cursor: string;
 };
@@ -3579,7 +3607,7 @@ export type ModelApplied = {
   cursor: string;
 };
 
-const MODEL_HEADERS = { "Content-Type": "application/json", "X-Kort-Model": "1.6" };
+const MODEL_HEADERS = { "Content-Type": "application/json", "X-Kort-Model": "1.7" };
 
 export const modelApi = {
   describe: () => request<ModelDescribe>("/model/describe", { headers: MODEL_HEADERS }),
@@ -3590,6 +3618,7 @@ export const modelApi = {
   attention: (item: string, init?: RequestInit) =>
     modelApi.ask<{ rows: AttentionItem[] }>({ source: "attention", params: { item } }, init),
   arrived: (since: string, init?: RequestInit) => modelApi.ask<ArrivedAnswer>({ source: "arrived", params: { since } }, init),
+  start: (init?: RequestInit) => modelApi.ask<HomeStartAnswer>({ source: "start" }, init),
   propose: (commands: ModelCommand[]) =>
     request<ModelProposal>("/model/propose", { method: "POST", headers: MODEL_HEADERS, body: JSON.stringify({ commands }) }),
   apply: (commands: ModelCommand[], expect?: string) =>

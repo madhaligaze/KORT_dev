@@ -272,7 +272,8 @@ function MoneyLine({ money }: { money: ContractMoney }) {
 
 /** Оплата месяца по KORT: сколько и что осталось; до начала учёта - не знаем. */
 function PaidCell({ bucket, month, since, current }: { bucket: MoneyBucket | undefined; month: string; since: string | null; current: string }) {
-  if (since && month < since.slice(0, 7)) return <span className="acc-paid fin-muted">до учёта оплат</span>;
+  // Месяц до начала учёта, который назвала сама оплата («за сентябрь»), KORT знает - у него есть строка.
+  if (since && month < since.slice(0, 7) && !bucket) return <span className="acc-paid fin-muted">до учёта оплат</span>;
   if (!bucket) return <span className="acc-paid fin-muted">-</span>;
   const paid = Number(bucket.paid);
   const debt = Number(bucket.debt);

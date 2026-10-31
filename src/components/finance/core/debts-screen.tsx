@@ -272,7 +272,12 @@ function DebtsScreen({ me, source }: { me: Me; source?: CoreView }) {
       {!data ? (
         <p className="creg-empty">{loading ? "Считаем долги…" : ""}</p>
       ) : !data.rows.length ? (
-        <p className="creg-empty">На {formatDay(data.as_of)} долгов и авансов нет</p>
+        // Без единой оплаты «долгов нет» - неправда: оплаченного KORT не знает, и долг не посчитать.
+        <p className="creg-empty">
+          {data.since
+            ? `На ${formatDay(data.as_of)} долгов и авансов нет`
+            : "Оплат в KORT ещё нет - долг посчитается, когда придут выписки банка или 1С (Ещё → Загрузка выписок, Интеграции)"}
+        </p>
       ) : (
         <div className="fin-card overflow-x-auto" aria-busy={loading}>
           <table className="fin-table debts-table">

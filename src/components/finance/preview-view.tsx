@@ -6,6 +6,7 @@ import {
   type Account,
   type ImportAnswer,
   type ImportPreview,
+  type ImportQuestion,
   type ImportRow,
   type SuggestedAccount,
   financeApi,
@@ -95,17 +96,31 @@ export function PreviewView({
    * счёт»). Без него это второй свой счёт из переводов: депозит, на который
    * уходили деньги, - перечитывание превращает отложенные строки в переводы.
    */
-  const createAccount = async (entry: { name: string; number: string; currency?: string }, pick: boolean) => {
+  const createAccount = async (
+    entry: {
+      name: string;
+      number: string;
+      currency?: string;
+      group_entity_id?: string | null;
+      starting_balance?: string | null;
+    },
+    pick: boolean,
+  ) => {
     const name = entry.name.trim();
     if (!name) return;
     setBusy(true);
     setError("");
     try {
+      // Счёт выписки рождается с её юрлицом и остатком на первый день: без юрлица
+      // оплаты на него не находили договоры нашего ТОО, а остаток, предложенный
+      // мелкой строкой, не записывали - календарь считал деньги с нуля.
       await financeApi.createAccount({
         name,
         kind: "bank",
         number: entry.number,
         ...(entry.currency ? { currency: entry.currency } : {}),
+        ...(entry.group_entity_id ? { group_entity_id: entry.group_entity_id } : {}),
+        ...(entry.starting_balance ? { starting_balance: entry.starting_balance } : {}),
       });
       onApplied();
       setPreview(await reload(pick ? { default_account: name } : {}));
@@ -265,7 +280,7 @@ export function PreviewView({
               key={preview.question.create.number || "new"}
               suggestion={preview.question.create}
               busy={busy}
-              label="Завести и загрузить"
+              label="Завести счёт"
               onCreate={(entry) => void createAccount(entry, true)}
             />
           ) : null}
@@ -682,12 +697,19 @@ function NewAccount({
   label,
   onCreate,
 }: {
-  suggestion: { name: string; number: string; currency: string };
+  suggestion: NonNullable<ImportQuestion["create"]>;
   busy: boolean;
   label: string;
-  onCreate: (entry: { name: string; number: string; currency: string }) => void;
+  onCreate: (entry: NonNullable<ImportQuestion["create"]>) => void;
 }) {
   const [name, setName] = useState(suggestion.name);
+  // Что получит новый счёт, кроме номера, - словами до нажатия, а не сюрпризом в отчёте.
+  const extra = [
+    suggestion.owner ? `счёт ${suggestion.owner}` : "",
+    suggestion.starting_balance && suggestion.period_start
+      ? `остаток на ${formatDate(suggestion.period_start)} по выписке - ${formatMoney(suggestion.starting_balance)}`
+      : "",
+  ].filter(Boolean);
   return (
     <div className="flex flex-wrap items-center gap-2 pt-1">
       <input
@@ -711,6 +733,11 @@ function NewAccount({
       >
         {label}
       </button>
+      {extra.length ? (
+        <span className="text-xs basis-full" style={{ color: "var(--text-secondary)" }}>
+          {extra.join(" · ")}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -831,8 +858,10 @@ function BankCard({
         </div>
       ) : null}
       {check.can_set_start && check.opening_balance !== null ? (
+        // Глаголом: подпись «Начальный остаток «счёт» - 500 000» читалась как
+        // уже записанный факт, и её не нажимали (проход новичка 31.10).
         <button type="button" className="btn-ghost text-xs self-start mt-2" disabled={busy} onClick={onSetStart}>
-          Начальный остаток «{check.account}» - {formatMoney(check.opening_balance)}
+          Записать {formatMoney(check.opening_balance)} начальным остатком «{check.account}»
         </button>
       ) : null}
     </div>

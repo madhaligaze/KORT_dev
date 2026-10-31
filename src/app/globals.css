@@ -5696,6 +5696,31 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 }
 .home-count { font-family: var(--font-martian), ui-monospace, monospace; font-size: 0.8125rem; font-weight: 400; color: var(--fin-text-soft); }
 .home-calm { margin: 0; font-size: 0.875rem; color: var(--fin-text-soft); }
+/* «С чего начать» - шаги строками; пройденный - тише и без действия, не цветом. */
+.home-start { display: flex; flex-direction: column; gap: 0.6rem; padding-bottom: 0.5rem; }
+.home-start-lead { margin: 0; max-width: 46rem; font-size: 0.9375rem; line-height: 1.5; color: var(--fin-text); }
+.home-steps { display: grid; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--fin-line); }
+.home-step {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 0.35rem 0.75rem;
+  align-items: baseline;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--fin-line);
+}
+@media (min-width: 800px) { .home-step { grid-template-columns: 2rem minmax(0, 1fr) auto; } }
+.home-step-num { font-family: var(--font-martian), ui-monospace, monospace; font-size: 0.75rem; color: var(--fin-text-soft); }
+.home-step-body { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; min-width: 0; }
+.home-step-title { font-size: 0.9375rem; font-weight: 600; color: var(--fin-text); }
+.home-step-text { font-size: 0.875rem; color: var(--fin-text); overflow-wrap: anywhere; }
+.home-step[data-done] .home-step-title { font-weight: 400; color: var(--fin-text-soft); }
+.home-step[data-done] .home-step-text { color: var(--fin-text-soft); }
+.home-step-acts { display: flex; flex-wrap: wrap; gap: 0.5rem; grid-column: 2; }
+@media (min-width: 800px) { .home-step-acts { grid-column: 3; justify-content: flex-end; } }
+.home-step-acts:empty { display: none; }
+.home-step-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.home-step-form .input-field { width: 13rem; max-width: 100%; padding-top: 0.4rem; padding-bottom: 0.4rem; }
+.home-step-form .input-field + .input-field { width: 9rem; }
 .home-refusal { margin: 0; font-size: 0.8125rem; color: var(--fin-expense); }
 .home-questions { display: flex; flex-direction: column; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
 .home-kind { display: flex; flex-direction: column; gap: 0.6rem; }
