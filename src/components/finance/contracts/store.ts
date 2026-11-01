@@ -798,7 +798,7 @@ function unreached(exc: unknown): boolean {
 }
 
 /** Код нового договора выдаёт клиент - см. `service.create` на сервере. */
-function newId(): string {
+export function newId(): string {
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6] & 0x0f) | 0x40;

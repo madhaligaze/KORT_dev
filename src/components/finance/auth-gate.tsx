@@ -640,6 +640,10 @@ export function AuthGate({ onReady, notice = "" }: { onReady: (me: Me) => void; 
             <Go busy={busy}>{ACTIONS.register}</Go>
           </form>
         </Door>
+        {/* Единственное, что видит тот, кто слышал о KORT краем уха. */}
+        {step === "email" ? (
+          <p className="auth-about">Учёт договоров и денег компании: кто сколько должен, какие счета выставить и сколько денег придёт.</p>
+        ) : null}
       </div>
     </AuthStage>
   );

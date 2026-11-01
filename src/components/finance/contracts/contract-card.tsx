@@ -13,6 +13,7 @@ import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import {
   type Amendment,
+  type Contract,
   type ContractPayments,
   FinanceApiError,
   type OnecDoc,
@@ -52,7 +53,7 @@ import {
 import { contractMoney, formatDay, parseDay } from "@/components/finance/format";
 import { Section } from "@/components/finance/contracts/section";
 import { Accruals } from "@/components/finance/core/accruals";
-import { openParticipant } from "@/components/finance/core/open";
+import { openParticipant, openSection } from "@/components/finance/core/open";
 import { CardLayer } from "@/components/finance/ui/card-layer";
 import { ConfirmDialog } from "@/components/finance/ui/confirm-dialog";
 import { DateInput } from "@/components/finance/ui/date-picker";
@@ -63,6 +64,8 @@ type Props = {
   open: boolean;
   /** Новый договор из отбора с блоком: подстановки блока ставит сервер. */
   draftContext?: { view?: string; block?: number };
+  /** «Ещё договор» после только что заведённого. */
+  onNew?: () => void;
   /**
    * Книга, из которой открыта карточка (`""` - реестр, иначе ключ вида):
    * выбор списков берётся из блока листа этой книги, где стоит договор.
@@ -86,6 +89,7 @@ export function ContractCard({
   onOpen,
   onPrev,
   onNext,
+  onNew,
 }: Props) {
   const contract = useRegistry((s) => (id ? s.byId.get(id) : undefined));
   const schema = useRegistry((s) => s.schema);
@@ -150,7 +154,13 @@ export function ContractCard({
       setCreating(true);
       setDraftError("");
       try {
-        const newId = await create({ [key]: value }, draftContext);
+        // Единственное наше юрлицо - исполнитель сразу: спрашивать о нём незачем, и в
+        // поле его видно. Заказчик-мы - покупка, тогда исполнителя называет человек.
+        const own = schema?.own_entities ?? [];
+        const ours = own.length === 1 ? own[0].id : "";
+        const picked = (value as { id?: string } | null)?.id ?? "";
+        const prefill = ours && key !== "executor" && picked !== ours ? { executor: { id: ours } } : {};
+        const newId = await create({ ...prefill, [key]: value }, draftContext);
         setBorn(newId);
         onCreated(newId);
       } catch (exc) {
@@ -159,7 +169,7 @@ export function ContractCard({
         setCreating(false);
       }
     },
-    [creating, draftContext, onCreated],
+    [creating, draftContext, onCreated, schema],
   );
 
   const title = contract ? counterpartTitle(contract, parties) : "";
@@ -262,6 +272,29 @@ export function ContractCard({
           })}
         </div>
 
+        {fresh && contract && ready(contract) ? (
+          <div className="card-next">
+            <p>Договор заведён, начисления посчитаны ниже.</p>
+            <span className="card-next-acts">
+              <button
+                type="button"
+                className="btn-primary btn-sm"
+                onClick={() => {
+                  onClose();
+                  openSection({ section: "today" });
+                }}
+              >
+                Дальше
+              </button>
+              {onNew ? (
+                <button type="button" className="btn-ghost btn-sm" onClick={onNew}>
+                  Ещё договор
+                </button>
+              ) : null}
+            </span>
+          </div>
+        ) : null}
+
         {contract ? (
           <>
             <Accruals contractId={contract.id} seq={contract.seq} />
@@ -323,6 +356,11 @@ export function ContractCard({
  * начинает (он же заводит договор на сервере).
  */
 const DRAFT_ORDER = ["number", "signed_at", "customer", "executor", "type", "status", "amount", "subject", "department", "people"];
+
+/** Договор готов считать: стороны, дата и сумма на месте, замечаний нет. */
+function ready(contract: Contract): boolean {
+  return Boolean(contract.values.amount) && !contract.issues.some((issue) => !issue.acknowledged);
+}
 
 function draftFields(fields: RegistryField[]): RegistryField[] {
   return DRAFT_ORDER.map((key) => fields.find((field) => field.key === key)).filter(

@@ -252,7 +252,7 @@ function DebtsScreen({ me, source }: { me: Me; source?: CoreView }) {
         {data
           ? [
               `на ${formatDay(data.as_of)}`,
-              data.since ? `оплаты в KORT с ${formatDay(data.since)}, раньше - входящее сальдо` : "оплат в KORT ещё нет",
+              data.since ? `учёт оплат с ${formatDay(data.since)}` : "оплат в KORT ещё нет",
               basis === "acts" && data.book ? `АВР: KORT, 1С и сводная таблица (прочитана в ${formatTime(data.book.read_at)})` : "",
               totals?.unknown
                 ? `долг ${totals.unknown} ${plural(totals.unknown, "договора", "договоров", "договоров")} неизвестен - ${

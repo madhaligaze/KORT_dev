@@ -24,8 +24,11 @@ import {
   type BookMonthOut,
   type ContractMoney,
   type ContractMonths,
+  type ModelCommand,
   type MoneyBucket,
   type MonthAct,
+  type MonthDoc,
+  type MonthDocKind,
   type ShadowCode,
   FinanceApiError,
   coreApi,
@@ -36,7 +39,7 @@ import { actText } from "@/components/finance/core/acts-screen";
 import { CardScopeContext, InlineField } from "@/components/finance/contracts/field-editor";
 import { fieldOf } from "@/components/finance/contracts/schema";
 import { Section } from "@/components/finance/contracts/section";
-import { useRegistry } from "@/components/finance/contracts/store";
+import { newId, useRegistry } from "@/components/finance/contracts/store";
 import { ProposalActions } from "@/components/finance/core/proposal";
 import { contractMoney, formatDay } from "@/components/finance/format";
 
@@ -100,6 +103,7 @@ export function Accruals({ contractId, seq }: { contractId: string; seq: number 
   const [revision, setRevision] = useState(0);
   const [note, setNote] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
+  const [docFor, setDocFor] = useState<{ month: string; kind: MonthDocKind } | null>(null);
   useEffect(() => {
     let alive = true;
     coreApi
@@ -135,8 +139,13 @@ export function Accruals({ contractId, seq }: { contractId: string; seq: number 
   const changed = (text: string) => {
     setNote(text);
     setEditing(null);
+    setDocFor(null);
     setRevision((current) => current + 1);
   };
+  // Договор продажи: мы исполнитель. У покупки деньги уходят от нас, а документы пишет поставщик.
+  const sale = (schema?.own_entities ?? []).some((item) => item.id === String(contract?.values.executor ?? ""));
+  // Документы месяца ведутся здесь, пока нет сводной таблицы: иначе их адрес - она.
+  const canDocs = canEdit && sale && !value.book;
   const money = value.money?.since ? value.money : null;
   const buckets = new Map((money?.months ?? []).map((bucket) => [bucket.month, bucket]));
   const current = (money?.today ?? "").slice(0, 7);
@@ -205,7 +214,9 @@ export function Accruals({ contractId, seq }: { contractId: string; seq: number 
                   {codes.join(" · ")}
                   {aside ? <small>{aside}</small> : null}
                 </span>
-                {value.acts ? <ActLine act={act} accrued={Boolean(row.kort && !row.kort.skipped && Number(row.kort.amount))} past={row.month < currentMonth} /> : null}
+                {value.acts && !(canDocs && (!act?.act || act.act.source === "kort")) ? (
+                  <ActLine act={act} accrued={Boolean(row.kort && !row.kort.skipped && Number(row.kort.amount))} past={row.month < currentMonth} />
+                ) : null}
                 <span className="acc-acts">
                   {canEdit && row.kort?.adjustment ? (
                     <RemoveAdjustment contractId={contractId} documentId={row.kort.adjustment.id} onDone={changed} />
@@ -221,6 +232,25 @@ export function Accruals({ contractId, seq }: { contractId: string; seq: number 
                   ) : null}
                 </span>
               </div>
+              {canDocs && row.kort && !row.kort.skipped && Number(row.kort.amount) && row.month <= currentMonth ? (
+                <MonthDocs
+                  docs={value.docs?.[row.month]}
+                  foreignAct={Boolean(act?.act && act.act.source !== "kort")}
+                  open={docFor?.month === row.month ? docFor.kind : null}
+                  onPick={(kind) => setDocFor(docFor?.month === row.month && docFor.kind === kind ? null : { month: row.month, kind })}
+                />
+              ) : null}
+              {docFor?.month === row.month ? (
+                <DocForm
+                  key={docFor.kind}
+                  contractId={contractId}
+                  month={row.month}
+                  kind={docFor.kind}
+                  doc={value.docs?.[row.month]?.[docFor.kind]}
+                  onDone={changed}
+                  onCancel={() => setDocFor(null)}
+                />
+              ) : null}
               {editing === row.month ? (
                 <AdjustmentForm
                   contractId={contractId}
@@ -237,9 +267,7 @@ export function Accruals({ contractId, seq }: { contractId: string; seq: number 
       ) : (
         <p className="party-none">Начислений в эти месяцы нет</p>
       )}
-      {value.money && canEdit && schedule.kind ? (
-        <PaymentEntry contractId={contractId} value={value} onDone={changed} />
-      ) : null}
+      {value.money && canEdit ? <PaymentEntry contractId={contractId} value={value} sale={sale} onDone={changed} /> : null}
       {money?.payments.length ? <PaymentsList money={money} /> : null}
     </Section>
   );
@@ -248,6 +276,162 @@ export function Accruals({ contractId, seq }: { contractId: string; seq: number 
 function isoToday(): string {
   const day = new Date();
   return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+}
+
+/** Пачка команд ядра: предложить, отказ - словами, применить. */
+async function applyCommands(commands: ModelCommand[]) {
+  const proposal = await modelApi.propose(commands);
+  if (proposal.problems.length) throw new Error(proposal.problems.map((problem) => problem.detail).join("; "));
+  return modelApi.apply(commands, proposal.base);
+}
+
+const DOC_KINDS: MonthDocKind[] = ["bill", "act", "esf"];
+const DOC_WORDS: Record<MonthDocKind, { title: string; action: string; done: string }> = {
+  bill: { title: "Счёт", action: "Выставить счёт", done: "Счёт записан" },
+  act: { title: "АВР", action: "Записать АВР", done: "АВР записан" },
+  esf: { title: "ЭСФ", action: "Записать ЭСФ", done: "ЭСФ записан" },
+};
+
+/** Какой день предложить: счёт - начало месяца, АВР и ЭСФ - его конец, но не позже сегодня. */
+function docDay(kind: MonthDocKind, month: string): string {
+  if (kind === "bill") return `${month}-01`;
+  const [year, number] = month.split("-").map(Number);
+  const last = `${month}-${String(new Date(year, number, 0).getDate()).padStart(2, "0")}`;
+  const today = isoToday();
+  return last < today ? last : today;
+}
+
+/**
+ * Цикл месяца в его строке: счёт → АВР → ЭСФ.
+ *
+ * До этого компания без 1С и без сводной таблицы видела «месяц начислен - АВР
+ * нет» и «Выставить счёт», но записать АВР и ЭСФ было негде: экран отправлял в
+ * договор, а в договоре кнопки не было. Следующий шаг - весом подписи.
+ */
+function MonthDocs({
+  docs,
+  foreignAct,
+  open,
+  onPick,
+}: {
+  docs: Partial<Record<MonthDocKind, MonthDoc>> | undefined;
+  /** АВР месяца из 1С или таблицы: он и его ЭСФ ведутся там. */
+  foreignAct: boolean;
+  open: MonthDocKind | null;
+  onPick: (kind: MonthDocKind) => void;
+}) {
+  const kinds = DOC_KINDS.filter((kind) => kind === "bill" || !foreignAct);
+  const next = kinds.find((kind) => !docs?.[kind]);
+  return (
+    <div className="acc-docs">
+      {kinds.map((kind) => {
+        const doc = docs?.[kind];
+        const words = DOC_WORDS[kind];
+        return (
+          <button
+            key={kind}
+            type="button"
+            className="fin-link-btn"
+            data-next={kind === next ? "true" : undefined}
+            aria-expanded={open === kind}
+            onClick={() => onPick(kind)}
+          >
+            {doc ? `${words.title}${doc.number ? ` № ${doc.number}` : ""}${doc.day ? ` от ${formatDay(doc.day)}` : ""}` : words.action}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Счёт, АВР или ЭСФ месяца: номер и дата; сумма - начисление месяца, её не спрашиваем. */
+export function DocForm({
+  contractId,
+  month,
+  kind,
+  doc,
+  onDone,
+  onCancel,
+}: {
+  contractId: string;
+  month: string;
+  kind: MonthDocKind;
+  doc?: Pick<MonthDoc, "number" | "day" | "signed"> & { id?: string };
+  onDone: (text: string) => void;
+  onCancel: () => void;
+}) {
+  const [number, setNumber] = useState(doc?.number ?? "");
+  const [day, setDay] = useState(doc?.day ?? docDay(kind, month));
+  const [signed, setSigned] = useState(doc?.signed ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const words = DOC_WORDS[kind];
+
+  const run = async (commands: ModelCommand[], text: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      await applyCommands(commands);
+      onDone(text);
+    } catch (exc) {
+      setError(messageOf(exc, "Не записалось"));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const save = () => {
+    if (!number.trim()) {
+      setError(`Впишите № - ${words.title} без номера не записывается`);
+      return;
+    }
+    void run(
+      [{ command: "document.record", params: { contract: contractId, kind, month, number: number.trim(), day, ...(signed ? { signed } : {}) } }],
+      words.done,
+    );
+  };
+  return (
+    <form
+      className="acc-pay acc-pay-form acc-doc-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        save();
+      }}
+    >
+      <label className="acc-pay-field">
+        <span className="fin-label">№ {words.title}</span>
+        <input className="input-field" value={number} autoFocus onChange={(event) => setNumber(event.target.value)} />
+      </label>
+      <label className="acc-pay-field">
+        <span className="fin-label">Дата</span>
+        <input className="input-field" type="date" value={day} onChange={(event) => setDay(event.target.value)} required />
+      </label>
+      {kind === "act" ? (
+        <label className="acc-pay-field">
+          <span className="fin-label">Подписан клиентом</span>
+          <input className="input-field" type="date" value={signed} onChange={(event) => setSigned(event.target.value)} />
+        </label>
+      ) : null}
+      <div className="acc-pay-acts">
+        <button type="submit" className="btn-primary btn-sm" disabled={busy}>
+          {busy ? "Записываем…" : "Записать"}
+        </button>
+        {doc?.id ? (
+          <button
+            type="button"
+            className="btn-ghost btn-sm"
+            disabled={busy}
+            onClick={() => void run([{ command: "document.remove", params: { id: doc.id } }], `${words.title} снят`)}
+          >
+            Снять
+          </button>
+        ) : null}
+        <button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={onCancel}>
+          Отмена
+        </button>
+      </div>
+      {error ? <p className="ifield-error acc-pay-wide">{error}</p> : null}
+    </form>
+  );
 }
 
 /**
@@ -265,7 +449,18 @@ function isoToday(): string {
  * Поэтому первая оплата спрашивает, с какого дня вести учёт, - по умолчанию
  * с первого начисления договора - и называет месяц явно.
  */
-function PaymentEntry({ contractId, value, onDone }: { contractId: string; value: ContractMonths; onDone: (text: string) => void }) {
+function PaymentEntry({
+  contractId,
+  value,
+  sale,
+  onDone,
+}: {
+  contractId: string;
+  value: ContractMonths;
+  /** Мы исполнитель - деньги приходят; мы заказчик - уходят: поступление по покупке было бы возвратом. */
+  sale: boolean;
+  onDone: (text: string) => void;
+}) {
   const money = value.money;
   const oldest = (money?.months ?? []).find((bucket) => Number(bucket.debt) > 0);
   // Оплат ещё не было - долга по месяцам KORT не знает: начисление самого старого наступившего месяца.
@@ -317,12 +512,13 @@ function PaymentEntry({ contractId, value, onDone }: { contractId: string; value
           command: "payment.record",
           params: {
             contract: contractId,
+            direction: sale ? "in" : "out",
             day,
             amount: clean,
             ...(month ? { month } : {}),
             ...(account ? { account } : {}),
             ...(comment.trim() ? { comment: comment.trim() } : {}),
-            key: crypto.randomUUID(),
+            key: newId(),
           },
         },
       ];
@@ -362,7 +558,7 @@ function PaymentEntry({ contractId, value, onDone }: { contractId: string; value
     return (
       <div className="acc-pay">
         <button type="button" className="btn-ghost btn-sm" onClick={start}>
-          Пришла оплата
+          {sale ? "Пришла оплата" : "Оплатили"}
         </button>
         {undo ? (
           <button type="button" className="fin-link-btn" disabled={busy} onClick={() => void revert()}>
@@ -512,7 +708,7 @@ function PaymentsList({ money }: { money: ContractMoney }) {
   const add = (key: string, text: string) => where.set(key, [...(where.get(key) ?? []), text]);
   if (money.opening) for (const part of money.opening.parts) add(part.key, "сальдо");
   for (const bucket of money.months) for (const part of bucket.parts) add(part.key, formatMonth(bucket.month, true));
-  for (const part of money.over) add(part.key, "сверх начислений");
+  for (const part of money.over) add(part.key, part.by === "before" ? "до начала учёта" : "сверх начислений");
   const shown = open ? money.payments : money.payments.slice(0, 3);
   return (
     <div className="acc-payments">

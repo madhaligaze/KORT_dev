@@ -182,7 +182,7 @@ function RevenueScreen({ section, measure: initial }: { section: "profit" | "cas
       <p className="debts-source">
         {data
           ? [
-              data.since ? `оплаты в KORT с ${formatDay(data.since)}, раньше - пусто` : "оплат в KORT ещё нет",
+              data.since ? `учёт оплат с ${formatDay(data.since)}` : "оплат в KORT ещё нет",
               data.book ? `АВР: KORT, 1С и сводная таблица (прочитана в ${formatTime(data.book.read_at)})` : "",
               `${data.rows.reduce((sum, row) => sum + row.contracts, 0)} ${plural(
                 data.rows.reduce((sum, row) => sum + row.contracts, 0),

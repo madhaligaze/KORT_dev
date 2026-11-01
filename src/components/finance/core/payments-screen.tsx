@@ -46,13 +46,17 @@ export function PaymentsShadow({
   onOpen,
   closed,
   entity = "",
+  noTable = false,
 }: {
   onOpen: (id: string | null) => void;
   closed: number;
+  /** Сводной таблицы нет: без сверки с ней и без её сальдо - только оплаты без договора. */
+  noTable?: boolean;
   /** Одно наше юрлицо - только его месяцы в сверке с таблицей (как в «Переходе»). */
   entity?: string;
 }) {
-  const [view, setView] = useSessionState<View>("core.shadow.paid.view", "lines");
+  const [chosen, setView] = useSessionState<View>("core.shadow.paid.view", "lines");
+  const view: View = noTable ? "without" : chosen;
   const [data, setData] = useState<PaymentsView | null>(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
@@ -67,14 +71,14 @@ export function PaymentsShadow({
       .then((next) => {
         if (!alive) return;
         setData(next);
-        setError(next.error);
+        setError(noTable ? "" : next.error);
       })
       .catch((exc) => alive && setError(messageOf(exc, "Оплаты не сверились")))
       .finally(() => alive && setLoaded(asked));
     return () => {
       alive = false;
     };
-  }, [asked, entity]);
+  }, [asked, entity, noTable]);
   const reload = (text: string) => {
     setNote(text);
     setRevision((value) => value + 1);
@@ -85,7 +89,7 @@ export function PaymentsShadow({
   const openingChanges = opening ? opening.counts.new + opening.counts.changed + opening.counts.remove : 0;
   return (
     <>
-      <div className="shadow-bar">
+      <div className="shadow-bar" hidden={noTable}>
         <p className="shadow-source">
           {data?.book
             ? `${data.book.title || "Сводная таблица"} · прочитана в ${formatTime(data.book.read_at)}${
@@ -102,7 +106,7 @@ export function PaymentsShadow({
 
       {data ? <Settings key={data.settings.since_used ?? ""} data={data} onChanged={reload} /> : null}
 
-      <div className="fin-kpis">
+      <div className="fin-kpis" hidden={noTable}>
         <div className="fin-kpi">
           <span className="fin-kpi-label">Совпадает</span>
           <span className="fin-kpi-value">{shadow ? `${counts.same ?? 0} из ${counts.contracts ?? 0}` : "-"}</span>
@@ -183,7 +187,7 @@ function Settings({ data, onChanged }: { data: PaymentsView; onChanged: (text: s
           </button>
         ) : null}
         <span className="fin-muted">
-          {data.settings.since ? "задано" : used ? "по первой оплате" : "оплат ещё нет"} · до этого дня долг - входящее сальдо
+          {data.settings.since ? "задано" : used ? "по первой оплате" : "оплат ещё нет"} · месяцы раньше KORT считает закрытыми
         </span>
         {data.settings.since ? (
           <button
@@ -204,7 +208,7 @@ function Settings({ data, onChanged }: { data: PaymentsView; onChanged: (text: s
             <span className="fin-mine paid-source-pick" role="group" aria-label={`Оплаты ${entity.code || entity.name}`}>
               {(
                 [
-                  ["journal", "Журнал", entity.journal],
+                  ["journal", "Выписки", entity.journal],
                   ["1c", "1С", entity.onec],
                 ] as ["journal" | "1c", string, number][]
               ).map(([source, title, count]) => (

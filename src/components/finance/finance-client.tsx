@@ -339,6 +339,8 @@ const GROUPS: { title: string; items: SectionItem[]; views?: { source: CoreView[
     title: "Деньги",
     views: { source: "unbilled" },
     items: [
+      // Счета по договорам; у компании с видом «Не выставлены» его место занимает вид.
+      { key: "invoices", title: "Счета", icon: ReceiptIcon, resource: "invoices" },
       // Платёжный календарь ядра: остаток вперёд по дням, разрывы, обещания клиентов.
       { key: "cash-calendar", title: "Деньги вперёд", icon: CalendarIcon, resource: "reports.cash" },
       { key: "profit", title: "Выручка", icon: TrendIcon, resource: "reports.profit" },
@@ -352,7 +354,7 @@ const GROUPS: { title: string; items: SectionItem[]; views?: { source: CoreView[
       // НДС наших юрлиц: плательщики - НДС, остальные - оборот к порогу; перевод клиентов (ядро, фаза 7).
       { key: "vat", title: "НДС", icon: ThresholdIcon, resource: "reports.summary" },
       // Наши ТОО и что между ними: обороты, договоры между своими, переводы, выплаты людям (фаза 8).
-      { key: "group", title: "Карта группы", icon: GroupIcon, resource: "contracts" },
+      { key: "group", title: "Между своими", icon: GroupIcon, resource: "contracts" },
     ],
   },
   {
@@ -364,6 +366,22 @@ const GROUPS: { title: string; items: SectionItem[]; views?: { source: CoreView[
     ],
   },
 ];
+
+/** Пока считать не из чего, этих мест нет ни в строке, ни в «Ещё»: появляются сами (`core/usage.py`). */
+const EARNED_SECTIONS = new Set<string>(["invoices", "cash-calendar", "vat", "profit", "group"]);
+
+/** Вкладки - в порядке работы: договор, счёт, долг, деньги, налог; участники и сверка после. */
+function placeRank(key: string): number {
+  if (key === "today") return 0;
+  if (key.startsWith("contracts") || key.startsWith("cards.")) return 1;
+  if (key === "invoices" || key.startsWith("unbilled.")) return 2;
+  if (key === "debts" || key.startsWith("debts.")) return 3;
+  if (key === "cash-calendar") return 4;
+  if (key === "vat") return 5;
+  if (key === "participants") return 6;
+  if (key === "shadow") return 7;
+  return 8;
+}
 
 /** Места, которые в строке только своей отметкой: редкие, их находят в «Ещё» и поиском. */
 const MORE_SECTIONS = new Set<Section>(["start", "profit", "import", "group", "integrations", "dictionaries"]);
@@ -380,8 +398,6 @@ const HIDDEN_SECTIONS: SectionItem[] = [
   { key: "contracts-import", title: "Загрузка реестра", icon: UploadIcon, resource: "contracts" },
   { key: "contracts-setup", title: "Настроить реестр", icon: BookIcon, resource: "contracts" },
   { key: "debts", title: "Долги", icon: ClockIcon, resource: "reports.debts" },
-  // Счета к выставлению без вида «Не выставлены» - пункт «под угрозой» ведёт сюда.
-  { key: "invoices", title: "Счета", icon: ReceiptIcon, resource: "invoices" },
   { key: "me", title: "Личный кабинет", icon: PersonIcon, resource: "" },
 ];
 
@@ -788,9 +804,11 @@ export function FinanceClient() {
   const shown = useCallback(
     (item: SectionItem) => {
       if (pins.has(item.key) || (picked !== null && item.key === navKey(picked))) return true;
+      if (item.key === "invoices" && known.some((view) => view.source === "unbilled")) return false;
+      if (item.view?.source === "debts" && emptySections.has("debts")) return false;
       return item.view ? item.view.pinned : !emptySections.has(item.key);
     },
-    [emptySections, pins, picked],
+    [emptySections, pins, picked, known],
   );
   const groups = useMemo(
     () =>
@@ -805,13 +823,22 @@ export function FinanceClient() {
    * открыто: редкие места, пустые разделы и незакреплённые виды.
    */
   const strip = useMemo(
-    () => groups.flatMap((group) => group.items).filter((item) => !MORE_SECTIONS.has(item.key) || pins.has(item.key)),
+    () =>
+      groups
+        .flatMap((group) => group.items)
+        .filter((item) => !MORE_SECTIONS.has(item.key) || pins.has(item.key))
+        .sort((a, b) => placeRank(a.key) - placeRank(b.key)),
     [groups, pins],
   );
   const more = useMemo(() => {
     const inStrip = new Set(strip.map((item) => item.key));
-    return allowedItems.filter((item) => !inStrip.has(item.key));
-  }, [allowedItems, strip]);
+    return allowedItems.filter((item) => {
+      if (inStrip.has(item.key)) return false;
+      if (item.key === "invoices" && known.some((view) => view.source === "unbilled")) return false;
+      if (item.view?.source === "debts" && emptySections.has("debts")) return false;
+      return !(EARNED_SECTIONS.has(item.key) && emptySections.has(item.key));
+    });
+  }, [allowedItems, strip, known, emptySections]);
   const placesRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!moreOpen) return;
@@ -879,6 +906,19 @@ export function FinanceClient() {
     };
   }, [last, groups, visible, picked, habitOwner, meHabits, itemOf, formsOf, firstDebts]);
   const allowed = sectionItem ? visible(sectionItem) : false;
+  // Вкладки - по данным: заведённый договор открывает «Счета» и «Долги» при первом же
+  // переходе, а не после перезагрузки страницы.
+  useEffect(() => {
+    if (!section) return;
+    let alive = true;
+    coreApi
+      .usage()
+      .then((result) => alive && setEmptySections(new Set(result.empty)))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [section]);
   const money = canAny(me, MONEY_RESOURCES);
   const setSection = useCallback((next: Section | string) => {
     const key = sectionOf(next) ?? "today";
@@ -1204,6 +1244,11 @@ export function FinanceClient() {
    */
   const [revision, setRevision] = useState(0);
   const reload = useCallback(() => setRevision((value) => value + 1), []);
+  // Счета и участники меняются в договорах, а справочники читались один раз: клиент
+  // свежего договора не находился в форме, пока страницу не перезагрузят.
+  useEffect(() => {
+    if (section === "invoices" || section === "dictionaries" || section === "import") reload();
+  }, [section, reload]);
   const companyId = me?.company?.id ?? null;
 
   useEffect(() => {

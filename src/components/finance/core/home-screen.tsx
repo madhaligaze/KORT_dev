@@ -12,9 +12,9 @@
  * * «Под угрозой» - пункты ядра порознь (`ask attention`): медленный не держит
  *   быстрые. Щелчок ведёт туда, где пункт раскрыт списком.
  * * «Пришло» - факты журнала, впервые записанные за неделю (`ask arrived`).
- * * «С чего начать» - первые шаги компании (`ask start`), пока они не пройдены:
- *   наше юрлицо с БИН, договоры, деньги. Пустая компания видела здесь «Вопросов
- *   нет» и «Акты подписаны», а «Первые шаги» лежали в «Ещё» (проход новичка 31.10).
+ * * «С чего начать» - первые шаги компании по порядку (`ask start`), пока они не
+ *   пройдены: наше юрлицо, договоры, начало учёта, деньги. Пустая компания видела
+ *   здесь «Вопросов нет» и «Акты подписаны» (проход новичка 31.10).
  *
  * Строка внизу - после действия («Применено … · Вернуть»), в покое молчит.
  */
@@ -34,13 +34,14 @@ import {
   formatDate,
   modelApi,
 } from "@/components/finance/api";
-import { openParticipant } from "@/components/finance/core/open";
-import { contractMoney, plural } from "@/components/finance/format";
+import { REGIMES } from "@/components/finance/core/words";
+import { contractMoney, formatDay, plural } from "@/components/finance/format";
 import { ArrowRightIcon } from "@/components/icons";
 import { useSessionScope, writeSession } from "@/components/session-state";
 
 const KIND_ORDER = ["payments", "bins", "twins", "reconcile"];
-const ITEM_ORDER = ["cash", "vat", "debts", "unbilled", "acts"];
+/** Порядок работы с месяцем: выставить, закрыть актом, получить деньги; ниже - что впереди. */
+const ITEM_ORDER = ["unbilled", "acts", "debts", "cash", "vat"];
 const WEEKDAY = new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
 type Load<T> = { value: T | null; error: string };
@@ -358,109 +359,81 @@ export function HomeScreen({ onGo, unbilledSection }: { onGo: (section: string) 
 
 // ── С чего начать ────────────────────────────────────────────────────────────
 
+/** Чем занят шаг, пока до него не дошли: одна строка, без действий. */
+const STEP_AHEAD: Record<HomeStartStep["key"], string> = {
+  entity: "БИН и режим налогов",
+  contracts: "От договоров KORT считает начисления и счета",
+  since: "С какого дня считать оплаты и счета",
+  money: "Выписка банка или 1С",
+};
+
+/** Пачка команд ядра: предложить, отказ - словами, применить. */
+async function applyCommands(commands: ModelCommand[]) {
+  const proposal = await modelApi.propose(commands);
+  if (proposal.problems.length) throw new Error(proposal.problems.map((problem) => problem.detail).join("; "));
+  return modelApi.apply(commands, proposal.base);
+}
+
 /**
- * Первые шаги: что KORT делает - одной фразой, и три шага до первых чисел.
- * Пройденный шаг остаётся строкой, тише прочих: видно, сколько пройдено, без
- * отметок цветом. Действие шага ведёт туда, где его делают, а юрлицо без
- * единого нашего заводится прямо здесь - без него договору некого назвать
- * исполнителем.
+ * Первые шаги по порядку: что KORT делает - одной фразой, и четыре шага до
+ * первых чисел. Действие есть только у текущего: человек не выбирает, с чего
+ * начать, а отвечает на один вопрос за раз. Пройденный шаг остаётся тихой
+ * строкой, будущий - одной подписью. Юрлицо и начало учёта отвечаются здесь
+ * же, на месте; договор и выписка ведут туда, где их заводят, и экран
+ * возвращает сюда. Шаг закрывают данные: файлы могут закрыть сразу несколько.
  */
 function StartBlock({ steps, onGo, onChanged }: { steps: HomeStartStep[]; onGo: (section: string) => void; onChanged: () => void }) {
-  const [name, setName] = useState("");
-  const [bin, setBin] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const scope = useSessionScope();
+  const now = steps.find((step) => !step.done);
+  const position = now ? steps.indexOf(now) + 1 : steps.length;
 
-  const addEntity = async () => {
-    const clean = name.trim();
-    if (!clean) return;
-    setBusy(true);
-    setError("");
-    try {
-      const commands: ModelCommand[] = [
-        { command: "entity.create", params: { name: clean, ...(bin.trim() ? { bin: bin.trim() } : {}) } },
-      ];
-      const proposal = await modelApi.propose(commands);
-      if (proposal.problems.length) {
-        setError(proposal.problems.map((problem) => problem.detail).join("; "));
-        return;
-      }
-      await modelApi.apply(commands, proposal.base);
-      setName("");
-      setBin("");
-      onChanged();
-    } catch (exc) {
-      setError(messageOf(exc, "Юрлицо не завелось"));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const actions = (step: HomeStartStep) => {
-    if (step.done) return null;
+  const action = (step: HomeStartStep) => {
     switch (step.key) {
       case "entity":
-        return step.entity ? (
-          <button type="button" className="btn-ghost btn-sm" onClick={() => openParticipant(step.entity ?? "")}>
-            Вписать БИН и режим налогов
-          </button>
-        ) : (
-          <form
-            className="home-step-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void addEntity();
-            }}
-          >
-            <input
-              className="input-field"
-              aria-label="Название нашего юрлица"
-              placeholder="ТОО «Название»"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-            <input
-              className="input-field"
-              aria-label="БИН нашего юрлица"
-              placeholder="БИН"
-              inputMode="numeric"
-              value={bin}
-              onChange={(event) => setBin(event.target.value)}
-            />
-            <button type="submit" className="btn-ghost btn-sm" disabled={busy || !name.trim()}>
-              {busy ? "Заводим…" : "Завести"}
-            </button>
-          </form>
-        );
+        return <EntityStep step={step} onDone={onChanged} />;
       case "contracts":
         return (
-          <button type="button" className="btn-ghost btn-sm" onClick={() => onGo("contracts")}>
-            Завести договор или загрузить Excel
-          </button>
+          <div className="home-step-acts">
+            <button
+              type="button"
+              className="btn-primary btn-sm"
+              onClick={() => {
+                // Сразу карточка нового договора: пустой реестр - лишний шаг до неё.
+                writeSession(scope, "registry.new", {});
+                onGo("contracts");
+              }}
+            >
+              Завести договор
+            </button>
+            <button type="button" className="btn-ghost btn-sm" onClick={() => onGo("contracts-import")}>
+              Загрузить из Excel
+            </button>
+          </div>
         );
+      case "since":
+        return <SinceStep step={step} onDone={onChanged} />;
       case "money":
         return (
-          <>
-            <button type="button" className="btn-ghost btn-sm" onClick={() => onGo("import")}>
+          <div className="home-step-acts">
+            <button type="button" className="btn-primary btn-sm" onClick={() => onGo("import")}>
               Загрузить выписку банка
             </button>
             <button type="button" className="btn-ghost btn-sm" onClick={() => onGo("integrations")}>
               Подключить 1С
             </button>
-          </>
+          </div>
         );
       default:
         return null;
     }
   };
 
-  const left = steps.filter((step) => !step.done).length;
   return (
     <section className="home-start" aria-labelledby="home-start">
       <h2 id="home-start" className="home-head">
         С чего начать
         <span className="home-count">
-          {left} {plural(left, "шаг", "шага", "шагов")} из {steps.length}
+          шаг {position} из {steps.length}
         </span>
       </h2>
       <p className="home-start-lead">
@@ -468,19 +441,179 @@ function StartBlock({ steps, onGo, onChanged }: { steps: HomeStartStep[]; onGo: 
         раскладывает по договорам, а что не смог разложить - спрашивает здесь.
       </p>
       <ol className="home-steps">
-        {steps.map((step, index) => (
-          <li key={step.key} className="home-step" data-done={step.done ? "true" : undefined}>
-            <span className="home-step-num">{String(index + 1).padStart(2, "0")}</span>
-            <div className="home-step-body">
-              <span className="home-step-title">{step.title}</span>
-              <span className="home-step-text">{step.done ? `готово · ${step.text}` : step.text}</span>
-            </div>
-            <div className="home-step-acts">{actions(step)}</div>
-          </li>
-        ))}
+        {steps.map((step, index) => {
+          const state = step.done ? "done" : step === now ? "now" : "ahead";
+          return (
+            <li key={step.key} className="home-step" data-state={state}>
+              <span className="home-step-num">{String(index + 1).padStart(2, "0")}</span>
+              <div className="home-step-body">
+                <span className="home-step-title">{step.title}</span>
+                <span className="home-step-text">
+                  {state === "done" ? `готово · ${step.text}` : state === "now" ? step.text : STEP_AHEAD[step.key]}
+                </span>
+              </div>
+              {state === "now" ? <div className="home-step-now">{action(step)}</div> : null}
+            </li>
+          );
+        })}
       </ol>
-      {error ? <p className="home-refusal">{error}</p> : null}
+      {!steps[1]?.done ? (
+        <p className="home-start-files">
+          <button type="button" className="fin-link-btn" onClick={() => onGo("start")}>
+            Реестр, выписки и 1С уже есть файлами? Загрузить всё сразу
+          </button>
+        </p>
+      ) : null}
     </section>
+  );
+}
+
+/** Шаг 1: наше юрлицо, БИН и режим - прямо здесь, без карточки и второго экрана. */
+function EntityStep({ step, onDone }: { step: HomeStartStep; onDone: () => void }) {
+  const adding = !step.entity;
+  const needs = step.needs ?? { bin: true, regime: true };
+  const [name, setName] = useState("");
+  const [bin, setBin] = useState("");
+  const [regime, setRegime] = useState<(typeof REGIMES)[number]["value"]>("general");
+  const [vat, setVat] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      let id = step.entity ?? "";
+      if (adding) {
+        const done = await applyCommands([{ command: "entity.create", params: { name: name.trim(), ...(bin.trim() ? { bin: bin.trim() } : {}) } }]);
+        id = String(done.commands[0]?.result?.id ?? "");
+      } else if (needs.bin) {
+        await coreApi.setBin(id, bin.trim());
+      }
+      if ((adding || needs.regime) && id) {
+        // С начала года: режим редко меняется; другая дата - в карточке юрлица.
+        await coreApi.addTaxPeriod(id, { valid_from: `${new Date().getFullYear()}-01-01`, regime, vat_payer: regime === "general" && vat });
+      }
+      onDone();
+    } catch (exc) {
+      setError(messageOf(exc, "Не записалось"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const ready = (!adding || name.trim()) && (!(adding || needs.bin) || bin.trim());
+  return (
+    <form
+      className="home-step-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void save();
+      }}
+    >
+      {adding ? (
+        <input
+          className="input-field"
+          aria-label="Название нашего юрлица"
+          placeholder="ТОО «Название»"
+          value={name}
+          autoFocus
+          onChange={(event) => setName(event.target.value)}
+        />
+      ) : null}
+      {adding || needs.bin ? (
+        <input
+          className="input-field home-step-bin"
+          aria-label="БИН"
+          placeholder="БИН"
+          inputMode="numeric"
+          value={bin}
+          autoFocus={!adding}
+          onChange={(event) => setBin(event.target.value)}
+        />
+      ) : null}
+      {adding || needs.regime ? (
+        <>
+          <select
+            className="input-field"
+            aria-label="Режим налогов"
+            value={regime}
+            onChange={(event) => {
+              const next = event.target.value as typeof regime;
+              setRegime(next);
+              if (next !== "general") setVat(false);
+            }}
+          >
+            {REGIMES.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.title}
+              </option>
+            ))}
+          </select>
+          <label className="party-check">
+            <input type="checkbox" checked={vat} disabled={regime !== "general"} onChange={(event) => setVat(event.target.checked)} />
+            плательщик НДС
+          </label>
+        </>
+      ) : null}
+      <button type="submit" className="btn-primary btn-sm" disabled={busy || !ready}>
+        {busy ? "Записываем…" : "Записать"}
+      </button>
+      {error ? <p className="home-refusal home-step-wide">{error}</p> : null}
+    </form>
+  );
+}
+
+/** Шаг 3: начало учёта - один ответ, от него зависят и долги, и список счетов. */
+function SinceStep({ step, onDone }: { step: HomeStartStep; onDone: () => void }) {
+  const [other, setOther] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const first = step.first ?? "";
+  const current = step.current ?? "";
+
+  const choose = async (since: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      await applyCommands([{ command: "accounting.start", params: { since } }]);
+      onDone();
+    } catch (exc) {
+      setError(messageOf(exc, "Не записалось"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="home-step-since">
+      <p className="home-step-note">Месяцы раньше этого дня KORT считает закрытыми: не ждёт за них ни оплат, ни счетов.</p>
+      <div className="home-step-acts">
+        {first ? (
+          <button type="button" className="btn-primary btn-sm" disabled={busy} onClick={() => void choose(first)}>
+            С первого начисления · {formatDay(first)}
+          </button>
+        ) : null}
+        {current && current !== first ? (
+          <button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={() => void choose(current)}>
+            С этого месяца · {formatDay(current)}
+          </button>
+        ) : null}
+        <input
+          className="input-field home-step-date"
+          type="date"
+          aria-label="Другая дата начала учёта"
+          value={other}
+          onChange={(event) => setOther(event.target.value)}
+        />
+        {other ? (
+          <button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={() => void choose(other)}>
+            С этой даты
+          </button>
+        ) : null}
+      </div>
+      {error ? <p className="home-refusal">{error}</p> : null}
+    </div>
   );
 }
 

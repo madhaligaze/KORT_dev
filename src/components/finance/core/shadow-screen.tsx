@@ -157,7 +157,6 @@ export function ShadowScreen({ me }: { me: Me }) {
       {noTable ? (
         <p className="shadow-lead">
           Сводной таблицы нет - сверять KORT не с чем. Здесь оплаты, которые KORT не отнёс к договору, и дела по АВР.
-          Таблица подключается в «Ещё → Первые шаги».
         </p>
       ) : null}
       {what === "switch" ? (
@@ -172,9 +171,9 @@ export function ShadowScreen({ me }: { me: Me }) {
       ) : what === "bills" ? (
         <BillsShadowView onOpen={openContract} closed={closed} entity={entity} />
       ) : what === "payments" ? (
-        <PaymentsShadow onOpen={openContract} closed={closed} entity={entity} />
+        <PaymentsShadow onOpen={openContract} closed={closed} entity={entity} noTable={noTable} />
       ) : what === "acts" ? (
-        <ActsShadow onOpen={openContract} closed={closed} entity={entity} />
+        <ActsShadow onOpen={openContract} closed={closed} entity={entity} noTable={noTable} />
       ) : (
         <SaldoShadowView onOpen={openContract} closed={closed} entity={entity} />
       )}

@@ -438,6 +438,7 @@ export function Registry({
           draftContext={draft ?? undefined}
           onClose={() => setDraft(null)}
           onCreated={(id) => openCard(id)}
+          onNew={newContract}
         />
       </>
     );
@@ -576,6 +577,7 @@ export function Registry({
         open={!!openId || !!draft}
         book={book}
         draftContext={draft ?? undefined}
+        onNew={newContract}
         onClose={() => {
           if (openId) {
             const last = openId;

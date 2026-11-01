@@ -417,7 +417,7 @@ export function ThresholdIcon(props: IconProps) {
   );
 }
 
-/** «Карта группы» - три узла и связи между ними. */
+/** «Между своими» - три узла и связи между ними. */
 export function GroupIcon(props: IconProps) {
   return (
     <Svg {...props}>

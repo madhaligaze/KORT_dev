@@ -1040,6 +1040,7 @@ html, body { overflow-x: clip; }
    свёрнуты сеткой 0fr → 1fr; `visibility` прячет их после свёртки, чтобы в
    закрытое не попадали ни Tab, ни экранный диктор. */
 .auth-door + .auth-door { border-top: 1px solid var(--border-base); }
+.auth-about { margin: 1.5rem 0 0; max-width: 30rem; font-size: 0.875rem; line-height: 1.5; color: var(--text-secondary); }
 .auth-door-head {
   position: relative;
   display: flex;
@@ -2083,6 +2084,7 @@ label.auth-row-label { cursor: pointer; }
   color: var(--fin-text);
 }
 .fin-acc-row:last-child { border-bottom: none; }
+.fin-acc-owner { display: block; width: auto; max-width: 100%; margin-top: 0.25rem; padding: 0.2rem 0.5rem; font-size: 0.75rem; }
 .fin-acc-name {
   color: var(--fin-text-soft);
   min-width: 0;
@@ -3480,6 +3482,9 @@ button.ifield-value { cursor: text; }
 button.ifield-value:hover { box-shadow: inset 0 0 0 1px var(--fin-line); }
 /* Новый договор: пустое поле - строкой ввода с чертой, а не голым «-», который новичок
    не узнавал как поле (проход 31.10). Прочерк остаётся - пустое значение пишется «-». */
+.card-next { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; margin: 1rem 0 0; padding: 0.75rem 0; border-top: 1px solid var(--fin-line); border-bottom: 1px solid var(--fin-line); }
+.card-next p { margin: 0; font-size: 0.875rem; color: var(--fin-text); }
+.card-next-acts { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .card-body[data-draft="true"] button.ifield-value[data-empty="true"] { box-shadow: inset 0 -1px 0 var(--fin-line); }
 .card-body[data-draft="true"] button.ifield-value[data-empty="true"]:hover { box-shadow: inset 0 0 0 1px var(--fin-line); }
 .ifield-value[data-empty="true"] { color: var(--text-muted); }
@@ -5030,6 +5035,10 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .creg-search.party-search { flex: 1 1 22rem; max-width: 34rem; margin: 0; order: 0; }
 .party-bar > .btn-ghost { margin-left: auto; }
 .party-harvest, .party-bar-error { flex: 1 1 100%; }
+.party-new { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; flex: 1 1 100%; }
+.party-new .input-field { width: 16rem; max-width: 100%; padding-top: 0.4rem; padding-bottom: 0.4rem; }
+.party-new .input-field.party-new-bin { width: 9rem; }
+.party-new-error { flex: 1 1 100%; }
 .party-error { margin: 0; font-size: 0.8125rem; color: var(--fin-fail); }
 
 .party-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--fin-line); transition: opacity 0.2s ease; }
@@ -5246,6 +5255,10 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .acc-pay-field .input-field { width: 100%; padding-top: 0.4rem; padding-bottom: 0.4rem; }
 .acc-pay-wide { grid-column: 1 / -1; }
 .acc-pay-hint { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
+/* Цикл месяца: счёт, АВР, ЭСФ; следующий шаг - весом подписи. */
+.acc-docs { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; padding: 0 0 0.5rem; font-size: 0.8125rem; }
+.acc-docs .fin-link-btn[data-next="true"] { font-weight: 600; }
+.acc-doc-form { margin: 0 0 0.75rem; }
 .acc-pay-acts { display: flex; flex-wrap: wrap; gap: 0.5rem; grid-column: 1 / -1; }
 .acc-payments .fin-label { margin-bottom: 0.25rem; }
 .acc-payment {
@@ -5341,7 +5354,7 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .acts-list { display: grid; }
 .acts-item {
   display: grid;
-  grid-template-columns: minmax(12rem, 22rem) minmax(0, 1fr);
+  grid-template-columns: minmax(12rem, 22rem) minmax(0, 1fr) auto;
   align-items: baseline;
   column-gap: 1rem;
   padding: 0.5rem 0;
@@ -5448,24 +5461,7 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
    режим не записан - пунктирной; договоры между своими - сплошной стрелкой,
    переводы клиентов - пунктиром. Цвета нет. */
 .group-screen { display: flex; flex-direction: column; gap: 0.75rem; }
-.group-figure { margin: 0; padding: 0.75rem; border: 1px solid var(--fin-line); border-radius: var(--radius-card); }
-.group-svg { display: block; width: 100%; height: auto; color: var(--fin-text); }
 /* Рамка узла - первый rect (перед ним <title> подсказки, поэтому не :first-child). */
-.group-node > rect:first-of-type { fill: var(--fin-plate); stroke: currentColor; stroke-width: 1; }
-.group-node[data-status="payer"] > rect:first-of-type, .group-node[data-status="becomes"] > rect:first-of-type { stroke-width: 2.2; }
-.group-node[data-status="unknown"] > rect:first-of-type { stroke-dasharray: 5 4; }
-.group-code { font-size: 15px; font-weight: 600; fill: currentColor; }
-.group-sum { font-size: 12px; fill: currentColor; font-variant-numeric: tabular-nums; }
-.group-state { font-size: 11px; fill: var(--fin-text-soft); }
-.group-bar-back { fill: color-mix(in srgb, var(--fin-text) 12%, transparent); }
-.group-bar-forecast { fill: color-mix(in srgb, var(--fin-text) 35%, transparent); }
-.group-bar-fact { fill: currentColor; }
-.group-limit { stroke: currentColor; stroke-width: 1.5; }
-.group-edge path { fill: none; stroke: currentColor; stroke-width: 1.4; }
-.group-edge[data-kind="transfer"] path { stroke-dasharray: 6 4; }
-.group-edge[data-empty] path { stroke: color-mix(in srgb, var(--fin-text) 35%, transparent); }
-.group-edge:hover path { stroke-width: 2.6; }
-.group-caption { margin: 0.5rem 0 0; font-size: 0.75rem; color: var(--fin-text-soft); }
 .group-lists { display: grid; gap: 1rem; }
 @media (min-width: 1200px) { .group-lists { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .group-list { display: grid; align-content: start; gap: 0; min-width: 0; }
@@ -5508,6 +5504,8 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 /* Вкладки сверки и выбор юрлица - одной строкой, на узком - выбор под вкладками. */
 .shadow-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
 .shadow-top .fin-mine.shadow-what { flex: 1 1 auto; }
+/* `hidden` на элементе с `display` из этого файла сам не сработает (CLAUDE.md, «Ловушка каскада»). */
+.shadow-bar[hidden], .fin-kpis[hidden] { display: none; }
 .shadow-lead { margin: 0.25rem 0 0.75rem; max-width: 46rem; font-size: 0.875rem; color: var(--fin-text-soft); }
 .shadow-entity { min-width: 11rem; }
 .switch-note { font-size: 0.75rem; color: var(--fin-text-soft); }
@@ -5737,14 +5735,23 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .home-step-body { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; min-width: 0; }
 .home-step-title { font-size: 0.9375rem; font-weight: 600; color: var(--fin-text); }
 .home-step-text { font-size: 0.875rem; color: var(--fin-text); overflow-wrap: anywhere; }
-.home-step[data-done] .home-step-title { font-weight: 400; color: var(--fin-text-soft); }
-.home-step[data-done] .home-step-text { color: var(--fin-text-soft); }
+/* Текущий шаг - полной тушью и с действием, пройденный и будущий - тише. */
+.home-step[data-state="done"] .home-step-title, .home-step[data-state="ahead"] .home-step-title { font-weight: 400; color: var(--fin-text-soft); }
+.home-step[data-state="done"] .home-step-text, .home-step[data-state="ahead"] .home-step-text { color: var(--fin-text-soft); }
+.home-step-now { grid-column: 2 / -1; min-width: 0; padding-top: 0.25rem; }
+.home-step-now .home-step-acts { justify-content: flex-start; grid-column: auto; }
+.home-step-since { display: flex; flex-direction: column; gap: 0.5rem; }
+.home-step-note { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
+.home-step-wide { flex: 1 1 100%; }
+.home-start-files { margin: 0; font-size: 0.8125rem; }
 .home-step-acts { display: flex; flex-wrap: wrap; gap: 0.5rem; grid-column: 2; }
 @media (min-width: 800px) { .home-step-acts { grid-column: 3; justify-content: flex-end; } }
 .home-step-acts:empty { display: none; }
 .home-step-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .home-step-form .input-field { width: 13rem; max-width: 100%; padding-top: 0.4rem; padding-bottom: 0.4rem; }
-.home-step-form .input-field + .input-field { width: 9rem; }
+.home-step-form .input-field.home-step-bin { width: 9rem; }
+.home-step-form select.input-field { width: 16rem; }
+.home-step-acts .input-field.home-step-date { width: 11rem; padding-top: 0.35rem; padding-bottom: 0.35rem; }
 .home-refusal { margin: 0; font-size: 0.8125rem; color: var(--fin-expense); }
 .home-questions { display: flex; flex-direction: column; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
 .home-kind { display: flex; flex-direction: column; gap: 0.6rem; }

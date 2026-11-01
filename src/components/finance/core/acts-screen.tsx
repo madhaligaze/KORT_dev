@@ -10,11 +10,17 @@
  */
 import { useEffect, useState } from "react";
 
-import { type ActOut, type ActsView, coreApi, formatMonth } from "@/components/finance/api";
+import { type ActOut, type ActsView, type MonthDocKind, coreApi, formatMonth } from "@/components/finance/api";
 import { bareNumber, contractMoney, formatDay, formatTime, plural } from "@/components/finance/format";
+import { DocForm } from "@/components/finance/core/accruals";
 import { useSessionState } from "@/components/session-state";
 
 type View = "lines" | "unsigned" | "no_esf" | "missing";
+
+function isoDay(): string {
+  const day = new Date();
+  return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+}
 
 const SOURCE: Record<ActOut["source"], string> = { kort: "KORT", "1c": "1С", book: "таблица" };
 
@@ -38,9 +44,12 @@ export function ActsShadow({
   onOpen,
   closed,
   entity = "",
+  noTable = false,
 }: {
   onOpen: (id: string | null) => void;
   closed: number;
+  /** Сводной таблицы нет: сверять 1С не с чем, остаётся работа по АВР и ЭСФ. */
+  noTable?: boolean;
   /** Одно наше юрлицо: сверка 1С - его месяцы, списки - его договоры. */
   entity?: string;
 }) {
@@ -67,6 +76,25 @@ export function ActsShadow({
     };
   }, [asked, entity]);
   const counts = data?.counts ?? {};
+  const shownView: View = noTable && view === "lines" ? "missing" : view;
+  // Строка, для которой открыта запись документа: действие здесь, а не «откройте договор».
+  const [writing, setWriting] = useState<{ contract: string; month: string; kind: MonthDocKind; act?: ActOut } | null>(null);
+  const written = () => {
+    setWriting(null);
+    setRevision((value) => value + 1);
+  };
+  const form = (id: string, month: string) =>
+    writing?.contract === id && writing.month === month ? (
+      <DocForm
+        key={writing.kind}
+        contractId={id}
+        month={month}
+        kind={writing.kind}
+        doc={writing.act ? { number: writing.act.number, day: writing.act.date, signed: writing.act.signed ?? isoDay() } : undefined}
+        onDone={written}
+        onCancel={() => setWriting(null)}
+      />
+    ) : null;
   const contract = (id: string) => data?.contracts[id];
   const cell = (id: string) => (
     <span className="shadow-contract">
@@ -79,7 +107,7 @@ export function ActsShadow({
   );
   return (
     <>
-      <div className="shadow-bar">
+      <div className="shadow-bar" hidden={noTable}>
         <p className="shadow-source">
           {data?.book
             ? `${data.book.title || "Сводная таблица"} · прочитана в ${formatTime(data.book.read_at)}${
@@ -95,20 +123,22 @@ export function ActsShadow({
         </button>
       </div>
       <div className="fin-kpis">
-        <div className="fin-kpi">
-          <span className="fin-kpi-label">1С и таблица совпадают</span>
-          <span className="fin-kpi-value">{data ? `${counts.same ?? 0} из ${counts.months ?? 0}` : "-"}</span>
-          <span className="fin-kpi-label">месяцев договоров</span>
-        </div>
+        {noTable ? null : (
+          <div className="fin-kpi">
+            <span className="fin-kpi-label">1С и таблица совпадают</span>
+            <span className="fin-kpi-value">{data ? `${counts.same ?? 0} из ${counts.months ?? 0}` : "-"}</span>
+            <span className="fin-kpi-label">месяцев договоров</span>
+          </div>
+        )}
         {(
           [
-            ["lines", "Расходится", data?.lines.length, "месяцев"],
+            ["missing", "Нет АВР", data?.missing.length, "начислено, АВР нет"],
             ["unsigned", "Не подписаны", data?.unsigned.length, "АВР"],
             ["no_esf", "Без ЭСФ", data?.no_esf.length, `дольше ${data?.esf_days ?? 15} дней`],
-            ["missing", "Нет АВР", data?.missing.length, "начислено, АВР нет"],
+            ...(noTable ? [] : ([["lines", "Расходится", data?.lines.length, "месяцев"]] as const)),
           ] as [View, string, number | undefined, string][]
         ).map(([key, title, value, unit]) => (
-          <button key={key} type="button" className="fin-kpi fin-kpi-pick" data-on={view === key ? "" : undefined} onClick={() => setView(key)}>
+          <button key={key} type="button" className="fin-kpi fin-kpi-pick" data-on={shownView === key ? "" : undefined} onClick={() => setView(key)}>
             <span className="fin-kpi-label">{title}</span>
             <span className="fin-kpi-value">{value ?? "-"}</span>
             <span className="fin-kpi-label">{unit}</span>
@@ -118,7 +148,7 @@ export function ActsShadow({
       {error ? <p className="party-error">{error}</p> : null}
       {!data ? (
         <p className="creg-empty">{loading ? "Сверяем акты…" : ""}</p>
-      ) : view === "lines" ? (
+      ) : shownView === "lines" ? (
         data.lines.length ? (
           <div className="fin-card overflow-x-auto">
             <table className="fin-table shadow-table acts-table">
@@ -147,13 +177,19 @@ export function ActsShadow({
         ) : (
           <p className="creg-empty">{data.onec.length ? "АВР 1С и таблицы совпадают" : "1С не подключена - сверять таблицу не с чем"}</p>
         )
-      ) : view === "missing" ? (
+      ) : shownView === "missing" ? (
         data.missing.length ? (
           <div className="acts-list" role="list">
             {data.missing.map((item) => (
-              <div key={`${item.contract_id}-${item.month}`} className="acts-item" role="listitem">
-                {cell(item.contract_id)}
-                <span className="fin-bills-date">{formatMonth(item.month)}</span>
+              <div key={`${item.contract_id}-${item.month}`} role="listitem">
+                <div className="acts-item">
+                  {cell(item.contract_id)}
+                  <span className="fin-bills-date">{formatMonth(item.month)}</span>
+                  <button type="button" className="btn-ghost btn-sm" onClick={() => setWriting({ contract: item.contract_id, month: item.month, kind: "act" })}>
+                    Записать АВР
+                  </button>
+                </div>
+                {form(item.contract_id, item.month)}
               </div>
             ))}
           </div>
@@ -162,12 +198,30 @@ export function ActsShadow({
         )
       ) : (
         <ActList
-          items={view === "unsigned" ? data.unsigned : data.no_esf}
-          empty={view === "unsigned" ? "Все АВР подписаны" : "ЭСФ выписаны в срок"}
+          items={shownView === "unsigned" ? data.unsigned : data.no_esf}
+          empty={shownView === "unsigned" ? "Все АВР подписаны" : "ЭСФ выписаны в срок"}
           days={(days) =>
-            view === "unsigned" ? `${days} ${plural(days, "день", "дня", "дней")} без подписи` : `срок ЭСФ прошёл ${days} ${plural(days, "день", "дня", "дней")} назад`
+            shownView === "unsigned" ? `${days} ${plural(days, "день", "дня", "дней")} без подписи` : `срок ЭСФ прошёл ${days} ${plural(days, "день", "дня", "дней")} назад`
           }
           cell={cell}
+          action={(item) =>
+            item.act.source === "kort" ? (
+              <button
+                type="button"
+                className="btn-ghost btn-sm"
+                onClick={() =>
+                  setWriting(
+                    shownView === "unsigned"
+                      ? { contract: item.contract_id, month: item.act.month, kind: "act", act: item.act }
+                      : { contract: item.contract_id, month: item.act.month, kind: "esf" },
+                  )
+                }
+              >
+                {shownView === "unsigned" ? "Подписан" : "Записать ЭСФ"}
+              </button>
+            ) : null
+          }
+          form={form}
         />
       )}
     </>
@@ -179,24 +233,32 @@ function ActList({
   empty,
   days,
   cell,
+  action,
+  form,
 }: {
   items: { contract_id: string; act: ActOut; days: number }[];
   empty: string;
   days: (count: number) => string;
   cell: (id: string) => React.ReactNode;
+  action: (item: { contract_id: string; act: ActOut; days: number }) => React.ReactNode;
+  form: (id: string, month: string) => React.ReactNode;
 }) {
   if (!items.length) return <p className="creg-empty">{empty}</p>;
   return (
     <div className="acts-list" role="list">
       {items.map((item) => (
-        <div key={`${item.contract_id}-${item.act.month}`} className="acts-item" role="listitem">
-          {cell(item.contract_id)}
-          <span className="acts-text">
-            {actText(item.act)}
-            <span className="fin-bills-note">
-              {formatMonth(item.act.month)} · {SOURCE[item.act.source]} · {days(item.days)}
+        <div key={`${item.contract_id}-${item.act.month}`} role="listitem">
+          <div className="acts-item">
+            {cell(item.contract_id)}
+            <span className="acts-text">
+              {actText(item.act)}
+              <span className="fin-bills-note">
+                {formatMonth(item.act.month)} · {SOURCE[item.act.source]} · {days(item.days)}
+              </span>
             </span>
-          </span>
+            {action(item)}
+          </div>
+          {form(item.contract_id, item.act.month)}
         </div>
       ))}
     </div>

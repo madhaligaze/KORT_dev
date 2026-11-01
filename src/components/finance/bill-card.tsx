@@ -96,12 +96,15 @@ export function BillCardDialog({
   onClose,
   onSaved,
   noTable = false,
+  onNext,
 }: {
   id: string;
   onClose: () => void;
   onSaved: () => void;
   /** У компании нет сводной таблицы - о «строке в таблице» молчать. */
   noTable?: boolean;
+  /** Следующий счёт списка: выставляют их подряд, а не закрывая и открывая окно. */
+  onNext?: () => void;
 }) {
   const [card, setCard] = useState<BillCard | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -300,6 +303,11 @@ export function BillCardDialog({
                   );
                 })}
 
+                {done && onNext ? (
+                  <button type="button" className="btn-ghost self-start" onClick={onNext}>
+                    Следующий счёт
+                  </button>
+                ) : null}
                 {editable ? (
                   <div className="flex flex-wrap items-center gap-2 mt-1">
                     <button

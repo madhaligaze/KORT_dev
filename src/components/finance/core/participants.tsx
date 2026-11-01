@@ -23,12 +23,13 @@ import {
   type TwinGroup,
   contractsApi,
   coreApi,
+  modelApi,
 } from "@/components/finance/api";
 import { readParam, writeParams } from "@/components/finance/address";
 import { ContractCard } from "@/components/finance/contracts/contract-card";
 import { useRegistryBoot } from "@/components/finance/contracts/registry-cards";
 import { useRegistry } from "@/components/finance/contracts/store";
-import { PARTICIPANT_EVENT } from "@/components/finance/core/open";
+import { PARTICIPANT_EVENT, openParticipant } from "@/components/finance/core/open";
 import { type CoreAccess, type MergeDone, ParticipantCard, sourceOf } from "@/components/finance/core/participant-card";
 import { binWord, contractsWord, regimeText } from "@/components/finance/core/words";
 import { SearchIcon } from "@/components/icons";
@@ -200,6 +201,14 @@ export function ParticipantsScreen({ me }: { me: Me }) {
             aria-label="Найти участника"
           />
         </label>
+        {access.edit ? (
+          <NewParticipant
+            onDone={(id) => {
+              changed();
+              openParticipant(id);
+            }}
+          />
+        ) : null}
         {access.setup && summary !== null ? <Harvest onDone={changed} /> : null}
       </div>
 
@@ -594,6 +603,59 @@ function MergedLines({ items, onUndone }: { items: MergeDone[]; onUndone: (done:
       ))}
       {error ? <p className="ifield-error">{error}</p> : null}
     </div>
+  );
+}
+
+/** Клиент или поставщик без договора: завести его можно было только из карточки договора. */
+function NewParticipant({ onDone }: { onDone: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [bin, setBin] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const save = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const commands = [{ command: "participant.create", params: { name: name.trim(), ...(bin.trim() ? { bin: bin.trim() } : {}) } }];
+      const proposal = await modelApi.propose(commands);
+      if (proposal.problems.length) throw new Error(proposal.problems.map((problem) => problem.detail).join("; "));
+      const done = await modelApi.apply(commands, proposal.base);
+      setOpen(false);
+      setName("");
+      setBin("");
+      onDone(String(done.commands[0]?.result?.id ?? ""));
+    } catch (exc) {
+      setError(messageOf(exc, "Участник не завёлся"));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!open) {
+    return (
+      <button type="button" className="btn-ghost btn-sm" onClick={() => setOpen(true)}>
+        Новый участник
+      </button>
+    );
+  }
+  return (
+    <form
+      className="party-new"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void save();
+      }}
+    >
+      <input className="input-field" aria-label="Название" placeholder="ТОО «Название»" value={name} autoFocus onChange={(event) => setName(event.target.value)} />
+      <input className="input-field party-new-bin" aria-label="БИН или ИИН" placeholder="БИН" inputMode="numeric" value={bin} onChange={(event) => setBin(event.target.value)} />
+      <button type="submit" className="btn-primary btn-sm" disabled={busy || !name.trim()}>
+        {busy ? "Заводим…" : "Завести"}
+      </button>
+      <button type="button" className="btn-ghost btn-sm" onClick={() => setOpen(false)}>
+        Отмена
+      </button>
+      {error ? <p className="ifield-error party-new-error">{error}</p> : null}
+    </form>
   );
 }
 

@@ -123,7 +123,10 @@ export function PreviewView({
         ...(entry.starting_balance ? { starting_balance: entry.starting_balance } : {}),
       });
       onApplied();
-      setPreview(await reload(pick ? { default_account: name } : {}));
+      const next = await reload(pick ? { default_account: name } : {});
+      setPreview(next);
+      // Счёт выписки завели - значит, её и заводим: второй кнопки человек не ждёт.
+      if (pick && !next.question && next.rows.some((row) => row.state === "imported")) await apply(undefined, next);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Счёт не завёлся");
     } finally {
@@ -131,11 +134,11 @@ export function PreviewView({
     }
   };
 
-  const apply = async (lines?: number[]) => {
+  const apply = async (lines?: number[], target: ImportPreview = preview) => {
     setBusy(true);
     setError("");
     try {
-      const done = await financeApi.applyBatch(preview.batch_id, lines ? { lines } : {});
+      const done = await financeApi.applyBatch(target.batch_id, lines ? { lines } : {});
       setResult(
         `Завели ${done.imported} ${plural(done.imported, "операцию", "операции", "операций")}` +
           (done.failed ? `, отложено ${done.failed}` : "") +
@@ -145,8 +148,8 @@ export function PreviewView({
           // видно: иначе следующая выписка «сама» ляжет на счёт без объяснений.
           (done.remembered ? ` · счёту «${done.remembered.account}» записан номер ${done.remembered.number}` : ""),
       );
-      const fresh = await financeApi.importBatch(preview.batch_id);
-      setPreview({ ...preview, rows: fresh.rows as ImportRow[] });
+      const fresh = await financeApi.importBatch(target.batch_id);
+      setPreview({ ...target, rows: fresh.rows as ImportRow[] });
       onApplied();
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Не удалось завести операции");
@@ -243,6 +246,10 @@ export function PreviewView({
    * «загружу ещё раз» и «всё на месте».
    */
   const duplicate = preview.rows.filter((row) => row.state === "duplicate");
+  /** Сколько строк ляжет на счёт из вопроса: готовые и ждущие только счёта. */
+  const amounts = ready.length + needAccount.length;
+  /** Статьи - только если они есть: пустая колонка «Категория» ничего не говорит. */
+  const withCategory = ready.some((row) => (row.values as Record<string, unknown>).category);
 
   return (
     <>
@@ -280,7 +287,7 @@ export function PreviewView({
               key={preview.question.create.number || "new"}
               suggestion={preview.question.create}
               busy={busy}
-              label="Завести счёт"
+              label={`Завести счёт и ${amounts} ${plural(amounts, "операцию", "операции", "операций")}`}
               onCreate={(entry) => void createAccount(entry, true)}
             />
           ) : null}
@@ -315,9 +322,10 @@ export function PreviewView({
           </span>
         )}
         <span style={{ flex: 1 }} />
+        {/* Выписка записана - дальше вопросы по ней на «Сегодня». Прежняя «Разметить статьи» вела туда же. */}
         {result && onNext ? (
-          <button type="button" className="btn-ghost text-xs" onClick={onNext}>
-            Разметить статьи
+          <button type="button" className="btn-primary btn-sm" onClick={onNext}>
+            На «Сегодня»
           </button>
         ) : null}
         <button type="button" className="btn-ghost text-xs" onClick={onReset}>
@@ -527,7 +535,7 @@ export function PreviewView({
                 <th style={{ textAlign: "right" }}>Сумма</th>
                 <th>Вид</th>
                 <th>Счёт</th>
-                <th>Категория</th>
+                {withCategory ? <th>Категория</th> : null}
                 <th>Контрагент</th>
                 <th>Комментарий</th>
               </tr>
@@ -558,7 +566,7 @@ export function PreviewView({
                         ? `${values.account_from || "-"} → ${values.account_to || "-"}`
                         : values.account_to || values.account_from || "-"}
                     </td>
-                    <td>{values.category || "-"}</td>
+                    {withCategory ? <td>{values.category || "-"}</td> : null}
                     <td>{values.counterparty || "-"}</td>
                     <td style={{ whiteSpace: "normal", maxWidth: "16rem" }}>{values.comment || ""}</td>
                   </tr>

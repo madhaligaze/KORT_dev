@@ -79,9 +79,9 @@ export function DictionariesPanel({ dictionaries, onChanged }: Props) {
               <span style={{ color: "var(--text-muted)" }}>
                 {" · "}
                 {KINDS.find((item) => item.value === account.kind)?.title ?? account.kind}
-                {account.owner ? ` · ${account.owner}` : " · без юрлица"}
                 {account.excluded_from_reports ? " · вне отчётов" : ""}
               </span>
+              <AccountOwner account={account} entities={dictionaries.entities ?? []} onSaved={onChanged} onError={setError} />
               {account.kind === "bank" || account.kind === "card" || account.number ? (
                 <AccountNumber account={account} onSaved={onChanged} onError={setError} />
               ) : null}
@@ -176,6 +176,48 @@ export function DictionariesPanel({ dictionaries, onChanged }: Props) {
       <EntryList title="Проекты" kind="projects" items={dictionaries.projects} onChanged={onChanged} />
       <EntryList title="Теги" kind="tags" items={dictionaries.tags} onChanged={onChanged} />
     </div>
+  );
+}
+
+/** Чей счёт: без юрлица оплаты на него не находят договоры нашего ТОО. */
+function AccountOwner({
+  account,
+  entities,
+  onSaved,
+  onError,
+}: {
+  account: Dictionaries["accounts"][number];
+  entities: { id: string; name: string }[];
+  onSaved: () => void;
+  onError: (text: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  if (!entities.length) return null;
+  return (
+    <select
+      className="input-field fin-acc-owner"
+      aria-label={`Чей счёт «${account.name}»`}
+      value={account.group_entity_id ?? ""}
+      disabled={busy}
+      onChange={async (event) => {
+        setBusy(true);
+        try {
+          await financeApi.setAccountEntity(account.id, event.target.value || null);
+          onSaved();
+        } catch (exc) {
+          onError(exc instanceof Error ? exc.message : "Юрлицо счёта не записалось");
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <option value="">без юрлица</option>
+      {entities.map((item) => (
+        <option key={item.id} value={item.id}>
+          {item.name}
+        </option>
+      ))}
+    </select>
   );
 }
 

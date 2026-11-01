@@ -98,14 +98,16 @@ export function CashCalendarScreen() {
           {formatDate(answer.from)} - {formatDate(answer.to)} · {answer.scenario_title}
         </p>
         <div className="cal-tools">
-          <select className="input-field cal-entity" value={entity} onChange={(event) => setEntity(event.target.value)} aria-label="Юрлицо">
-            <option value="">Вся группа</option>
-            {answer.entities.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.title}
-              </option>
-            ))}
-          </select>
+          {answer.entities.length > 1 ? (
+            <select className="input-field cal-entity" value={entity} onChange={(event) => setEntity(event.target.value)} aria-label="Юрлицо">
+              <option value="">Все юрлица</option>
+              {answer.entities.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.title}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <button type="button" className="btn-ghost btn-sm" onClick={() => setRevision((value) => value + 1)}>
             Пересчитать
           </button>

@@ -93,7 +93,7 @@ export function InvoicesPanel({
   const [lines, setLines] = useSessionState<Line[]>("inv.new.lines", [{ title: "", quantity: "1", price: "" }]);
   const [issuedAt, setIssuedAt] = useSessionState("inv.new.issued", todayIso);
   const [dueAt, setDueAt] = useSessionState("inv.new.due", todayIso);
-  const [vatRate, setVatRate] = useSessionState("inv.new.vat", "12");
+  const [vatRate, setVatRate] = useSessionState("inv.new.vat", dictionaries.vat_rate ?? "0");
   const [counterpartyId, setCounterpartyId] = useSessionState("inv.new.counterparty", "");
   const [projectId, setProjectId] = useSessionState("inv.new.project", "");
   const [categoryId, setCategoryId] = useSessionState("inv.new.category", "");
@@ -185,6 +185,7 @@ export function InvoicesPanel({
     }
   };
 
+  const nextBill = board?.items.find((item) => item.id !== billId)?.id ?? null;
   const shown = items.filter((item) => item.kind === side);
   const money = side === "out" ? summary?.receivable : side === "in" ? summary?.payable : undefined;
   const todo = side === "todo";
@@ -224,10 +225,12 @@ export function InvoicesPanel({
 
       {billId ? (
         <BillCardDialog
+          key={billId}
           id={billId}
           noTable={board?.source?.kind === "kort"}
           onClose={() => openBill(null)}
           onSaved={() => void loadBills()}
+          onNext={nextBill ? () => openBill(nextBill) : undefined}
         />
       ) : null}
 

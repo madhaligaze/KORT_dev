@@ -49,6 +49,10 @@ export type Dictionaries = {
   counterparties: Counterparty[];
   projects: Project[];
   tags: DictEntry[];
+  /** Наши юрлица - чей счёт. */
+  entities?: { id: string; name: string }[];
+  /** Ставка НДС текущего года, %. */
+  vat_rate?: string;
 };
 
 export type Company = { id: string; title: string; role: string };
@@ -1184,6 +1188,11 @@ export const financeApi = {
     request<DictEntry>(`/dictionaries/${kind}`, { method: "POST", body: JSON.stringify(body) }),
   createAccount: (body: unknown) =>
     request<DictEntry>("/accounts", { method: "POST", body: JSON.stringify(body) }),
+  setAccountEntity: (accountId: string, entityId: string | null) =>
+    request<{ id: string; group_entity_id: string | null }>(`/accounts/${accountId}/entity`, {
+      method: "PUT",
+      body: JSON.stringify({ group_entity_id: entityId }),
+    }),
   setAccountNumber: (accountId: string, number: string) =>
     request<{ id: string; name: string; number: string }>(`/accounts/${accountId}/number`, {
       method: "PUT",
@@ -2601,7 +2610,7 @@ export type ContractMoney = {
   today: string;
   opening: MoneyBucket | null;
   months: MoneyBucket[];
-  over: { key: string; paid_at: string; amount: string }[];
+  over: { key: string; paid_at: string; amount: string; by?: string }[];
   over_total: string;
   payments: CorePayment[];
   paid: string;
@@ -2631,6 +2640,20 @@ export type ActCode = "act_no_book" | "act_no_1c" | "act_amount" | "act_signed" 
 /** АВР месяца: выбранный по приоритету (KORT, 1С, книга), где ещё есть и чем 1С и книга расходятся. */
 export type MonthAct = { act: ActOut | null; sources: ActOut["source"][]; codes: ActCode[] };
 
+export type MonthDocKind = "bill" | "act" | "esf";
+
+/** Счёт, АВР или ЭСФ месяца договора, записанные в KORT. */
+export type MonthDoc = {
+  id: string;
+  kind: MonthDocKind;
+  month: string | null;
+  number: string;
+  day: string | null;
+  amount: string | null;
+  signed: string | null;
+  note: string;
+};
+
 export type ContractMonths = {
   schedule: { kind: "month" | "total" | ""; start: string | null; period_day: number | null; why: string; paused: string[] };
   months: {
@@ -2651,6 +2674,8 @@ export type ContractMonths = {
   money?: ContractMoney;
   /** Счета нашего юрлица договора - для «Пришла оплата»; пусто - команда заведёт счёт сама. */
   pay_accounts?: { id: string; name: string }[];
+  /** Месяц → вид → документ KORT: цикл месяца в строке месяца. */
+  docs?: Record<string, Partial<Record<MonthDocKind, MonthDoc>>>;
   /** АВР по месяцам. */
   acts?: Record<string, MonthAct>;
   /** День компании, на который построена лента. */
@@ -3567,12 +3592,16 @@ export type ArrivedAnswer = {
 
 /** Первые шаги компании: шаг пройден по данным - юрлицо с БИН, договор, деньги из любого источника. */
 export type HomeStartStep = {
-  key: "entity" | "contracts" | "money";
+  key: "entity" | "contracts" | "since" | "money";
   title: string;
   done: boolean;
   text: string;
-  /** Наше юрлицо, которому не хватает БИН (у шага «Наше юрлицо»). */
+  /** Наше юрлицо, которому чего-то не хватает, и чего (у шага «Наше юрлицо»). */
   entity?: string | null;
+  needs?: { bin: boolean; regime: boolean } | null;
+  /** Предложенные ответы шага «Начало учёта»: первое начисление и этот месяц. */
+  first?: string;
+  current?: string;
 };
 
 export type HomeStartAnswer = { rows: HomeStartStep[]; done: boolean };
@@ -3609,7 +3638,7 @@ export type ModelProposal = {
 };
 
 export type ModelApplied = {
-  commands: { command: number; name: string; title: string; contracts: string[] }[];
+  commands: { command: number; name: string; title: string; contracts: string[]; result?: Record<string, unknown> }[];
   point: { id: string; title: string } | null;
   cursor: string;
 };

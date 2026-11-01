@@ -174,7 +174,7 @@ export function VatScreen({ me }: { me: Me }) {
                     open={open === entity.entity_id}
                     canSetup={canSetup}
                     onToggle={() => setOpen(open === entity.entity_id ? null : entity.entity_id)}
-                    onMove={() => setMoving(entity)}
+                    onMove={data.entities.length > 1 ? () => setMoving(entity) : undefined}
                     onRegime={(text) => {
                       setNote(text);
                       setRevision((value) => value + 1);
@@ -234,7 +234,8 @@ function EntityRow({
   open: boolean;
   canSetup: boolean;
   onToggle: () => void;
-  onMove: () => void;
+  /** Одному юрлицу переводить клиентов не к кому. */
+  onMove?: () => void;
   onRegime: (text: string) => void;
 }) {
   const fact = Number(entity.fact);
@@ -259,9 +260,11 @@ function EntityRow({
             {entity.status === "unknown" ? "Записать режим" : "Сменить режим"}
           </button>
         ) : null}
-        <button type="button" className="fin-link-btn" onClick={onMove}>
-          Перевести клиентов
-        </button>
+        {onMove ? (
+          <button type="button" className="fin-link-btn" onClick={onMove}>
+            Перевести клиентов
+          </button>
+        ) : null}
       </div>
       {showHint && hint ? <p className="vat-hint">{hintText(hint)}</p> : null}
       {regime ? (
