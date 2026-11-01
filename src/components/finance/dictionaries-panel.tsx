@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { type Dictionaries, financeApi, formatMoney } from "@/components/finance/api";
+import { openSection } from "@/components/finance/core/open";
 import { ConfirmDialog } from "@/components/finance/ui/confirm-dialog";
 
 type Props = {
@@ -78,6 +79,7 @@ export function DictionariesPanel({ dictionaries, onChanged }: Props) {
               <span style={{ color: "var(--text-muted)" }}>
                 {" · "}
                 {KINDS.find((item) => item.value === account.kind)?.title ?? account.kind}
+                {account.owner ? ` · ${account.owner}` : " · без юрлица"}
                 {account.excluded_from_reports ? " · вне отчётов" : ""}
               </span>
               {account.kind === "bank" || account.kind === "card" || account.number ? (
@@ -162,13 +164,15 @@ export function DictionariesPanel({ dictionaries, onChanged }: Props) {
         items={dictionaries.categories.filter((item) => item.side === "expense")}
         onChanged={onChanged}
       />
-      <EntryList
-        title="Контрагенты"
-        kind="counterparties"
-        withRole
-        items={dictionaries.counterparties}
-        onChanged={onChanged}
-      />
+      {/* Клиенты и поставщики - участники договоров, одним списком в «Участниках». Второй
+          список здесь же («Контрагенты» журнала денег) не видел клиентов договоров, и счёт
+          клиенту договора было не выставить (проход новичка 31.10). */}
+      <div className="fin-card p-4 flex flex-wrap items-center justify-between gap-2">
+        <p className="fin-label">Клиенты и поставщики</p>
+        <button type="button" className="btn-ghost btn-sm" onClick={() => openSection({ section: "participants" })}>
+          Открыть «Участников»
+        </button>
+      </div>
       <EntryList title="Проекты" kind="projects" items={dictionaries.projects} onChanged={onChanged} />
       <EntryList title="Теги" kind="tags" items={dictionaries.tags} onChanged={onChanged} />
     </div>

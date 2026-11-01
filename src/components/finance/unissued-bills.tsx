@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { ChoiceSelect } from "@/components/choice-select";
 import { BillsTemplate } from "@/components/finance/bills-template";
@@ -69,7 +69,13 @@ export function UnissuedBills({
   /** Из шаблона записали в книги - перечитать список. */
   onWritten: () => void;
 }) {
-  const [view, setView] = useSessionState<View>("inv.bills.group", "overdue");
+  const [chosen, setView] = useSessionState<View>("inv.bills.group", "overdue");
+  /**
+   * Пока группу не выбрали руками - первая непустая. С главной «Счета пора
+   * выставить: 1 счёт» вела в пустое «Просрочено», а счёт лежал в «В ближайшие
+   * дни» (проход новичка 01.11).
+   */
+  const [picked, setPicked] = useState(false);
   const [own, setOwn] = useSessionState("inv.bills.own", "");
   const [department, setDepartment] = useSessionState("inv.bills.department", "");
 
@@ -82,13 +88,17 @@ export function UnissuedBills({
   const pick = (item: Bill) => (!own || item.own === own) && (!department || item.department === department);
   const filtered = board.items.filter(pick);
   const issued = (board.issued ?? []).filter(pick);
-  const shown = view === "issued" ? issued : filtered.filter((item) => item.group === view);
   const count = (key: View) => (key === "issued" ? issued.length : filtered.filter((item) => item.group === key).length);
+  const view: View =
+    picked || count(chosen) ? chosen : ((["overdue", "soon", "early", "undated"] as View[]).find((key) => count(key)) ?? chosen);
+  const shown = view === "issued" ? issued : filtered.filter((item) => item.group === view);
   const overdueSum = filtered
     .filter((item) => item.group === "overdue")
     .reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const source = board.source;
-  const reading = !source?.read_at && !source?.error;
+  // Сводной таблицы нет - счета по начислениям договоров KORT: ни чтения, ни шаблона, ни «строки в таблице».
+  const noTable = source?.kind === "kort";
+  const reading = !noTable && !source?.read_at && !source?.error;
   const done = view === "issued";
   // Юрлица, чьи счета ведёт KORT (`core/switch.py`): состояние их счетов - по начислениям KORT.
   const kort = source?.kort ?? [];
@@ -104,9 +114,12 @@ export function UnissuedBills({
               type="button"
               className="fin-kpi fin-kpi-pick"
               data-on={view === key ? "" : undefined}
-              onClick={() => setView(key)}
+              onClick={() => {
+                setPicked(true);
+                setView(key);
+              }}
             >
-              <span className="fin-kpi-label">{VIEW_TITLES[key]}</span>
+              <span className="fin-kpi-label">{noTable && key === "undated" ? "Без срока" : VIEW_TITLES[key]}</span>
               <span className={`fin-kpi-value ${key === "overdue" && value ? "fin-out" : ""}`}>{value}</span>
               {key === "overdue" && overdueSum ? (
                 <span className="fin-kpi-label">{formatMoney(overdueSum, { whole: true })}</span>
@@ -138,13 +151,19 @@ export function UnissuedBills({
           ))}
         </ChoiceSelect>
         <span style={{ flex: 1 }} />
-        {source ? <BillsTemplate canEdit={Boolean(board.can_edit)} onWritten={onWritten} /> : null}
-        <button type="button" className="btn-ghost" disabled={busy} onClick={onRefresh}>
-          {busy ? "Читаем таблицу…" : "Обновить"}
-        </button>
+        {source && !noTable ? <BillsTemplate canEdit={Boolean(board.can_edit)} onWritten={onWritten} /> : null}
+        {noTable ? null : (
+          <button type="button" className="btn-ghost" disabled={busy} onClick={onRefresh}>
+            {busy ? "Читаем таблицу…" : "Обновить"}
+          </button>
+        )}
       </div>
 
-      {source ? (
+      {noTable ? (
+        <p className="text-xs fin-bills-source">
+          Месяцы договоров, по которым счёт ещё не выставлен. Строка открывает счёт: впишите № и дату.
+        </p>
+      ) : source ? (
         <p className="text-xs fin-bills-source">
           {source.url ? (
             <a href={source.url} target="_blank" rel="noreferrer" className="fin-link-btn">
@@ -203,7 +222,7 @@ export function UnissuedBills({
               )}
               <th style={{ textAlign: "right" }}>Сумма</th>
               <th>Период с</th>
-              {done ? null : <th>{kort.length ? "Счёт" : "Счёт по таблице"}</th>}
+              {done ? null : <th>{kort.length || noTable ? "Счёт" : "Счёт по таблице"}</th>}
             </tr>
           </thead>
           <tbody>
@@ -247,7 +266,7 @@ export function UnissuedBills({
                     className={item.group === "overdue" ? "fin-out" : item.group === "soon" ? "fin-strong" : "fin-muted"}
                   >
                     {item.text || "пусто"}
-                    {item.source === "kort" ? (
+                    {noTable ? null : item.source === "kort" ? (
                       <span className="fin-bills-note">{item.line ? "по KORT" : "по KORT, в таблице строки нет"}</span>
                     ) : kort.includes(item.own) ? (
                       /* Юрлицо на KORT, а строку KORT не связал с договором - она словами таблицы. */
@@ -262,7 +281,7 @@ export function UnissuedBills({
             {!shown.length ? (
               <tr>
                 <td colSpan={8} style={{ textAlign: "center", color: "var(--text-muted)" }}>
-                  {reading ? "Читаем таблицу…" : EMPTY[view]}
+                  {reading ? "Читаем таблицу…" : noTable && view === "undated" ? "Таких нет" : EMPTY[view]}
                 </td>
               </tr>
             ) : null}

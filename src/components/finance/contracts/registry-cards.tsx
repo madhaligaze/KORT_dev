@@ -973,7 +973,7 @@ const Row = memo(function Row({
         <IssuesTag issues={contract.issues.filter((issue) => !issue.acknowledged)} />
       ) : (
         <span className="creg-note" title={contract.readonly ? "Договор другого отдела - открыт на просмотр" : undefined}>
-          {[settled ? "учтено" : "", contract.readonly ? "просмотр" : ""].filter(Boolean).join(" · ")}
+          {[settled ? "не напоминаем" : "", contract.readonly ? "просмотр" : ""].filter(Boolean).join(" · ")}
         </span>
       )}
       <span className="creg-meta">

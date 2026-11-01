@@ -124,16 +124,21 @@ export function economicText(schema: RegistrySchema | null, contract: Contract):
   return listText(schema, "economic_role", contract.values.economic_role);
 }
 
+/**
+ * Откуда KORT подставил значение. «по сторонам» без подлежащего новичок не
+ * читал как «KORT сам решил по сторонам договора» (проход 31.10) - поэтому
+ * «подставлено» и что именно.
+ */
 const PROVENANCE_WORDS: Record<string, string> = {
-  type: "по виду",
-  subject: "по предмету",
-  parties: "по сторонам",
-  block: "по листу",
-  amount: "по сумме",
-  status: "по статусу",
+  type: "подставлено по виду услуги",
+  subject: "подставлено по предмету",
+  parties: "подставлено по сторонам договора",
+  block: "подставлено по листу",
+  amount: "подставлено по сумме",
+  status: "подставлено по статусу",
 };
 
-/** `{ по виду }` у подставленного значения; у заданного руками - ничего. */
+/** «подставлено по виду услуги» у подставленного значения; у заданного руками - ничего. */
 export function provenanceWord(contract: Contract, key: string): string {
   const source = contract.provenance?.[key];
   return source && source !== "manual" ? PROVENANCE_WORDS[source] ?? "" : "";

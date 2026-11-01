@@ -1693,6 +1693,11 @@ label.auth-row-label { cursor: pointer; }
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
+  /* Строки - к верху плиты. Без этого плита во всю высоту окна делила лишнюю
+     высоту между строкой мест и разделом, и над заголовком короткого раздела
+     («Участники», «Долги», пустой «Реестр») стояла полоса в 150-200px - на
+     T480 треть экрана (проход новичка 31.10). */
+  align-content: start;
 }
 /* С 31.10.2026 колонки нет: места - строкой над разделом (`.fin-places`). */
 
@@ -3473,6 +3478,10 @@ html:has(.usheet) { overscroll-behavior-x: none; }
 }
 button.ifield-value { cursor: text; }
 button.ifield-value:hover { box-shadow: inset 0 0 0 1px var(--fin-line); }
+/* Новый договор: пустое поле - строкой ввода с чертой, а не голым «-», который новичок
+   не узнавал как поле (проход 31.10). Прочерк остаётся - пустое значение пишется «-». */
+.card-body[data-draft="true"] button.ifield-value[data-empty="true"] { box-shadow: inset 0 -1px 0 var(--fin-line); }
+.card-body[data-draft="true"] button.ifield-value[data-empty="true"]:hover { box-shadow: inset 0 0 0 1px var(--fin-line); }
 .ifield-value[data-empty="true"] { color: var(--text-muted); }
 .ifield-value[data-pending="true"] { color: var(--text-muted); }
 .ifield-value[data-readonly="true"] { cursor: default; }
@@ -5224,6 +5233,20 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .acc-money { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1.25rem; margin: 0 0 0.75rem; font-size: 0.8125rem; color: var(--fin-text-soft); }
 .acc-money b { font-weight: 600; color: var(--fin-text); font-variant-numeric: tabular-nums; }
 .acc-payments { margin-top: 0.875rem; }
+/* «Пришла оплата» - кнопка под месяцами и форма в одну-две строки. */
+.acc-pay { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-top: 0.875rem; }
+.acc-pay-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr));
+  align-items: end;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--fin-line);
+}
+.acc-pay-field { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.acc-pay-field .input-field { width: 100%; padding-top: 0.4rem; padding-bottom: 0.4rem; }
+.acc-pay-wide { grid-column: 1 / -1; }
+.acc-pay-hint { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
+.acc-pay-acts { display: flex; flex-wrap: wrap; gap: 0.5rem; grid-column: 1 / -1; }
 .acc-payments .fin-label { margin-bottom: 0.25rem; }
 .acc-payment {
   display: grid;
@@ -5485,6 +5508,7 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 /* Вкладки сверки и выбор юрлица - одной строкой, на узком - выбор под вкладками. */
 .shadow-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
 .shadow-top .fin-mine.shadow-what { flex: 1 1 auto; }
+.shadow-lead { margin: 0.25rem 0 0.75rem; max-width: 46rem; font-size: 0.875rem; color: var(--fin-text-soft); }
 .shadow-entity { min-width: 11rem; }
 .switch-note { font-size: 0.75rem; color: var(--fin-text-soft); }
 /* Готовность - весом, без цвета: «всё хорошо» цветом не говорится. */

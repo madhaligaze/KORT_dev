@@ -95,10 +95,13 @@ type SlipsResult = { done: number; contracts: number; batch: string | null; skip
 
 type What = "switch" | "accruals" | "bills" | "payments" | "acts" | "saldo";
 
+/** Что сверяется и без сводной таблицы. */
+const TABLE_FREE = new Set<What>(["payments", "acts"]);
+
 export function ShadowScreen({ me }: { me: Me }) {
   // Договор из сверки открывается карточкой договора - ей нужен реестр.
   useRegistryBoot(me);
-  const [what, setWhat] = useSessionState<What>("core.shadow.what", "accruals");
+  const [chosen, setWhat] = useSessionState<What>("core.shadow.what", "accruals");
   // Карточку закрыли - сверка могла измениться: пересчитать открытую.
   const [closed, setClosed] = useState(0);
   const [contractId, setContractId] = useState<string | null>(() => readParam("id"));
@@ -115,6 +118,11 @@ export function ShadowScreen({ me }: { me: Me }) {
   const [entity, setEntity] = useSessionState("core.shadow.entity", "");
   const schema = useRegistry((s) => s.schema);
   const entities = schema?.own_entities ?? [];
+  // Сводной таблицы нет - сравнивать не с чем: остаются оплаты без договора и дела по АВР.
+  // Раньше пустая компания видела шесть вкладок, нули и «условия договоров дают то же,
+  // что таблица» - про таблицу, которой нет (проход новичка 31.10).
+  const noTable = schema?.summary === null;
+  const what: What = noTable && !TABLE_FREE.has(chosen) ? "payments" : chosen;
   return (
     <div className="shadow-screen">
       <div className="shadow-top">
@@ -128,7 +136,9 @@ export function ShadowScreen({ me }: { me: Me }) {
               ["acts", "Акты"],
               ["saldo", "Сальдо"],
             ] as [What, string][]
-          ).map(([key, title]) => (
+          )
+            .filter(([key]) => !noTable || TABLE_FREE.has(key))
+            .map(([key, title]) => (
             <button key={key} type="button" className="fin-chip" data-on={what === key ? "" : undefined} onClick={() => setWhat(key)}>
               {title}
             </button>
@@ -144,6 +154,12 @@ export function ShadowScreen({ me }: { me: Me }) {
           </ChoiceSelect>
         ) : null}
       </div>
+      {noTable ? (
+        <p className="shadow-lead">
+          Сводной таблицы нет - сверять KORT не с чем. Здесь оплаты, которые KORT не отнёс к договору, и дела по АВР.
+          Таблица подключается в «Ещё → Первые шаги».
+        </p>
+      ) : null}
       {what === "switch" ? (
         <SwitchView
           onGo={(link, id) => {

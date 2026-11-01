@@ -182,7 +182,8 @@ export function ParticipantCard({ id, open, access, onClose, onOpen, onOpenContr
               />
             </div>
             {/* У нашего ТОО главное - его НДС и кто ему должен: сразу под реквизитами, а не под сотней договоров. */}
-            {dossier.own && access.setup ? <OwnNumbers entityId={dossier.id} /> : null}
+            {/* С ревизией досье: записанный ниже режим НДС тут же меняет строку «НДС» (было - «режим не записан» до перезагрузки). */}
+            {dossier.own && access.setup ? <OwnNumbers entityId={dossier.id} revision={revision} /> : null}
             <Aliases dossier={dossier} canEdit={access.edit} onChanged={changed} />
             <Contracts dossier={dossier} onOpen={onOpen} onOpenContract={onOpenContract} />
             {dossier.own ? <Own dossier={dossier} canSetup={access.setup} onChanged={changed} /> : null}
@@ -730,7 +731,7 @@ const MONTHS_IN = [
  * должен - те же числа, что в «НДС» и «Долгах», и переход туда. Долг - по
  * месяцам этого ТОО: переведённый клиент остаётся должен прежнему за старые.
  */
-function OwnNumbers({ entityId }: { entityId: string }) {
+function OwnNumbers({ entityId, revision }: { entityId: string; revision: number }) {
   const [data, setData] = useState<Awaited<ReturnType<typeof coreApi.entityNumbers>> | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -742,7 +743,7 @@ function OwnNumbers({ entityId }: { entityId: string }) {
     return () => {
       alive = false;
     };
-  }, [entityId]);
+  }, [entityId, revision]);
   const vat = data?.vat;
   const money = (value: string | null | undefined) => (value && Math.round(Number(value)) ? contractMoney(Math.round(Number(value))) : "-");
   const vatLine = !vat

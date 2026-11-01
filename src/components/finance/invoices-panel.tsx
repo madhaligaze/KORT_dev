@@ -80,8 +80,11 @@ export function InvoicesPanel({
   }, []);
   const [reading, setReading] = useState(false);
   const hasBook = Boolean(board?.source);
-  // Без книги-сводки вкладки «Не выставлены» нет - и открывается «Мы выставили».
-  const side = chosen === "todo" && board && !hasBook ? "out" : chosen;
+  // Счета журнала денег («Мы выставили», «Нам выставили», форма с позициями) - только
+  // у компании, где они уже есть: новой компании форма без договоров и с чужим
+  // списком контрагентов не давала выставить счёт клиенту договора (проход новичка 31.10).
+  const journal = items.length > 0;
+  const side = !journal ? "todo" : chosen === "todo" && board && !hasBook ? "out" : chosen;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useSessionState("inv.form", false);
@@ -189,18 +192,22 @@ export function InvoicesPanel({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        {hasBook || !board ? (
+        {journal && (hasBook || !board) ? (
           <button type="button" className="fin-chip" data-on={todo ? "" : undefined} onClick={() => setSide("todo")}>
             Не выставлены
             {board?.counts?.overdue ? <span className="fin-out">{board.counts.overdue}</span> : null}
           </button>
         ) : null}
-        <button type="button" className="fin-chip" data-on={side === "out" ? "" : undefined} onClick={() => setSide("out")}>
-          Мы выставили
-        </button>
-        <button type="button" className="fin-chip" data-on={side === "in" ? "" : undefined} onClick={() => setSide("in")}>
-          Нам выставили
-        </button>
+        {journal ? (
+          <>
+            <button type="button" className="fin-chip" data-on={side === "out" ? "" : undefined} onClick={() => setSide("out")}>
+              Мы выставили
+            </button>
+            <button type="button" className="fin-chip" data-on={side === "in" ? "" : undefined} onClick={() => setSide("in")}>
+              Нам выставили
+            </button>
+          </>
+        ) : null}
         <span style={{ flex: 1 }} />
         {todo ? null : (
           <button type="button" className="btn-primary" onClick={() => setForm((was) => !was)}>
@@ -216,7 +223,12 @@ export function InvoicesPanel({
       ) : null}
 
       {billId ? (
-        <BillCardDialog id={billId} onClose={() => openBill(null)} onSaved={() => void loadBills()} />
+        <BillCardDialog
+          id={billId}
+          noTable={board?.source?.kind === "kort"}
+          onClose={() => openBill(null)}
+          onSaved={() => void loadBills()}
+        />
       ) : null}
 
       {todo ? (
@@ -229,7 +241,7 @@ export function InvoicesPanel({
             onWritten={() => void loadBills()}
           />
         ) : (
-          <p className="text-xs fin-muted">Читаем таблицу…</p>
+          <p className="text-xs fin-muted">Собираем счета…</p>
         )
       ) : (
         <>

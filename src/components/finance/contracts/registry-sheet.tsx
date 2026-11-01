@@ -786,7 +786,7 @@ export function RegistrySheet({ me, onOpenCard, openId, book = "", onNeighbors }
                     <div key={issue.code} className="creg-hint-issue" data-ack={issue.acknowledged ? "true" : undefined}>
                       <div className="creg-hint-line">
                         <span>
-                          {issue.acknowledged ? <span className="creg-hint-flag">учтено</span> : null}
+                          {issue.acknowledged ? <span className="creg-hint-flag">не напоминаем</span> : null}
                           {issue.text}
                         </span>
                         {canAck ? (
@@ -801,7 +801,7 @@ export function RegistrySheet({ me, onOpenCard, openId, book = "", onNeighbors }
                                 : "Проверено: так и должно быть - замечание перестанет гореть, флажок в ячейке останется"
                             }
                           >
-                            {acking === issue.code ? "…" : issue.acknowledged ? "Снять отметку" : "Учтено"}
+                            {acking === issue.code ? "…" : issue.acknowledged ? "Напоминать снова" : "Не напоминать"}
                           </button>
                         ) : null}
                       </div>

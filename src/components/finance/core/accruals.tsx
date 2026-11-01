@@ -30,6 +30,7 @@ import {
   FinanceApiError,
   coreApi,
   formatMonth,
+  modelApi,
 } from "@/components/finance/api";
 import { actText } from "@/components/finance/core/acts-screen";
 import { CardScopeContext, InlineField } from "@/components/finance/contracts/field-editor";
@@ -236,8 +237,215 @@ export function Accruals({ contractId, seq }: { contractId: string; seq: number 
       ) : (
         <p className="party-none">Начислений в эти месяцы нет</p>
       )}
+      {value.money && canEdit && schedule.kind ? (
+        <PaymentEntry contractId={contractId} value={value} onDone={changed} />
+      ) : null}
       {money?.payments.length ? <PaymentsList money={money} /> : null}
     </Section>
+  );
+}
+
+function isoToday(): string {
+  const day = new Date();
+  return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * «Пришла оплата» - руками, когда выписки нет: оплата сразу ложится на этот договор.
+ *
+ * Без неё деньги попадали в KORT только выпиской банка, и человек, который
+ * пришёл «вести учёт денег», не находил, куда вписать оплату (проход новичка
+ * 31.10). Сумма по умолчанию - долг самого старого месяца; «за какой месяц»
+ * пусто - самому старому долгу, как оплата из выписки. Записанное - команда
+ * модели с «Вернуть».
+ *
+ * Первая оплата компании ставит начало учёта оплат: без ответа оно - месяц
+ * этой оплаты, и всё раньше молча считалось закрытым (оплата 01.11 за
+ * сентябрь ложилась на ноябрь, сентябрь и октябрь - «до начала учёта»).
+ * Поэтому первая оплата спрашивает, с какого дня вести учёт, - по умолчанию
+ * с первого начисления договора - и называет месяц явно.
+ */
+function PaymentEntry({ contractId, value, onDone }: { contractId: string; value: ContractMonths; onDone: (text: string) => void }) {
+  const money = value.money;
+  const oldest = (money?.months ?? []).find((bucket) => Number(bucket.debt) > 0);
+  // Оплат ещё не было - долга по месяцам KORT не знает: начисление самого старого наступившего месяца.
+  const now = (value.today ?? isoToday()).slice(0, 7);
+  const first = value.months
+    .filter((row) => row.month <= now && row.kort && !row.kort.skipped && Number(row.kort.amount))
+    .sort((a, b) => a.month.localeCompare(b.month))[0];
+  const suggested = oldest ? oldest.debt : (first?.kort?.amount ?? "");
+  const accounts = value.pay_accounts ?? [];
+  const canStart = useRegistry((s) => Boolean(s.schema?.access.setup));
+  // Оплат в KORT ещё нет и начало учёта не задано: эта оплата его определит.
+  const firstPayment = !money?.since;
+  const [since, setSince] = useState("");
+  const [open, setOpen] = useState(false);
+  const [day, setDay] = useState(isoToday);
+  const [amount, setAmount] = useState("");
+  const [month, setMonth] = useState("");
+  const [account, setAccount] = useState("");
+  const [comment, setComment] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [undo, setUndo] = useState<{ point: string; text: string } | null>(null);
+
+  const start = () => {
+    setAmount(suggested ? String(Math.round(Number(suggested))) : "");
+    setMonth(firstPayment && !oldest ? (first?.month ?? "") : "");
+    setSince(first?.kort?.period_from ?? (first ? `${first.month}-01` : ""));
+    setAccount(accounts.length > 1 ? "" : (accounts[0]?.id ?? ""));
+    setError("");
+    setOpen(true);
+  };
+
+  const save = async () => {
+    const clean = amount.replace(/\s/g, "").replace(",", ".");
+    if (!clean || !(Number(clean) > 0)) {
+      setError("Сумма - больше нуля");
+      return;
+    }
+    if (accounts.length > 1 && !account) {
+      setError("У юрлица несколько счетов - выберите, на какой пришли деньги");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const commands = [
+        ...(firstPayment && canStart && since ? [{ command: "accounting.start", params: { since } }] : []),
+        {
+          command: "payment.record",
+          params: {
+            contract: contractId,
+            day,
+            amount: clean,
+            ...(month ? { month } : {}),
+            ...(account ? { account } : {}),
+            ...(comment.trim() ? { comment: comment.trim() } : {}),
+            key: crypto.randomUUID(),
+          },
+        },
+      ];
+      const proposal = await modelApi.propose(commands);
+      if (proposal.problems.length) {
+        setError(proposal.problems.map((problem) => problem.detail).join("; "));
+        return;
+      }
+      const done = await modelApi.apply(commands, proposal.base);
+      const text = `Оплата ${contractMoney(Number(clean))} от ${formatDay(day)} записана`;
+      setUndo(done.point ? { point: done.point.id, text } : null);
+      setOpen(false);
+      setComment("");
+      onDone(text);
+    } catch (exc) {
+      setError(messageOf(exc, "Оплата не записалась"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revert = async () => {
+    if (!undo) return;
+    setBusy(true);
+    try {
+      await modelApi.undo(undo.point);
+      setUndo(null);
+      onDone("Оплата отменена");
+    } catch (exc) {
+      setError(messageOf(exc, "Вернуть не получилось"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <div className="acc-pay">
+        <button type="button" className="btn-ghost btn-sm" onClick={start}>
+          Пришла оплата
+        </button>
+        {undo ? (
+          <button type="button" className="fin-link-btn" disabled={busy} onClick={() => void revert()}>
+            Вернуть
+          </button>
+        ) : null}
+        {error ? <p className="ifield-error">{error}</p> : null}
+      </div>
+    );
+  }
+  return (
+    <form
+      className="acc-pay acc-pay-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void save();
+      }}
+    >
+      <label className="acc-pay-field">
+        <span className="fin-label">Дата</span>
+        <input className="input-field" type="date" value={day} onChange={(event) => setDay(event.target.value)} required />
+      </label>
+      <label className="acc-pay-field">
+        <span className="fin-label">Сумма</span>
+        <input
+          className="input-field fin-num"
+          inputMode="decimal"
+          value={amount}
+          onChange={(event) => setAmount(event.target.value)}
+          autoFocus
+        />
+      </label>
+      <label className="acc-pay-field">
+        <span className="fin-label">За какой месяц</span>
+        <select className="input-field" value={month} onChange={(event) => setMonth(event.target.value)}>
+          <option value="">самому старому долгу</option>
+          {value.months
+            .filter((row) => row.kort && !row.kort.skipped)
+            .map((row) => (
+              <option key={row.month} value={row.month}>
+                {formatMonth(row.month)}
+              </option>
+            ))}
+        </select>
+      </label>
+      {accounts.length > 1 ? (
+        <label className="acc-pay-field">
+          <span className="fin-label">На счёт</span>
+          <select className="input-field" value={account} onChange={(event) => setAccount(event.target.value)}>
+            <option value="">выберите счёт</option>
+            {accounts.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      {firstPayment && canStart ? (
+        <label className="acc-pay-field">
+          <span className="fin-label">Учёт оплат с</span>
+          <input className="input-field" type="date" value={since} onChange={(event) => setSince(event.target.value)} />
+        </label>
+      ) : null}
+      {firstPayment && canStart ? (
+        <p className="acc-pay-wide acc-pay-hint">
+          Первая оплата в KORT: с этого дня KORT ждёт оплат по всем договорам, а месяцы раньше не считает долгом.
+        </p>
+      ) : null}
+      <label className="acc-pay-field acc-pay-wide">
+        <span className="fin-label">Комментарий</span>
+        <input className="input-field" value={comment} onChange={(event) => setComment(event.target.value)} />
+      </label>
+      <div className="acc-pay-acts">
+        <button type="submit" className="btn-primary btn-sm" disabled={busy}>
+          {busy ? "Записываем…" : "Записать оплату"}
+        </button>
+        <button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={() => setOpen(false)}>
+          Отмена
+        </button>
+      </div>
+      {error ? <p className="ifield-error acc-pay-wide">{error}</p> : null}
+    </form>
   );
 }
 
@@ -273,7 +481,7 @@ function MoneyLine({ money }: { money: ContractMoney }) {
 /** Оплата месяца по KORT: сколько и что осталось; до начала учёта - не знаем. */
 function PaidCell({ bucket, month, since, current }: { bucket: MoneyBucket | undefined; month: string; since: string | null; current: string }) {
   // Месяц до начала учёта, который назвала сама оплата («за сентябрь»), KORT знает - у него есть строка.
-  if (since && month < since.slice(0, 7) && !bucket) return <span className="acc-paid fin-muted">до учёта оплат</span>;
+  if (since && month < since.slice(0, 7) && !bucket) return <span className="acc-paid fin-muted" title="Оплаты до этого дня в KORT не заводились">до начала учёта</span>;
   if (!bucket) return <span className="acc-paid fin-muted">-</span>;
   const paid = Number(bucket.paid);
   const debt = Number(bucket.debt);

@@ -27,6 +27,7 @@ import {
 import { readParam, writeParams } from "@/components/finance/address";
 import { ContractCard } from "@/components/finance/contracts/contract-card";
 import { useRegistryBoot } from "@/components/finance/contracts/registry-cards";
+import { useRegistry } from "@/components/finance/contracts/store";
 import { PARTICIPANT_EVENT } from "@/components/finance/core/open";
 import { type CoreAccess, type MergeDone, ParticipantCard, sourceOf } from "@/components/finance/core/participant-card";
 import { binWord, contractsWord, regimeText } from "@/components/finance/core/words";
@@ -55,6 +56,8 @@ function aborted(exc: unknown): boolean {
 export function ParticipantsScreen({ me }: { me: Me }) {
   // Договор из досье открывается карточкой договора - ей нужен реестр.
   useRegistryBoot(me);
+  // `null` - сводной таблицы нет, и собирать написания не из чего; пока схема не пришла - как было.
+  const summary = useRegistry((s) => s.schema?.summary);
   const [view, setView] = useSessionState<View>("core.parties.view", "all");
   const [query, setQuery] = useSessionState("core.parties.q", "");
   const text = query.trim();
@@ -197,7 +200,7 @@ export function ParticipantsScreen({ me }: { me: Me }) {
             aria-label="Найти участника"
           />
         </label>
-        {access.setup ? <Harvest onDone={changed} /> : null}
+        {access.setup && summary !== null ? <Harvest onDone={changed} /> : null}
       </div>
 
       <div className="fin-kpis party-kpis">

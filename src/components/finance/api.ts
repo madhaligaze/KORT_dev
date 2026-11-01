@@ -23,6 +23,9 @@ export type Account = {
   excluded_from_reports: boolean;
   /** Номер счёта в банке (IBAN). По нему выписка находит свой счёт. */
   number?: string;
+  /** Наше юрлицо счёта - id и имя; пусто - счёт ничей. */
+  group_entity_id?: string | null;
+  owner?: string;
 };
 
 export type AccountBalance = Account & {
@@ -735,6 +738,8 @@ export type BillsBoard = {
   source: {
     title: string;
     worksheet: string;
+    /** `kort` - сводной таблицы нет, счета по начислениям договоров KORT. */
+    kind?: string;
     url: string;
     read_at: string | null;
     drift: string;
@@ -2644,6 +2649,8 @@ export type ContractMonths = {
   proposals: ShadowProposal[];
   /** Оплаты KORT по месяцам - тем, кому открыты оплаты по выписке. */
   money?: ContractMoney;
+  /** Счета нашего юрлица договора - для «Пришла оплата»; пусто - команда заведёт счёт сама. */
+  pay_accounts?: { id: string; name: string }[];
   /** АВР по месяцам. */
   acts?: Record<string, MonthAct>;
   /** День компании, на который построена лента. */

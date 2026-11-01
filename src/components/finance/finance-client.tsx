@@ -1534,8 +1534,14 @@ export function FinanceClient() {
                   >
                     {item.title}
                   </button>
-                  <button type="button" className="fin-link-btn" onClick={() => togglePin(item.key)}>
-                    {pins.has(item.key) ? "убрать из строки" : "в строку"}
+                  {/* «в строку» новичок не понимал (проход 31.10): это место наверху, рядом с «Сегодня». */}
+                  <button
+                    type="button"
+                    className="fin-link-btn"
+                    title={pins.has(item.key) ? "Убрать из верхней строки" : "Показывать в верхней строке, рядом с «Сегодня»"}
+                    onClick={() => togglePin(item.key)}
+                  >
+                    {pins.has(item.key) ? "открепить" : "закрепить"}
                   </button>
                 </div>
               ))}

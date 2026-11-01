@@ -105,6 +105,16 @@ export function ContractCard({
   const phase = useRegistry((s) => s.phase);
   const [creating, setCreating] = useState(false);
   const [draftError, setDraftError] = useState("");
+  /**
+   * Договор, заведённый в этой карточке, - до её закрытия в порядке нового
+   * («как на бумаге»), с тем же телом. Раньше первое же поле перестраивало
+   * карточку: номер уезжал вниз, появлялись другие поля, и Tab терял фокус
+   * вместе со старым телом (проход новичка 31.10).
+   */
+  const [born, setBorn] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) setBorn(null);
+  }, [open]);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<{ id: string; text: string } | null>(null);
@@ -141,6 +151,7 @@ export function ContractCard({
       setDraftError("");
       try {
         const newId = await create({ [key]: value }, draftContext);
+        setBorn(newId);
         onCreated(newId);
       } catch (exc) {
         setDraftError(exc instanceof Error ? exc.message : "Договор не завёлся");
@@ -162,6 +173,7 @@ export function ContractCard({
       : null;
 
   const fields = useMemo(() => orderFields(schema?.fields ?? []), [schema]);
+  const fresh = Boolean(contract && born === contract.id);
   const number = contract ? String(contract.values.number ?? "") : "";
 
   return (
@@ -225,7 +237,7 @@ export function ContractCard({
           )}
         </div>
       ) : (
-      <div className="card-body" key={id ?? "new"}>
+      <div className="card-body" key={fresh ? "new" : (id ?? "new")} data-draft={!contract || fresh ? "true" : undefined}>
         <h2 className="card-title" tabIndex={-1} data-empty={title ? undefined : "true"}>
           {title || "Новый договор"}
         </h2>
@@ -236,7 +248,7 @@ export function ContractCard({
         {contract ? <Issues contractId={contract.id} onOpen={onOpen ?? onCreated} /> : null}
 
         <div className="card-grid">
-          {(contract ? fields : draftFields(fields)).map((field) => {
+          {(!contract ? draftFields(fields) : fresh ? [...draftFields(fields), ...fields.filter((field) => !DRAFT_ORDER.includes(field.key))] : fields).map((field) => {
             if (field.hidden || OWN_BLOCKS.has(field.key)) return null;
             return (
               <FieldSlot
@@ -473,17 +485,20 @@ function Issues({ contractId, onOpen }: { contractId: string; onOpen: (id: strin
       {contract.issues.map((issue) => (
         <div key={issue.code} className="card-issue" role="listitem" data-ack={issue.acknowledged ? "true" : undefined}>
           <span>
-            {issue.acknowledged ? <span className="annot">учтено</span> : null} {issue.text}
+            {issue.acknowledged ? <span className="annot">не напоминаем</span> : null} {issue.text}
             {issue.others?.length ? <OtherContracts ids={issue.others} onOpen={onOpen} /> : null}
           </span>
           {canEdit ? (
+            // Глаголом: «Учтено» рядом с красным «Не указан исполнитель» читалось как
+            // состояние («уже учтено»), а не как действие (проход новичка 31.10).
             <button
               type="button"
               className="fin-link-btn"
               disabled={busy === issue.code}
+              title={issue.acknowledged ? "Замечание снова загорится" : "Так и должно быть - замечание перестанет гореть"}
               onClick={() => acknowledge(issue.code, !issue.acknowledged)}
             >
-              {issue.acknowledged ? "Снять отметку" : "Учтено"}
+              {issue.acknowledged ? "Напоминать снова" : "Не напоминать"}
             </button>
           ) : null}
         </div>

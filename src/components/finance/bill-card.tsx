@@ -95,10 +95,13 @@ export function BillCardDialog({
   id,
   onClose,
   onSaved,
+  noTable = false,
 }: {
   id: string;
   onClose: () => void;
   onSaved: () => void;
+  /** У компании нет сводной таблицы - о «строке в таблице» молчать. */
+  noTable?: boolean;
 }) {
   const [card, setCard] = useState<BillCard | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -234,7 +237,7 @@ export function BillCardDialog({
         {loadError ? (
           <p className="text-sm fin-bill-fail">{loadError}</p>
         ) : !card || !bill ? (
-          <p className="text-sm fin-muted">Ищем строку в таблице юрлица…</p>
+          <p className="text-sm fin-muted">{noTable ? "Читаем счёт…" : "Ищем строку в таблице юрлица…"}</p>
         ) : (
           <div className="flex flex-col gap-3">
             <p className="text-xs fin-bill-sub">
@@ -251,7 +254,11 @@ export function BillCardDialog({
             </dl>
 
             {book?.kort ? (
-              <p className="text-xs fin-bill-sub">Строки в таблице нет: счёт месяца начисляет KORT, и записывается он в KORT.</p>
+              <p className="text-xs fin-bill-sub">
+                {noTable
+                  ? "Счёт месяца - по условиям договора: № и дата записываются в KORT."
+                  : "Строки в таблице нет: счёт месяца начисляет KORT, и записывается он в KORT."}
+              </p>
             ) : book ? (
               <p className="text-xs fin-bill-sub">
                 {book.place.book} · вкладка «{book.place.tab}» ·{" "}
