@@ -3,8 +3,8 @@
  *
  * Модульный объект, а не контекст React: карточка открывается поверх листа,
  * и оба должны читать одну запись без посредника, а лист Univer живёт вне
- * дерева React - ему нужна подписка, а не пропсы: два списка
- * одних и тех же строк, живущих порознь, расходятся на первой правке.
+ * дерева React - ему нужна подписка, а не пропсы (урок «Книг»: два списка
+ * одних и тех же строк, живущих порознь, расходятся на первой правке).
  *
  * Правила записи (фронт-план 4.5):
  * * правка оптимистична - значение сразу видно во всех видах;
@@ -40,7 +40,6 @@ import {
   FinanceApiError,
   SCHEMA_EVENT,
   contractsApi,
-  modelApi,
 } from "@/components/finance/api";
 
 export type EditState = "asking" | "sending" | "queued" | "failed" | "conflict";
@@ -101,11 +100,6 @@ export type RegistryState = {
    * «По сотрудникам» считает по ним. `null` - не прочитано.
    */
   shares: Readonly<Record<string, ShareMap>> | null;
-  /**
-   * Формулы компании - договор → ключ формулы → значение (`ensureFormulas`):
-   * считает ядро вызовом «спросить», лист только показывает. `null` - не прочитано.
-   */
-  formulas: Readonly<Record<string, Readonly<Record<string, string | null>>>> | null;
   /** По какой сводке сервер посчитал листы («Остатки») в последнем полном чтении. */
   listSummaryRev: string;
   edits: ReadonlyMap<string, ReadonlyMap<string, Edit>>;
@@ -143,7 +137,6 @@ const EMPTY: RegistryState = {
   summary: null,
   summarySource: null,
   shares: null,
-  formulas: null,
   listSummaryRev: "",
   edits: new Map(),
   creates: new Map(),
@@ -239,8 +232,6 @@ function claim(company: string | null, me: string | null, phase: RegistryState["
   paymentsClosedFor = null;
   summaryAt = 0;
   summaryLoading = null;
-  formulasAt = 0;
-  formulasLoading = null;
   sharesAt = 0;
   sharesLoading = null;
   staffAt = 0;
@@ -798,7 +789,7 @@ function unreached(exc: unknown): boolean {
 }
 
 /** Код нового договора выдаёт клиент - см. `service.create` на сервере. */
-export function newId(): string {
+function newId(): string {
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
@@ -1147,44 +1138,6 @@ export function ensureSummary(force = false): Promise<void> {
   return summaryLoading;
 }
 
-/** Формулы старше этого - перечитываются при следующем обращении. */
-const FORMULAS_TTL = 60_000;
-let formulasAt = 0;
-let formulasLoading: Promise<void> | null = null;
-
-/**
- * Значения формул компании (`core/formulas.py`) - своим запросом, как сводка:
- * вызов «спросить» API модели, договоры без отбора, меры - все формулы схемы.
- * Ядро считает, лист показывает: формулы в клетке, которую сломает вставленная
- * колонка, нет.
- */
-export function ensureFormulas(force = false): Promise<void> {
-  const company = state.company;
-  const keys = (state.schema?.measures ?? []).filter((item) => item.formula).map((item) => item.key);
-  if (!company || !keys.length) return Promise.resolve();
-  const fresh = state.formulas !== null && Date.now() - formulasAt < FORMULAS_TTL;
-  if (!force && (formulasLoading || fresh)) return formulasLoading ?? Promise.resolve();
-  const mine = epoch;
-  formulasLoading = (async () => {
-    try {
-      const answer = await modelApi.ask<{ rows: { id: string; values: Record<string, string | null> }[] }>({
-        source: "contracts",
-        measures: keys,
-      });
-      if (epoch !== mine) return;
-      formulasAt = Date.now();
-      const out: Record<string, Record<string, string | null>> = {};
-      for (const row of answer.rows) out[row.id] = Object.fromEntries(keys.map((key) => [key, row.values[key] ?? null]));
-      emit({ formulas: out });
-    } catch {
-      /* колонка формулы останется пустой до следующей попытки */
-    } finally {
-      if (epoch === mine) formulasLoading = null;
-    }
-  })();
-  return formulasLoading;
-}
-
 /** Одним запросом на пачку правок: опрос приходит раз в 2 с из каждой вкладки. */
 let sharesSoon = 0;
 function refreshSharesSoon(): void {
@@ -1267,7 +1220,7 @@ const schemaBooks = new WeakMap<RegistrySchema, Map<string, RegistrySchema>>();
 const stateBooks = new WeakMap<RegistryState, Map<string, RegistryState>>();
 const scopedSchemas = new WeakSet<RegistrySchema>();
 
-/** Лист в книге `book` - виде договоров (`core/views.py`): `""` - реестр. */
+/** Лист в книге `book`: `""` - реестр, `oneoff` - «Разовые». */
 export function inBook(view: { book?: string }, book: string): boolean {
   return (view.book ?? "") === book;
 }

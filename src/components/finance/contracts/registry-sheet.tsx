@@ -40,7 +40,6 @@ import {
   ensurePayments,
   ensureShares,
   ensureStaff,
-  ensureFormulas,
   ensureSummary,
   forBook,
   getRegistry,
@@ -65,7 +64,7 @@ type Props = {
   onOpenCard: (id: string | null, ctx?: { view: string; block: number }) => void;
   /** Договор открытой карточки: его строка отмечена, лист к ней прокручивается. */
   openId: string | null;
-  /** Книга листов - ключ вида договоров: `""` - реестр («Таблица»). */
+  /** Книга листов: `""` - реестр («Таблица»), `oneoff` - «Разовые». */
   book?: string;
   /** Соседи открытой карточки по листу - для её стрелок ↑ ↓. */
   onNeighbors?: (around: { prev: string | null; next: string | null }) => void;
@@ -237,35 +236,6 @@ export function RegistrySheet({ me, onOpenCard, openId, book = "", onNeighbors }
       document.removeEventListener("visibilitychange", refresh);
     };
   }, [usesSummary]);
-
-  // Формулы компании в колонках листа - вызовом «спросить» ядра: раз в минуту, при возвращении
-  // на вкладку и после правок договоров (сумма поменялась - поменялась и формула).
-  const usesFormulas = useMemo(
-    () =>
-      (state.schema?.views ?? []).some(
-        (view) => (view.book ?? "") === book && view.blocks.some((block) => block.columns.some((column) => column.key.startsWith("f_"))),
-      ),
-    [state.schema, book],
-  );
-  useEffect(() => {
-    if (!usesFormulas) return;
-    void ensureFormulas();
-    const refresh = () => {
-      if (document.visibilityState === "visible") void ensureFormulas();
-    };
-    const timer = window.setInterval(refresh, 60_000);
-    document.addEventListener("visibilitychange", refresh);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", refresh);
-    };
-  }, [usesFormulas]);
-  const seqNow = state.seq;
-  useEffect(() => {
-    if (!usesFormulas || !seqNow) return;
-    const timer = window.setTimeout(() => void ensureFormulas(true), 800);
-    return () => window.clearTimeout(timer);
-  }, [usesFormulas, seqNow, state.schema]);
 
   const ready = state.phase === "ready" && state.schema !== null;
   const scoped = useMemo(() => forBook(state, book).schema, [state, book]);
@@ -786,7 +756,7 @@ export function RegistrySheet({ me, onOpenCard, openId, book = "", onNeighbors }
                     <div key={issue.code} className="creg-hint-issue" data-ack={issue.acknowledged ? "true" : undefined}>
                       <div className="creg-hint-line">
                         <span>
-                          {issue.acknowledged ? <span className="creg-hint-flag">не напоминаем</span> : null}
+                          {issue.acknowledged ? <span className="creg-hint-flag">учтено</span> : null}
                           {issue.text}
                         </span>
                         {canAck ? (
@@ -801,7 +771,7 @@ export function RegistrySheet({ me, onOpenCard, openId, book = "", onNeighbors }
                                 : "Проверено: так и должно быть - замечание перестанет гореть, флажок в ячейке останется"
                             }
                           >
-                            {acking === issue.code ? "…" : issue.acknowledged ? "Напоминать снова" : "Не напоминать"}
+                            {acking === issue.code ? "…" : issue.acknowledged ? "Снять отметку" : "Учтено"}
                           </button>
                         ) : null}
                       </div>

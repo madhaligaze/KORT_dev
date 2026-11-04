@@ -69,7 +69,7 @@ import {
   type ViewBlock,
   contractsApi,
 } from "@/components/finance/api";
-import { bookDepartmentId, bookOf, departmentText, listText } from "@/components/finance/contracts/schema";
+import { bookDepartmentId, departmentText, listText } from "@/components/finance/contracts/schema";
 import { type BookShare, blockTally, bookAmount, bookPart, bookShareOf, shareNote } from "@/components/finance/contracts/book-share";
 import { STAFF_SHEET, type StaffMatrix, staffMatrix, staffSnapshot } from "@/components/finance/contracts/staff-sheet";
 import {
@@ -143,16 +143,9 @@ const SHARES_LABEL = "Доли сотрудников";
  * нужны «Разовым», а в «Все договоры» новой компании встали бы пустыми.
  */
 const EXPLICIT_ONLY = new Set(["summary_paid", "summary_remaining", "age_months"]);
-/** Формула компании (`core/formulas.py`): ключ `f_…`, значение считает ядро (`ensureFormulas`). */
-export const isFormulaKey = (key: string): boolean => key.startsWith("f_");
-const isLive = (key: string): boolean => LIVE_KEYS.has(key) || isFormulaKey(key);
 
 function liveValue(state: RegistryState, id: string, key: string): unknown {
   if (key === SHARES_KEY) return state.shares?.[id];
-  if (isFormulaKey(key)) {
-    const value = state.formulas?.[id]?.[key];
-    return value === null || value === undefined ? undefined : Number(value);
-  }
   if (key === "summary_paid" || key === "summary_remaining") {
     const entry = state.summary?.[id];
     if (entry?.state !== "found") return undefined;
@@ -266,20 +259,6 @@ const EMPTY_BLOCK: ViewBlock = {
 
 export function layoutOf(schema: RegistrySchema, view: RegistryView): ViewLayout {
   const fields = new Map(schema.fields.map((field) => [field.key, field]));
-  // Формулы компании - колонкой листа как меры: только чтение, значение - из ядра.
-  for (const measure of schema.measures ?? []) {
-    if (!measure.formula || fields.has(measure.key)) continue;
-    fields.set(measure.key, {
-      key: measure.key,
-      type: (measure.type === "money" ? "money" : "number") as RegistryField["type"],
-      title: measure.title,
-      system: true,
-      editable: false,
-      required: false,
-      hidden: false,
-      position: 0,
-    });
-  }
   // Отбор без своих колонок - поля схемы в их порядке (скрытых в листе нет).
   const defaults = [...schema.fields]
     .filter((field) => !field.hidden && !EXPLICIT_ONLY.has(field.key))
@@ -882,7 +861,7 @@ function render(model: SheetModel, row: number, ctx: RenderCtx): Rendered {
       if (away) texts.push(away);
     } else {
       const pending = edits?.get(column.key);
-      const stored = isLive(column.key) ? liveValue(state, id, column.key) : contract?.values[column.key];
+      const stored = LIVE_KEYS.has(column.key) ? liveValue(state, id, column.key) : contract?.values[column.key];
       const value = pending && pending.state !== "conflict" ? pending.value : bookValue(column.key, stored, contract, share);
       faces[index] = faceOf(column, value, contract, valueCtx);
       if (column.key === "amount" && contract) {
@@ -1245,7 +1224,7 @@ function fitLayout(layout: ViewLayout, buckets: Map<string, string[]>, ctx: Rend
       const texts: string[] = [];
       for (const id of ids) {
         const contract = state.byId.get(id);
-        const value = isLive(column.key) ? liveValue(state, id, column.key) : contract?.values[column.key];
+        const value = LIVE_KEYS.has(column.key) ? liveValue(state, id, column.key) : contract?.values[column.key];
         const face = faceOf(column, value, contract, valueCtx);
         if (face.v !== null) texts.push(faceText(face));
       }
@@ -1275,7 +1254,7 @@ export type Built = {
   first: string;
   /** Правила выпадающих списков, уже лежащие в снимке: лист → правило → отпечаток. */
   rules: Map<string, Map<string, string>>;
-  /** Книга листов - ключ вида договоров (`""` - реестр); `state` уже урезан по ней. */
+  /** Книга листов (`""` - реестр, `oneoff` - «Разовые»); `state` уже урезан по ней. */
   book: string;
   /** Лист «По сотрудникам» у «Разовых» (`staff-sheet.ts`); у реестра - нет. */
   staff: StaffMatrix | null;
@@ -1414,9 +1393,8 @@ export function buildRegistry(
     rules.set(layout.key, new Map(specs.map((spec) => [spec.uid, spec.sig])));
   }
 
-  // Вид с группировкой «По сотрудникам» - сводки по людям последним листом
-  // книги, как у юротдела в «Разовых» (`core/views.py`).
-  const staff = book && bookOf(state.schema, book)?.groups.includes("people") && layouts.length ? staffMatrix(state, book) : null;
+  // «Разовые»: сводки по сотрудникам - последним листом книги, как у юротдела.
+  const staff = book === "oneoff" && layouts.length ? staffMatrix(state, book) : null;
   if (staff) sheets[STAFF_SHEET] = staffSnapshot(staff);
 
   const unitId = `creg-${Date.now().toString(36)}`;
@@ -3758,19 +3736,13 @@ export class RegistryBinding {
         offsetX: 0,
         offsetY: 0,
       });
-    // Короткий лист помещается целиком - он стоит с начала, курсор в пустой строке.
-    // Прокрутка к ней с поправкой кадром позже оставляла единственный договор
-    // над краем, если поправка не успевала (проход новичка 31.10: видны строки с 4-й).
-    // Листу достаётся около половины окна, строка - около 28px.
-    const fits = row + 2 <= Math.floor(((window.innerHeight || 0) * 0.5) / 28);
     try {
       ws.getRange(row, col, 1, 1).activate?.();
-      scroll(fits ? header : row);
+      scroll(row);
     } catch {
       /* лист ещё не измерил себя - останется в начале */
       return;
     }
-    if (fits) return;
     // Сколько строк помещается, видно только после прокрутки и перерисовки:
     // видимая часть обновляется кадром позже, а её начало сдвинуто от
     // `sheetViewStartRow` закреплённой шапкой. Одна поправка по факту: пустая

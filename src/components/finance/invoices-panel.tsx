@@ -80,11 +80,8 @@ export function InvoicesPanel({
   }, []);
   const [reading, setReading] = useState(false);
   const hasBook = Boolean(board?.source);
-  // Счета журнала денег («Мы выставили», «Нам выставили», форма с позициями) - только
-  // у компании, где они уже есть: новой компании форма без договоров и с чужим
-  // списком контрагентов не давала выставить счёт клиенту договора (проход новичка 31.10).
-  const journal = items.length > 0;
-  const side = !journal ? "todo" : chosen === "todo" && board && !hasBook ? "out" : chosen;
+  // Без книги-сводки вкладки «Не выставлены» нет - и открывается «Мы выставили».
+  const side = chosen === "todo" && board && !hasBook ? "out" : chosen;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useSessionState("inv.form", false);
@@ -93,7 +90,7 @@ export function InvoicesPanel({
   const [lines, setLines] = useSessionState<Line[]>("inv.new.lines", [{ title: "", quantity: "1", price: "" }]);
   const [issuedAt, setIssuedAt] = useSessionState("inv.new.issued", todayIso);
   const [dueAt, setDueAt] = useSessionState("inv.new.due", todayIso);
-  const [vatRate, setVatRate] = useSessionState("inv.new.vat", dictionaries.vat_rate ?? "0");
+  const [vatRate, setVatRate] = useSessionState("inv.new.vat", "12");
   const [counterpartyId, setCounterpartyId] = useSessionState("inv.new.counterparty", "");
   const [projectId, setProjectId] = useSessionState("inv.new.project", "");
   const [categoryId, setCategoryId] = useSessionState("inv.new.category", "");
@@ -185,7 +182,6 @@ export function InvoicesPanel({
     }
   };
 
-  const nextBill = board?.items.find((item) => item.id !== billId)?.id ?? null;
   const shown = items.filter((item) => item.kind === side);
   const money = side === "out" ? summary?.receivable : side === "in" ? summary?.payable : undefined;
   const todo = side === "todo";
@@ -193,22 +189,18 @@ export function InvoicesPanel({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        {journal && (hasBook || !board) ? (
+        {hasBook || !board ? (
           <button type="button" className="fin-chip" data-on={todo ? "" : undefined} onClick={() => setSide("todo")}>
             Не выставлены
             {board?.counts?.overdue ? <span className="fin-out">{board.counts.overdue}</span> : null}
           </button>
         ) : null}
-        {journal ? (
-          <>
-            <button type="button" className="fin-chip" data-on={side === "out" ? "" : undefined} onClick={() => setSide("out")}>
-              Мы выставили
-            </button>
-            <button type="button" className="fin-chip" data-on={side === "in" ? "" : undefined} onClick={() => setSide("in")}>
-              Нам выставили
-            </button>
-          </>
-        ) : null}
+        <button type="button" className="fin-chip" data-on={side === "out" ? "" : undefined} onClick={() => setSide("out")}>
+          Мы выставили
+        </button>
+        <button type="button" className="fin-chip" data-on={side === "in" ? "" : undefined} onClick={() => setSide("in")}>
+          Нам выставили
+        </button>
         <span style={{ flex: 1 }} />
         {todo ? null : (
           <button type="button" className="btn-primary" onClick={() => setForm((was) => !was)}>
@@ -224,14 +216,7 @@ export function InvoicesPanel({
       ) : null}
 
       {billId ? (
-        <BillCardDialog
-          key={billId}
-          id={billId}
-          noTable={board?.source?.kind === "kort"}
-          onClose={() => openBill(null)}
-          onSaved={() => void loadBills()}
-          onNext={nextBill ? () => openBill(nextBill) : undefined}
-        />
+        <BillCardDialog id={billId} onClose={() => openBill(null)} onSaved={() => void loadBills()} />
       ) : null}
 
       {todo ? (
@@ -244,7 +229,7 @@ export function InvoicesPanel({
             onWritten={() => void loadBills()}
           />
         ) : (
-          <p className="text-xs fin-muted">Собираем счета…</p>
+          <p className="text-xs fin-muted">Читаем таблицу…</p>
         )
       ) : (
         <>

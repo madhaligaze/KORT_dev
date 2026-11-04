@@ -13,7 +13,6 @@ import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import {
   type Amendment,
-  type Contract,
   type ContractPayments,
   FinanceApiError,
   type OnecDoc,
@@ -51,9 +50,6 @@ import {
   useRegistry,
 } from "@/components/finance/contracts/store";
 import { contractMoney, formatDay, parseDay } from "@/components/finance/format";
-import { Section } from "@/components/finance/contracts/section";
-import { Accruals } from "@/components/finance/core/accruals";
-import { openParticipant, openSection } from "@/components/finance/core/open";
 import { CardLayer } from "@/components/finance/ui/card-layer";
 import { ConfirmDialog } from "@/components/finance/ui/confirm-dialog";
 import { DateInput } from "@/components/finance/ui/date-picker";
@@ -64,10 +60,8 @@ type Props = {
   open: boolean;
   /** Новый договор из отбора с блоком: подстановки блока ставит сервер. */
   draftContext?: { view?: string; block?: number };
-  /** «Ещё договор» после только что заведённого. */
-  onNew?: () => void;
   /**
-   * Книга, из которой открыта карточка (`""` - реестр, иначе ключ вида):
+   * Книга, из которой открыта карточка (`""` - реестр, `oneoff` - «Разовые»):
    * выбор списков берётся из блока листа этой книги, где стоит договор.
    */
   book?: string;
@@ -89,7 +83,6 @@ export function ContractCard({
   onOpen,
   onPrev,
   onNext,
-  onNew,
 }: Props) {
   const contract = useRegistry((s) => (id ? s.byId.get(id) : undefined));
   const schema = useRegistry((s) => s.schema);
@@ -109,16 +102,6 @@ export function ContractCard({
   const phase = useRegistry((s) => s.phase);
   const [creating, setCreating] = useState(false);
   const [draftError, setDraftError] = useState("");
-  /**
-   * Договор, заведённый в этой карточке, - до её закрытия в порядке нового
-   * («как на бумаге»), с тем же телом. Раньше первое же поле перестраивало
-   * карточку: номер уезжал вниз, появлялись другие поля, и Tab терял фокус
-   * вместе со старым телом (проход новичка 31.10).
-   */
-  const [born, setBorn] = useState<string | null>(null);
-  useEffect(() => {
-    if (!open) setBorn(null);
-  }, [open]);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<{ id: string; text: string } | null>(null);
@@ -154,14 +137,7 @@ export function ContractCard({
       setCreating(true);
       setDraftError("");
       try {
-        // Единственное наше юрлицо - исполнитель сразу: спрашивать о нём незачем, и в
-        // поле его видно. Заказчик-мы - покупка, тогда исполнителя называет человек.
-        const own = schema?.own_entities ?? [];
-        const ours = own.length === 1 ? own[0].id : "";
-        const picked = (value as { id?: string } | null)?.id ?? "";
-        const prefill = ours && key !== "executor" && picked !== ours ? { executor: { id: ours } } : {};
-        const newId = await create({ ...prefill, [key]: value }, draftContext);
-        setBorn(newId);
+        const newId = await create({ [key]: value }, draftContext);
         onCreated(newId);
       } catch (exc) {
         setDraftError(exc instanceof Error ? exc.message : "Договор не завёлся");
@@ -169,7 +145,7 @@ export function ContractCard({
         setCreating(false);
       }
     },
-    [creating, draftContext, onCreated, schema],
+    [creating, draftContext, onCreated],
   );
 
   const title = contract ? counterpartTitle(contract, parties) : "";
@@ -183,7 +159,6 @@ export function ContractCard({
       : null;
 
   const fields = useMemo(() => orderFields(schema?.fields ?? []), [schema]);
-  const fresh = Boolean(contract && born === contract.id);
   const number = contract ? String(contract.values.number ?? "") : "";
 
   return (
@@ -247,7 +222,7 @@ export function ContractCard({
           )}
         </div>
       ) : (
-      <div className="card-body" key={fresh ? "new" : (id ?? "new")} data-draft={!contract || fresh ? "true" : undefined}>
+      <div className="card-body" key={id ?? "new"}>
         <h2 className="card-title" tabIndex={-1} data-empty={title ? undefined : "true"}>
           {title || "Новый договор"}
         </h2>
@@ -258,7 +233,7 @@ export function ContractCard({
         {contract ? <Issues contractId={contract.id} onOpen={onOpen ?? onCreated} /> : null}
 
         <div className="card-grid">
-          {(!contract ? draftFields(fields) : fresh ? [...draftFields(fields), ...fields.filter((field) => !DRAFT_ORDER.includes(field.key))] : fields).map((field) => {
+          {(contract ? fields : draftFields(fields)).map((field) => {
             if (field.hidden || OWN_BLOCKS.has(field.key)) return null;
             return (
               <FieldSlot
@@ -272,32 +247,8 @@ export function ContractCard({
           })}
         </div>
 
-        {fresh && contract && ready(contract) ? (
-          <div className="card-next">
-            <p>Договор заведён, начисления посчитаны ниже.</p>
-            <span className="card-next-acts">
-              <button
-                type="button"
-                className="btn-primary btn-sm"
-                onClick={() => {
-                  onClose();
-                  openSection({ section: "today" });
-                }}
-              >
-                Дальше
-              </button>
-              {onNew ? (
-                <button type="button" className="btn-ghost btn-sm" onClick={onNew}>
-                  Ещё договор
-                </button>
-              ) : null}
-            </span>
-          </div>
-        ) : null}
-
         {contract ? (
           <>
-            <Accruals contractId={contract.id} seq={contract.seq} />
             <Shares contractId={contract.id} seq={contract.seq} />
             <Amendments contractId={contract.id} seq={contract.seq} />
             <SourceText contractId={contract.id} seq={contract.seq} />
@@ -356,11 +307,6 @@ export function ContractCard({
  * начинает (он же заводит договор на сервере).
  */
 const DRAFT_ORDER = ["number", "signed_at", "customer", "executor", "type", "status", "amount", "subject", "department", "people"];
-
-/** Договор готов считать: стороны, дата и сумма на месте, замечаний нет. */
-function ready(contract: Contract): boolean {
-  return Boolean(contract.values.amount) && !contract.issues.some((issue) => !issue.acknowledged);
-}
 
 function draftFields(fields: RegistryField[]): RegistryField[] {
   return DRAFT_ORDER.map((key) => fields.find((field) => field.key === key)).filter(
@@ -460,28 +406,18 @@ function PartiesLine({ contractId }: { contractId: string }) {
   const parties = useRegistry((s) => s.parties);
   const schema = useRegistry((s) => s.schema);
   if (!contract) return null;
-  const executorId = String(contract.values.executor ?? "");
-  const customerId = String(contract.values.customer ?? "");
-  const executor = parties[executorId];
-  const customer = parties[customerId];
+  const executor = parties[String(contract.values.executor ?? "")];
+  const customer = parties[String(contract.values.customer ?? "")];
   if (!executor && !customer) return null;
   const roles = roleLabels(contract);
   const sense = economicText(schema, contract);
-  // Сторона - дорога в досье участника: все его договоры у всех наших юрлиц.
-  const name = (id: string, party: typeof executor) =>
-    party ? (
-      <button type="button" className="fin-link-btn" title="Досье участника" onClick={() => openParticipant(id)}>
-        {party.own && party.code ? party.code : party.name}
-      </button>
-    ) : (
-      "-"
-    );
+  const name = (party: typeof executor) => (party ? (party.own && party.code ? party.code : party.name) : "-");
   return (
     <>
       <div className="parties-line">
         <span>
           {!roles.plain ? <small>{roles.executor}</small> : null}
-          {name(executorId, executor)}
+          {name(executor)}
         </span>
         <svg viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true">
           <line x1="0" y1="5" x2="97" y2="5" stroke="currentColor" strokeWidth="1" vectorEffect="non-scaling-stroke" />
@@ -489,7 +425,7 @@ function PartiesLine({ contractId }: { contractId: string }) {
         </svg>
         <span>
           {!roles.plain ? <small>{roles.customer}</small> : null}
-          {name(customerId, customer)}
+          {name(customer)}
         </span>
       </div>
       {sense ? (
@@ -523,20 +459,17 @@ function Issues({ contractId, onOpen }: { contractId: string; onOpen: (id: strin
       {contract.issues.map((issue) => (
         <div key={issue.code} className="card-issue" role="listitem" data-ack={issue.acknowledged ? "true" : undefined}>
           <span>
-            {issue.acknowledged ? <span className="annot">не напоминаем</span> : null} {issue.text}
+            {issue.acknowledged ? <span className="annot">учтено</span> : null} {issue.text}
             {issue.others?.length ? <OtherContracts ids={issue.others} onOpen={onOpen} /> : null}
           </span>
           {canEdit ? (
-            // Глаголом: «Учтено» рядом с красным «Не указан исполнитель» читалось как
-            // состояние («уже учтено»), а не как действие (проход новичка 31.10).
             <button
               type="button"
               className="fin-link-btn"
               disabled={busy === issue.code}
-              title={issue.acknowledged ? "Замечание снова загорится" : "Так и должно быть - замечание перестанет гореть"}
               onClick={() => acknowledge(issue.code, !issue.acknowledged)}
             >
-              {issue.acknowledged ? "Напоминать снова" : "Не напоминать"}
+              {issue.acknowledged ? "Снять отметку" : "Учтено"}
             </button>
           ) : null}
         </div>
@@ -577,6 +510,22 @@ export function OtherContracts({ ids, onOpen }: { ids: string[]; onOpen: (id: st
         </span>
       ) : null}
     </span>
+  );
+}
+
+function Section({ title, count, end, children }: { title: string; count?: number; end?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section>
+      <div className="card-section">
+        <span>
+          {title}
+          {count ? <span className="fin-muted" style={{ fontWeight: 400 }}> {count}</span> : null}
+        </span>
+        <span className="card-section-line" />
+        {end ? <span className="card-section-end">{end}</span> : null}
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -835,8 +784,6 @@ function Snapshot({ contractId }: { contractId: string }) {
 const PAYMENT_ACTIONS: Record<PaymentItem["how"], { label: string; action: "link" | "unlink" | "auto" }> = {
   open: { label: "Отнести к этому договору", action: "link" },
   auto: { label: "Не по этому договору", action: "unlink" },
-  number: { label: "Не по этому договору", action: "unlink" },
-  purpose: { label: "Не по этому договору", action: "unlink" },
   manual: { label: "Как по выписке", action: "auto" },
 };
 
@@ -932,10 +879,6 @@ function Payments({ contractId, seq }: { contractId: string; seq: number }) {
               {isGone ? <span className="annot">не по договору</span> : null}
               {!isGone && item.how === "open" ? <span className="annot">спорный</span> : null}
               {!isGone && item.how === "manual" ? <span className="annot">вручную</span> : null}
-              {!isGone && item.how === "number" ? (
-                <span className="annot">по {item.contract_ref || "номеру договора"}</span>
-              ) : null}
-              {!isGone && item.how === "purpose" ? <span className="annot">по номеру в назначении</span> : null}
               {canEdit ? (
                 <>
                   {" "}
@@ -964,7 +907,6 @@ const ONEC_KIND: Record<OnecDoc["kind"], string> = {
   sale: "АВР",
   sf: "счёт-фактура",
   esf: "ЭСФ",
-  refund: "возврат",
 };
 const ONEC_ORDER: OnecDoc["kind"][] = ["invoice", "payment", "sale", "sf", "esf"];
 

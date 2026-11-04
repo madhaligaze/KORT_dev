@@ -624,7 +624,7 @@ html, body { overflow-x: clip; }
    Поэтому у элемента с компонентным классом `display` всегда берётся из
    компонента, а `hidden`/`sm:hidden` рядом молча не работает.
 
-   Стоило это трёх дефектов на проде: нижний таб-бар висел на
+   Стоило это трёх дефектов на проде PDF-CONVERTER: нижний таб-бар висел на
    всех ширинах и дублировал верхнюю ленту вкладок; значок логотипа занимал
    место в однострочной шапке телефона, из-за чего заголовок обрезался; кнопки
    «Назад» и «Действия» (.btn-ghost) показывались на чужих экранах.
@@ -768,7 +768,7 @@ html, body { overflow-x: clip; }
    Номер слева, название во всю ширину, пометка в правом верхнем углу
    строки, стрелка справа. Пометка стоит над названием, а не своей колонкой:
    колонкой она отнимала у названия двести пикселей и на окне 1000px
-   выдавливала длинное название за край.                                */
+   выдавливала «Анализатор выписок» за край.                                */
 .ix {
   display: flex;
   flex-direction: column;
@@ -1040,7 +1040,6 @@ html, body { overflow-x: clip; }
    свёрнуты сеткой 0fr → 1fr; `visibility` прячет их после свёртки, чтобы в
    закрытое не попадали ни Tab, ни экранный диктор. */
 .auth-door + .auth-door { border-top: 1px solid var(--border-base); }
-.auth-about { margin: 1.5rem 0 0; max-width: 30rem; font-size: 0.875rem; line-height: 1.5; color: var(--text-secondary); }
 .auth-door-head {
   position: relative;
   display: flex;
@@ -1694,13 +1693,11 @@ label.auth-row-label { cursor: pointer; }
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  /* Строки - к верху плиты. Без этого плита во всю высоту окна делила лишнюю
-     высоту между строкой мест и разделом, и над заголовком короткого раздела
-     («Участники», «Долги», пустой «Реестр») стояла полоса в 150-200px - на
-     T480 треть экрана (проход новичка 31.10). */
-  align-content: start;
 }
-/* С 31.10.2026 колонки нет: места - строкой над разделом (`.fin-places`). */
+@media (min-width: 768px) {
+  /* Колонка тянется на всю высоту ряда - подложка и линия до низа плиты. */
+  .fin-plate { grid-template-columns: auto minmax(0, 1fr); align-items: stretch; }
+}
 
 /* ─── Внутренний слой колонки ─── */
 .fin-aside-inner { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
@@ -1749,8 +1746,8 @@ label.auth-row-label { cursor: pointer; }
      150%, браузер не на весь экран) вместо колонки шла лента из двадцати
      вкладок с прокруткой вбок, и до «Справочников» листали. Свёрнутая
      колонка - 60px, место под раздел остаётся и на 768.
-     Узкая полоса, которая расширяется под курсором: место под таблицу
-     остаётся, а счета в одном движении.
+     Узкая полоса, которая расширяется под курсором. Ровно тот приём, что в
+     сайдбаре дашборда: место под таблицу остаётся, а счета в одном движении.
      `:has(:focus-visible)`, а не `:focus-within`: второй срабатывает на клик
      мышью и оставляет панель залипшей раскрытой - этот дефект в проекте уже
      ловили. */
@@ -1810,15 +1807,6 @@ label.auth-row-label { cursor: pointer; }
 /* ─── Группы разделов в колонке ─── */
 .fin-nav-group { display: flex; flex-direction: column; gap: 0.1rem; }
 .fin-nav-group + .fin-nav-group { margin-top: 0.6rem; }
-/* «Ещё»: разделы без данных - свёрнуто, тише; «закрепить» - словом справа. */
-.fin-nav-more .fin-nav-item { color: var(--fin-text-soft); }
-.fin-nav-soft { font-weight: 400; color: var(--fin-text-soft); }
-.fin-nav-quiet { display: flex; align-items: center; gap: 0.25rem; min-width: 0; }
-.fin-nav-quiet .fin-nav-item { flex: 1; min-width: 0; }
-.fin-nav-pin { flex: none; font-size: 0.6875rem; white-space: nowrap; }
-@media (min-width: 768px) {
-  .fin-aside:not(:hover):not([data-open="true"]):not(:has(:focus-visible)) .fin-nav-pin { display: none; }
-}
 .fin-nav-head {
   padding: 0 0.5rem 0.2rem;
   font-size: 0.6875rem;
@@ -1959,8 +1947,10 @@ label.auth-row-label { cursor: pointer; }
      колонке здесь был второй навигацией, и не безобидной: колонка ложилась
      блоком над содержимым, двадцать пунктов и счета - 1183px, и раздел
      начинался на втором экране. Нажал «Интеграции» внизу списка - раздел
-     сменился где-то ниже, а экран остался на списке. Правило стоит сразу
-     после объявления - выше по файлу оно бы проиграло. */
+     сменился где-то ниже, а экран остался на списке. Ровно тот класс
+     дефекта («навигация продублирована»), что уже стоил трёх правок в
+     дашборде. Правило стоит сразу после объявления - выше по файлу оно бы
+     проиграло. */
   .fin-nav { display: none; }
   /* Без сводки (юрист с одними договорами, кассир с журналом) в колонке на
      узком окне не остаётся ничего - пустая полоса с рамкой над содержимым. */
@@ -2084,7 +2074,6 @@ label.auth-row-label { cursor: pointer; }
   color: var(--fin-text);
 }
 .fin-acc-row:last-child { border-bottom: none; }
-.fin-acc-owner { display: block; width: auto; max-width: 100%; margin-top: 0.25rem; padding: 0.2rem 0.5rem; font-size: 0.75rem; }
 .fin-acc-name {
   color: var(--fin-text-soft);
   min-width: 0;
@@ -2106,50 +2095,24 @@ label.auth-row-label { cursor: pointer; }
 }
 .fin-tabs::-webkit-scrollbar { display: none; }
 
-/* Строка мест прилипает к шапке на любой ширине: в длинном реестре до мест не
-   нужно листать обратно. Подложка плиты под строкой, чтобы строки раздела не
-   просвечивали; «Ещё» - листом под строкой, вне прокрутки ленты. */
-.fin-places {
-  position: sticky;
-  top: var(--fin-head-h, 0px);
-  z-index: 20;
-  background: var(--fin-plate);
-  border-bottom: 1px solid var(--fin-line);
+@media (max-width: 767.98px) {
+  /* Лента на узком окне прилипает к верху - ровно как колонка на широком:
+     в длинном журнале до вкладок не нужно листать обратно. Подложка плиты
+     под лентой, чтобы строки не просвечивали сквозь неё. */
+  .fin-tabs {
+    position: sticky;
+    top: var(--fin-head-h, 0px);
+    z-index: 20;
+    background: var(--fin-plate);
+  }
 }
 @media (min-width: 768px) {
-  .fin-tabs { padding: 0.75rem 1.5rem 0.25rem; }
+  /* Разделы живут в колонке слева, лента остаётся телефону. Правило стоит
+     ПОСЛЕ объявления `.fin-tabs`: то же правило выше по файлу проигрывало по
+     порядку, и на десктопе показывались обе навигации сразу - ровно тот
+     дефект, что уже стоил трёх правок в дашборде. */
+  .fin-tabs { display: none; }
 }
-.fin-more {
-  position: absolute;
-  top: calc(100% + 0.25rem);
-  right: 1rem;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  min-width: 17rem;
-  max-width: calc(100vw - 2rem);
-  max-height: 70vh;
-  overflow-y: auto;
-  padding: 0.35rem 0;
-  background: var(--fin-plate);
-  border: 1px solid var(--fin-text);
-  border-radius: var(--radius-card);
-}
-.fin-more-row { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding: 0 0.9rem; }
-.fin-more-row .fin-link-btn { font-size: 0.75rem; white-space: nowrap; }
-.fin-more-item {
-  flex: 1;
-  padding: 0.45rem 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: 0.9375rem;
-  color: var(--fin-text);
-  text-align: left;
-  cursor: pointer;
-}
-.fin-more-item:hover { text-decoration: underline; text-underline-offset: 3px; }
-.fin-more-item[data-on="true"] { font-weight: 650; }
 .fin-tab {
   display: inline-flex;
   align-items: center;
@@ -2337,7 +2300,7 @@ label.auth-row-label { cursor: pointer; }
 }
 
 /* ─── «Разовые»: откуда оплата и сводка по сотрудникам ─── */
-.creg-book-top {
+.creg-oneoff-top {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -2345,7 +2308,7 @@ label.auth-row-label { cursor: pointer; }
   gap: 0.5rem 1rem;
   margin: 0 0 0.5rem;
 }
-.creg-book-line { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); display: flex; flex-wrap: wrap; gap: 0 0.5rem; align-items: baseline; }
+.creg-oneoff-line { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); display: flex; flex-wrap: wrap; gap: 0 0.5rem; align-items: baseline; }
 .creg-staff { display: grid; gap: 0.75rem; padding-bottom: 1rem; }
 .creg-staff-title { margin: 0.5rem 0 0; font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; color: var(--fin-text); }
 .creg-staff-scroll { overflow-x: auto; }
@@ -3365,39 +3328,6 @@ html:has(.usheet) { overscroll-behavior-x: none; }
     padding-bottom: var(--safe-b, 0px);
   }
 }
-/* «Найти или сделать» (Ctrl+K): плита у верхней трети, строка ввода и список.
-   Выбранная строка - чертой слева и весом, не заливкой. */
-.card-sheet.find-sheet { top: 14vh; translate: -50% 0; width: min(40rem, calc(100vw - 48px)); max-height: 70vh; }
-@media (max-width: 639px) { .card-sheet.find-sheet { top: 0; translate: none; width: 100%; max-height: none; } }
-.find-box { display: flex; align-items: center; gap: 0.6rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--fin-line); flex: none; }
-.find-icon { display: inline-flex; color: var(--fin-text-soft); }
-.find-input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font: inherit; font-size: 1rem; color: var(--fin-text); }
-.find-input::placeholder { color: var(--fin-text-soft); }
-.find-busy { font-size: 0.75rem; }
-.find-results { overflow: auto; padding: 0.25rem 0 0.5rem; overscroll-behavior: contain; }
-.find-group { margin: 0.6rem 1rem 0.2rem; font-size: 0.6875rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fin-text-soft); }
-.find-item {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 0.75rem;
-  width: 100%;
-  padding: 0.45rem 1rem 0.45rem calc(1rem - 2px);
-  border: 0;
-  border-left: 2px solid transparent;
-  background: none;
-  font: inherit;
-  font-size: 0.875rem;
-  color: var(--fin-text);
-  text-align: left;
-  cursor: pointer;
-}
-.find-item[aria-selected="true"] { border-left-color: var(--fin-text); }
-.find-item[aria-selected="true"] .find-title { font-weight: 600; }
-.find-title { min-width: 0; overflow-wrap: anywhere; }
-.find-hint { font-size: 0.75rem; color: var(--fin-text-soft); }
-.find-keys { margin: 0; padding: 0.5rem 1rem; border-top: 1px solid var(--fin-line); font-size: 0.75rem; flex: none; }
-@media (max-width: 639px) { .find-keys { display: none; } }
 .card-top {
   display: flex;
   align-items: center;
@@ -3480,13 +3410,6 @@ html:has(.usheet) { overscroll-behavior-x: none; }
 }
 button.ifield-value { cursor: text; }
 button.ifield-value:hover { box-shadow: inset 0 0 0 1px var(--fin-line); }
-/* Новый договор: пустое поле - строкой ввода с чертой, а не голым «-», который новичок
-   не узнавал как поле (проход 31.10). Прочерк остаётся - пустое значение пишется «-». */
-.card-next { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; margin: 1rem 0 0; padding: 0.75rem 0; border-top: 1px solid var(--fin-line); border-bottom: 1px solid var(--fin-line); }
-.card-next p { margin: 0; font-size: 0.875rem; color: var(--fin-text); }
-.card-next-acts { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-.card-body[data-draft="true"] button.ifield-value[data-empty="true"] { box-shadow: inset 0 -1px 0 var(--fin-line); }
-.card-body[data-draft="true"] button.ifield-value[data-empty="true"]:hover { box-shadow: inset 0 0 0 1px var(--fin-line); }
 .ifield-value[data-empty="true"] { color: var(--text-muted); }
 .ifield-value[data-pending="true"] { color: var(--text-muted); }
 .ifield-value[data-readonly="true"] { cursor: default; }
@@ -5023,935 +4946,4 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 @media (max-width: 639.98px) {
   .sup-strip-text { display: none; }
   .sup-strip-main { justify-content: space-between; }
-}
-
-/* ─── «Участники» (ядро, фаза 1): список, двойники, БИН из источников, досье ───
-   Язык реестра: строки с чертой снизу, номер - Martian, выбранное - весом и
-   рамкой тушью, не заливкой. Цвет - только отказу (CLAUDE.md). */
-.party-screen { display: flex; flex-direction: column; gap: 0.75rem; }
-.party-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
-/* `.creg-search` у реестра прижат вправо и на узком окне уходит третьим рядом -
-   здесь поиск главный: первым и растёт. */
-.creg-search.party-search { flex: 1 1 22rem; max-width: 34rem; margin: 0; order: 0; }
-.party-bar > .btn-ghost { margin-left: auto; }
-.party-harvest, .party-bar-error { flex: 1 1 100%; }
-.party-new { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; flex: 1 1 100%; }
-.party-new .input-field { width: 16rem; max-width: 100%; padding-top: 0.4rem; padding-bottom: 0.4rem; }
-.party-new .input-field.party-new-bin { width: 9rem; }
-.party-new-error { flex: 1 1 100%; }
-.party-error { margin: 0; font-size: 0.8125rem; color: var(--fin-fail); }
-
-.party-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--fin-line); transition: opacity 0.2s ease; }
-.party-list[aria-busy="true"] { opacity: 0.55; }
-.party-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 11.5rem 7.5rem;
-  align-items: center;
-  column-gap: 1rem;
-  width: 100%;
-  min-height: var(--fin-row-h);
-  padding: 0.55rem 0.75rem;
-  border: none;
-  border-bottom: 1px solid var(--fin-line);
-  background: none;
-  color: var(--fin-text);
-  font: inherit;
-  font-size: 0.8125rem;
-  text-align: left;
-  cursor: pointer;
-}
-.party-row:hover, .party-row:focus-visible { background: var(--fin-hover); outline: none; }
-.party-main { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
-.party-name { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 0.6rem; font-size: 0.875rem; font-weight: 450; overflow-wrap: anywhere; }
-.party-sub { font-size: 0.75rem; color: var(--fin-text-soft); overflow-wrap: anywhere; }
-.party-sub[data-empty="true"] { color: var(--text-muted); }
-.party-bin {
-  font-family: var(--font-martian), ui-monospace, monospace;
-  font-variation-settings: "wdth" 87.5;
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-.party-bin small { font-family: var(--font-geologica), ui-sans-serif, system-ui, sans-serif; font-size: 0.6875rem; color: var(--text-muted); }
-.party-count { text-align: right; color: var(--fin-text-soft); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.party-more { margin: 0.25rem 0.75rem 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
-@media (max-width: 639px) {
-  .party-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.25rem; padding: 0.6rem 0.25rem; }
-  .party-main { grid-column: 1 / -1; }
-}
-
-/* Двойники: участок с волосяной рамкой на группу; остающийся - весом имени. */
-.party-twins { display: grid; gap: 0.75rem; }
-.party-twin { padding: 0.75rem 1rem 0.875rem; border: 1px solid var(--fin-line); border-radius: var(--radius-card); }
-.party-twin-why { margin: 0 0 0.25rem; font-size: 0.75rem; color: var(--fin-text-soft); }
-.party-twin-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 9.5rem 11rem 6.5rem;
-  align-items: baseline;
-  column-gap: 1rem;
-  padding: 0.45rem 0;
-  border-bottom: 1px solid var(--fin-line);
-  font-size: 0.8125rem;
-}
-.party-twin-name { text-align: left; overflow-wrap: anywhere; }
-.party-twin-row[data-keep="true"] .party-twin-name { font-weight: 600; }
-.party-keep {
-  justify-self: end;
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-  font-size: 0.8125rem;
-  color: var(--fin-text-soft);
-  cursor: pointer;
-  text-decoration: underline dotted var(--fin-dotted);
-  text-underline-offset: 3px;
-  white-space: nowrap;
-}
-.party-keep[aria-pressed="true"] { color: var(--fin-text); font-weight: 600; text-decoration: none; cursor: default; }
-.party-keep:disabled { cursor: default; }
-.party-twin-acts { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
-@media (max-width: 639px) {
-  .party-twin { padding: 0.75rem; }
-  .party-twin-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.2rem; }
-  .party-twin-name { grid-column: 1 / -1; }
-  .party-twin-row .party-count { text-align: left; }
-}
-
-/* БИН из источников: номер, откуда он, «Записать · Не тот». */
-.party-proposals .card-section { margin-top: 0.5rem; }
-.party-proposal { padding: 0.5rem 0; border-bottom: 1px solid var(--fin-line); font-size: 0.8125rem; }
-.party-proposal-name { font-size: 0.875rem; font-weight: 450; text-align: left; }
-.party-proposal-number { display: grid; grid-template-columns: 11.5rem minmax(0, 1fr) auto; align-items: baseline; column-gap: 1rem; margin-top: 0.35rem; }
-.party-evidence { font-size: 0.75rem; color: var(--fin-text-soft); overflow-wrap: anywhere; }
-.party-row-acts { display: inline-flex; align-items: baseline; justify-content: flex-end; gap: 0.6rem; white-space: nowrap; }
-@media (max-width: 639px) {
-  .party-proposal-number { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.2rem; }
-  .party-proposal-number .party-evidence { grid-column: 1 / -1; grid-row: 2; }
-}
-
-/* Сведённое за этот заход - строкой с «Вернуть». */
-.party-done { display: grid; gap: 0.25rem; font-size: 0.8125rem; color: var(--fin-text); }
-.party-done p { margin: 0; }
-.party-harvest { display: grid; gap: 0.75rem; padding: 0.875rem 1rem; }
-.party-harvest-acts { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-
-/* Досье. `.ifield-value` задаёт `font: inherit` позже `.fin-mono` и снимал бы
-   моноширинный шрифт - у БИН свой класс ниже обоих. */
-.party-card-full { margin: 0.5rem 0 0; font-size: 0.875rem; color: var(--fin-text-soft); }
-.ifield-value.party-mono, .ifield-input.party-mono {
-  font-family: var(--font-martian), ui-monospace, monospace;
-  font-variation-settings: "wdth" 87.5;
-  font-variant-numeric: tabular-nums;
-  font-size: 0.875rem;
-}
-.party-found { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.75rem; }
-.party-found .party-evidence { flex-basis: 100%; }
-.party-issue-error { flex-basis: 100%; font-size: 0.75rem; }
-.party-alias { overflow-wrap: anywhere; }
-.party-none { margin: 0.25rem 0 0; font-size: 0.8125rem; color: var(--text-muted); }
-.party-group + .party-group { margin-top: 0.875rem; }
-.party-group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; padding: 0.25rem 0; font-size: 0.875rem; font-weight: 500; }
-.party-group-full { font-size: 0.75rem; font-weight: 400; color: var(--fin-text-soft); }
-.party-group-count { margin-left: auto; font-size: 0.75rem; font-weight: 400; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.party-contract {
-  display: grid;
-  grid-template-columns: 8.5rem minmax(0, 1fr) 7.5rem 8.5rem;
-  grid-template-areas: "num what status money";
-  align-items: baseline;
-  column-gap: 0.75rem;
-  width: 100%;
-  padding: 0.45rem 0.25rem;
-  border: none;
-  border-bottom: 1px solid var(--fin-line);
-  background: none;
-  color: var(--fin-text);
-  font: inherit;
-  font-size: 0.8125rem;
-  text-align: left;
-  cursor: pointer;
-}
-.party-contract:hover, .party-contract:focus-visible { background: var(--fin-hover); outline: none; }
-.party-contract > * { min-width: 0; overflow-wrap: anywhere; }
-.party-contract > .creg-num { grid-area: num; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.party-contract > .party-contract-what { grid-area: what; display: flex; flex-direction: column; gap: 0.1rem; }
-.party-contract > .creg-status { grid-area: status; }
-.party-contract > .creg-money { grid-area: money; }
-.party-contract-who { font-weight: 450; }
-.party-contract-what .annot { margin-left: 0.5rem; }
-/* Телефон: номер и состояние - первой строкой, что и сумма - второй. */
-@media (max-width: 639px) {
-  .party-contract { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "num status" "what money"; row-gap: 0.2rem; }
-}
-.party-line { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 1rem; padding: 0.45rem 0; border-bottom: 1px solid var(--fin-line); font-size: 0.8125rem; }
-.party-line > span:first-child { overflow-wrap: anywhere; }
-.party-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-top: 0.75rem; }
-.party-form .input-field { width: auto; flex: 1 1 14rem; padding: 0.45rem 0.7rem; font-size: 0.8125rem; }
-.party-form .choice { flex: 0 1 14.5rem; }
-.party-form .choice > select.input-field { width: 100%; }
-.party-form .input-field.party-date { flex: 0 0 8.5rem; }
-.party-form-acts { display: inline-flex; align-items: center; gap: 0.75rem; }
-.party-form-error { flex-basis: 100%; margin: 0; }
-.party-check { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8125rem; color: var(--fin-text); white-space: nowrap; cursor: pointer; }
-.party-check input { margin: 0; accent-color: var(--fin-text); }
-.party-check:has(input:disabled) { color: var(--text-muted); cursor: default; }
-
-/* ─── «Начисления» в карточке договора (ядро, фаза 2) ───
-   Месяц строкой: месяц и период, сумма KORT, книга (счёт, оплата, АВР),
-   расхождение словами - цветом отказа, это то, что надо поправить. */
-.acc-why { margin: 0 0 0.5rem; font-size: 0.8125rem; color: var(--fin-text-soft); }
-.card-grid.acc-terms { margin: 0 0 0.75rem; }
-.acc-proposals { display: grid; gap: 0.35rem; margin: 0 0 0.75rem; font-size: 0.8125rem; color: var(--fin-fail); }
-.acc-proposal { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; }
-.acc-proposal .fin-link-btn { color: var(--fin-text); }
-.acc-note, .shadow-note { margin: 0 0 0.5rem; font-size: 0.8125rem; color: var(--fin-text); }
-.acc-row {
-  display: grid;
-  grid-template-columns: 8.5rem 8rem minmax(0, 1fr) minmax(0, 9rem) auto;
-  align-items: baseline;
-  column-gap: 0.75rem;
-  padding: 0.45rem 0;
-  border-bottom: 1px solid var(--fin-line);
-  font-size: 0.8125rem;
-}
-.acc-row > * { min-width: 0; }
-.acc-month { display: flex; flex-direction: column; }
-.acc-month small, .acc-amount small { font-size: 0.75rem; color: var(--fin-text-soft); }
-.acc-amount { display: flex; flex-direction: column; text-align: right; font-variant-numeric: tabular-nums; }
-.acc-book { color: var(--fin-text-soft); overflow-wrap: anywhere; }
-.acc-codes { color: var(--fin-fail); font-size: 0.75rem; }
-/* Почему месяц расходится или «верно у KORT» - тихо, под отметкой: это не отказ. */
-.acc-codes small { display: block; color: var(--fin-text-soft); }
-.acc-acts { white-space: nowrap; text-align: right; }
-.acc-form { margin: 0.25rem 0 0.5rem; }
-.party-form .input-field.acc-form-amount { flex: 0 0 9rem; }
-@media (max-width: 639px) {
-  .acc-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.2rem; }
-  .acc-book, .acc-codes { grid-column: 1 / -1; }
-  .acc-acts { grid-column: 1 / -1; text-align: left; }
-}
-/* Оплаты в ленте (фаза 4): колонка «оплачено» после суммы KORT, книга -
-   второй строкой месяца (в карточке шириной ~700 px на неё иначе оставалось
-   несколько пикселей, и «счёт 93 от …» вставал столбиком по букве); долг и
-   аванс - словами и весом числа, без цвета. */
-.acc-list[data-money] .acc-row { grid-template-columns: 8.5rem 8rem 9rem minmax(0, 1fr) auto; }
-.acc-list[data-money] .acc-book { grid-column: 1 / -1; order: 1; }
-.acc-paid { display: flex; flex-direction: column; text-align: right; font-variant-numeric: tabular-nums; }
-.acc-paid small { font-size: 0.75rem; color: var(--fin-text-soft); }
-.acc-money { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1.25rem; margin: 0 0 0.75rem; font-size: 0.8125rem; color: var(--fin-text-soft); }
-.acc-money b { font-weight: 600; color: var(--fin-text); font-variant-numeric: tabular-nums; }
-.acc-payments { margin-top: 0.875rem; }
-/* «Пришла оплата» - кнопка под месяцами и форма в одну-две строки. */
-.acc-pay { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-top: 0.875rem; }
-.acc-pay-form {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr));
-  align-items: end;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--fin-line);
-}
-.acc-pay-field { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
-.acc-pay-field .input-field { width: 100%; padding-top: 0.4rem; padding-bottom: 0.4rem; }
-.acc-pay-wide { grid-column: 1 / -1; }
-.acc-pay-hint { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
-/* Цикл месяца: счёт, АВР, ЭСФ; следующий шаг - весом подписи. */
-.acc-docs { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; padding: 0 0 0.5rem; font-size: 0.8125rem; }
-.acc-docs .fin-link-btn[data-next="true"] { font-weight: 600; }
-.acc-doc-form { margin: 0 0 0.75rem; }
-.acc-pay-acts { display: flex; flex-wrap: wrap; gap: 0.5rem; grid-column: 1 / -1; }
-.acc-payments .fin-label { margin-bottom: 0.25rem; }
-.acc-payment {
-  display: grid;
-  grid-template-columns: 6rem 8rem minmax(0, 1fr) minmax(0, 12rem);
-  align-items: baseline;
-  column-gap: 0.75rem;
-  padding: 0.35rem 0;
-  border-bottom: 1px solid var(--fin-line);
-  font-size: 0.8125rem;
-}
-.acc-payment > * { min-width: 0; }
-.acc-payment-sum { text-align: right; font-variant-numeric: tabular-nums; }
-.acc-payment-who { display: flex; flex-direction: column; overflow-wrap: anywhere; }
-.acc-payment-who small { font-size: 0.75rem; color: var(--fin-text-soft); }
-.acc-payment-where { color: var(--fin-text-soft); text-align: right; }
-.acc-payments > .fin-link-btn { margin-top: 0.35rem; }
-@media (max-width: 639px) {
-  .acc-list[data-money] .acc-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .acc-list[data-money] .acc-paid { grid-column: 1 / -1; text-align: left; flex-direction: row; flex-wrap: wrap; gap: 0 0.5rem; }
-  .acc-payment { grid-template-columns: 5.5rem minmax(0, 1fr); row-gap: 0.15rem; }
-  .acc-payment-who, .acc-payment-where { grid-column: 1 / -1; text-align: left; }
-}
-/* Счёт из импорта и его юрлицо - одной строкой. */
-.import-owner-row { align-items: center; }
-.import-owner-row select { flex: none; max-width: 55%; }
-
-/* ─── «Сверка» с книгой-сводкой ─── */
-.shadow-screen { display: flex; flex-direction: column; gap: 0.75rem; }
-.fin-mine.shadow-what { margin: 0; justify-content: flex-start; flex-wrap: wrap; row-gap: 0.5rem; }
-.shadow-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
-.shadow-source { flex: 1 1 20rem; margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
-.shadow-groups { display: grid; gap: 0.25rem; }
-/* Строка предложения раскладывается по ширине своего списка, а не окна: рядом
-   бывает раскрытая колонка разделов, и на 800 px текст сжимался до 94 px. */
-.shadow-groups, .shadow-unknown { container-type: inline-size; }
-.shadow-group .card-section { margin-top: 1rem; }
-.shadow-proposal {
-  display: grid;
-  /* Ответов бывает три («Статус «На исполнении» · Статус «Исполнен» · Верно у KORT») - они
-     переносятся внутри своей колонки, а не отнимают ширину у текста и договора. */
-  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr) minmax(min-content, 16rem);
-  align-items: baseline;
-  column-gap: 1rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--fin-line);
-  font-size: 0.8125rem;
-}
-.shadow-contract { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.6rem; min-width: 0; }
-.shadow-contract .creg-num { text-align: left; }
-.shadow-client { overflow-wrap: anywhere; }
-/* В таблице сверки имя переносится по словам: узкий экран прокручивает таблицу, а не рвёт «Курманга|лиев». */
-.shadow-table .shadow-client { overflow-wrap: break-word; }
-.shadow-text { min-width: 0; overflow-wrap: anywhere; }
-.shadow-acts { display: inline-flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-end; gap: 0 0.25rem; white-space: nowrap; }
-.shadow-error { flex-basis: 100%; font-size: 0.75rem; color: var(--fin-fail); white-space: normal; }
-.shadow-codes { flex-wrap: wrap; row-gap: 0.5rem; }
-.shadow-table td { vertical-align: top; }
-.shadow-table td.shadow-decide { text-align: right; white-space: nowrap; }
-.shadow-codes .shadow-bulk { margin-left: auto; }
-
-/* ─── «Сверка → Оплаты» (ядро, фаза 4) ─── */
-.paid-settings { display: grid; gap: 0.5rem; padding: 0.75rem 0; border-top: 1px solid var(--fin-line); border-bottom: 1px solid var(--fin-line); }
-.paid-since { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; font-size: 0.8125rem; }
-.paid-since .fin-label { margin: 0; }
-.paid-since .input-field.party-date { flex: 0 0 8.5rem; width: 8.5rem; }
-.paid-sources { display: flex; flex-wrap: wrap; gap: 0.35rem 1.5rem; }
-.paid-source { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; }
-.paid-source-name { min-width: 4.5rem; color: var(--fin-text); }
-.fin-mine.paid-source-pick { margin: 0; }
-.paid-months { display: grid; gap: 0.1rem; margin-top: 0.35rem; }
-.paid-month { display: grid; grid-template-columns: 4.5rem 7rem 7rem auto; column-gap: 0.75rem; font-size: 0.75rem; color: var(--fin-text-soft); }
-.paid-month[data-off] .paid-month-code { color: var(--fin-fail); }
-.paid-without { display: grid; }
-.paid-without > .shadow-codes { margin-bottom: 0.5rem; }
-.paid-item {
-  display: grid;
-  grid-template-columns: 6rem 8rem minmax(0, 1fr) minmax(0, 22rem);
-  align-items: baseline;
-  column-gap: 0.75rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--fin-line);
-  font-size: 0.8125rem;
-}
-.paid-item > * { min-width: 0; }
-.paid-item-sum { text-align: right; font-variant-numeric: tabular-nums; }
-.paid-item-who { display: flex; flex-direction: column; gap: 0.1rem; overflow-wrap: anywhere; }
-.paid-item-who small { font-size: 0.75rem; color: var(--fin-text-soft); }
-.paid-item-who .annot { margin-left: 0.4rem; }
-.paid-item-acts { display: flex; flex-direction: column; align-items: flex-end; gap: 0.15rem; }
-.paid-candidate { display: inline-flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-end; gap: 0 0.4rem; }
-/* ─── «Сверка → Акты» (ядро, фаза 5) ─── */
-.acts-list { display: grid; }
-.acts-item {
-  display: grid;
-  grid-template-columns: minmax(12rem, 22rem) minmax(0, 1fr) auto;
-  align-items: baseline;
-  column-gap: 1rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--fin-line);
-  font-size: 0.8125rem;
-}
-.acts-item > * { min-width: 0; }
-.acts-text { overflow-wrap: anywhere; }
-.acc-act { grid-column: 1 / -1; order: 2; font-size: 0.75rem; color: var(--fin-text-soft); overflow-wrap: anywhere; }
-@media (max-width: 767px) {
-  .acts-item { grid-template-columns: minmax(0, 1fr); row-gap: 0.2rem; }
-}
-.paid-hidden, .paid-rule { margin: 0 0 0.5rem; font-size: 0.8125rem; color: var(--fin-text-soft); }
-.paid-ignore { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
-.paid-ignore .fin-label { margin: 0; }
-.paid-ignore-item { display: inline-flex; align-items: baseline; gap: 0.35rem; }
-.paid-opening { display: grid; gap: 0.75rem; justify-items: start; }
-.paid-opening .fin-card { justify-self: stretch; }
-.paid-opening-text { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); font-variant-numeric: tabular-nums; }
-@media (max-width: 767px) {
-  .paid-item { grid-template-columns: 5.5rem minmax(0, 1fr); row-gap: 0.2rem; }
-  .paid-item-sum { text-align: left; }
-  .paid-item-who, .paid-item-acts { grid-column: 1 / -1; }
-  .paid-item-acts { align-items: flex-start; }
-  .paid-candidate { justify-content: flex-start; }
-}
-.paid-month-head { color: var(--fin-text-soft); font-weight: 600; }
-
-/* ─── «Долги» (ядро, фаза 6) ───
-   Основание, чей долг и день - одной полосой; группа раскрывается в свои
-   договоры. Возраст долга на узком экране - строкой под названием, а не
-   пятью колонками. Цвета нет: долг - не отказ. */
-.debts-screen, .debts-body { display: flex; flex-direction: column; gap: 0.75rem; }
-.debts-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
-.debts-bar .fin-mine { margin: 0; }
-.debts-day { display: inline-flex; align-items: center; gap: 0.5rem; }
-.debts-day .fin-label { margin: 0; }
-.debts-day .input-field.party-date { flex: 0 0 8.5rem; width: 8.5rem; }
-@media (min-width: 1200px) { .debts-kpis { grid-template-columns: repeat(7, minmax(0, 1fr)); } }
-.debts-source { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
-.debts-table th, .debts-table td { padding-left: 0.5rem; padding-right: 0.5rem; vertical-align: baseline; }
-.debts-table th.fin-num { text-align: right; }
-.debts-toggle {
-  display: inline-grid;
-  grid-template-columns: 0.9rem minmax(0, 1fr);
-  align-items: baseline;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.debts-toggle::before { content: "+"; color: var(--fin-text-soft); }
-.debts-toggle[aria-expanded="true"]::before { content: "-"; }
-.debts-name { min-width: 0; }
-.debts-title { font-weight: 600; margin-right: 0.5rem; }
-.debts-day .input-field.party-date { height: 2rem; min-height: 0; padding-top: 0; padding-bottom: 0; }
-.debts-group[data-special] .debts-title { font-weight: 400; color: var(--fin-text-soft); }
-.debts-count { font-size: 0.75rem; color: var(--fin-text-soft); }
-.debts-sum { font-weight: 600; }
-.debts-contract td { font-size: 0.8125rem; }
-.debts-contract td:first-child { padding-left: 1.75rem; }
-.debts-share, .debts-aging { display: block; font-size: 0.75rem; color: var(--fin-text-soft); }
-.debts-sides { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-@media (max-width: 639.98px) {
-  .debts-sides { grid-template-columns: minmax(0, 1fr); }
-  .debts-sides .fin-kpi { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 0.75rem; padding: 0.6rem 0.75rem; }
-  .debts-sides .fin-kpi-value { font-size: 1.125rem; }
-}
-/* Колонки сводной таблицы для ядра (словарь компании): колонка ядра, как
-   нашлась в шапке, свои названия. Отказ («нет в таблице») - цветом отказа. */
-.book-columns { display: grid; gap: 0.5rem; margin-top: 1.25rem; }
-/* «Слова таблицы» - та же раскладка, что у колонок: значение, как понимается, выбор смысла. */
-.table-words { display: grid; gap: 0.75rem; margin-top: 1.5rem; }
-.table-words-part { display: grid; gap: 0.35rem; }
-.table-words-title { margin: 0; font-size: 0.8125rem; font-weight: 600; }
-.book-columns-head, .table-words-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; }
-.book-columns-head .setup-summary-title, .book-columns-head .setup-summary-meta,
-.table-words-head .setup-summary-title, .table-words-head .setup-summary-meta { margin: 0; }
-.book-columns-head .fin-mine, .table-words-head .fin-mine { margin: 0; }
-.book-columns-list, .table-words-list { display: grid; }
-.book-column, .table-word {
-  display: grid;
-  grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr) minmax(0, 1.3fr);
-  align-items: baseline;
-  gap: 0.25rem 1rem;
-  padding: 0.45rem 0;
-  border-bottom: 1px solid var(--fin-line);
-  font-size: 0.8125rem;
-}
-.book-column > *, .table-word > * { min-width: 0; overflow-wrap: anywhere; }
-.book-column-title, .table-word-text { font-weight: 600; }
-.book-column-problem, .table-word-unknown { color: var(--fin-fail); }
-.book-column-extra { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.75rem; }
-.book-column-name { display: inline-flex; align-items: baseline; gap: 0.35rem; }
-.book-column-pick, .table-word-pick { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-.book-column-pick .choice, .table-word-pick .choice { min-width: 12rem; }
-@media (max-width: 767px) {
-  .book-column, .table-word { grid-template-columns: minmax(0, 1fr); }
-}
-/* «Карта группы»: узлы - тушью по плите, плательщик НДС - жирной рамкой,
-   режим не записан - пунктирной; договоры между своими - сплошной стрелкой,
-   переводы клиентов - пунктиром. Цвета нет. */
-.group-screen { display: flex; flex-direction: column; gap: 0.75rem; }
-/* Рамка узла - первый rect (перед ним <title> подсказки, поэтому не :first-child). */
-.group-lists { display: grid; gap: 1rem; }
-@media (min-width: 1200px) { .group-lists { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-.group-list { display: grid; align-content: start; gap: 0; min-width: 0; }
-/* Строка связи - в две строки: путь целиком сверху, договоры и сумма под ним.
-   В три колонки длинные имена ИП сжимали середину до буквы. */
-.group-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: 0.1rem 0.75rem;
-  margin: 0;
-  padding: 0.45rem 0;
-  border-bottom: 1px solid var(--fin-line);
-  font-size: 0.8125rem;
-}
-.group-row > * { min-width: 0; overflow-wrap: break-word; }
-.group-route { grid-column: 1 / -1; font-weight: 600; }
-/* «Сверка → Переход»: строка - наше юрлицо, колонка - звено. Совпало целиком -
-   весом, расхождения - словами; цвета нет: расхождение - не отказ. На узком
-   экране клетки - по две в ряд, со своей подписью звена. */
-/* Раскладка - по ширине самой сетки, а не окна: рядом с колонкой разделов на
-   1000 px сетке достаётся ~470 px, и шесть колонок резали слова посередине. */
-.switch-grid { display: grid; border-top: 1px solid var(--fin-line); container-type: inline-size; }
-.switch-row {
-  display: grid;
-  grid-template-columns: 5.5rem repeat(5, minmax(0, 1fr));
-  column-gap: 1rem;
-  align-items: start;
-  padding: 0.6rem 0;
-  border-bottom: 1px solid var(--fin-line);
-}
-.switch-row > * { min-width: 0; overflow-wrap: break-word; }
-.switch-head { font-size: 0.8125rem; color: var(--fin-text-soft); align-items: end; }
-.switch-entity { font-weight: 600; }
-.switch-link { text-align: left; }
-.switch-cell { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.875rem; }
-.switch-cell-title { display: none; font-size: 0.75rem; color: var(--fin-text-soft); }
-.switch-value { display: flex; flex-direction: column; gap: 0.1rem; }
-.switch-main { align-self: flex-start; font-variant-numeric: tabular-nums; text-align: left; }
-/* Вкладки сверки и выбор юрлица - одной строкой, на узком - выбор под вкладками. */
-.shadow-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
-.shadow-top .fin-mine.shadow-what { flex: 1 1 auto; }
-/* `hidden` на элементе с `display` из этого файла сам не сработает (CLAUDE.md, «Ловушка каскада»). */
-.shadow-bar[hidden], .fin-kpis[hidden] { display: none; }
-.shadow-lead { margin: 0.25rem 0 0.75rem; max-width: 46rem; font-size: 0.875rem; color: var(--fin-text-soft); }
-.shadow-entity { min-width: 11rem; }
-.switch-note { font-size: 0.75rem; color: var(--fin-text-soft); }
-/* Готовность - весом, без цвета: «всё хорошо» цветом не говорится. */
-.switch-note.switch-ready { color: var(--fin-text); font-weight: 600; }
-.switch-fail { font-size: 0.75rem; color: var(--fin-fail); }
-.switch-source { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.1rem 0.5rem; margin-top: 0.35rem; font-size: 0.8125rem; }
-@container (max-width: 46rem) {
-  .switch-head { display: none; }
-  .switch-row { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 0.75rem; }
-  .switch-entity { grid-column: 1 / -1; }
-  .switch-cell-title { display: block; }
-}
-.switch-dialog { display: flex; flex-direction: column; gap: 0.75rem; }
-@media (min-width: 640px) { .fin-dialog.switch-dialog { max-width: 40rem; } }
-.switch-counts { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin: 0; }
-.switch-counts > div { display: flex; flex-direction: column; gap: 0.1rem; }
-.switch-counts dt { font-size: 0.75rem; color: var(--fin-text-soft); }
-.switch-counts dd { margin: 0; font-size: 1.125rem; font-variant-numeric: tabular-nums; }
-.switch-lists { display: grid; gap: 0.75rem; }
-.switch-list { display: grid; gap: 0.35rem; }
-.switch-list-title { margin: 0; font-size: 0.875rem; font-weight: 600; }
-.switch-list ul { display: grid; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--fin-line); }
-.switch-bill {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: 0.75rem;
-  padding: 0.35rem 0;
-  border-bottom: 1px solid var(--fin-line);
-  font-size: 0.8125rem;
-}
-.switch-bill > * { min-width: 0; overflow-wrap: break-word; }
-.switch-bill-what { display: flex; flex-direction: column; }
-.switch-bill-sum { text-align: right; font-variant-numeric: tabular-nums; }
-.switch-bill-state { grid-column: 1 / -1; }
-/* Кнопки окна видны и под длинным списком: решение не должно прятаться за прокруткой. */
-.switch-actions {
-  position: sticky;
-  bottom: calc(-1rem - var(--safe-b));
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  margin: 0.25rem -1rem calc(-1rem - var(--safe-b));
-  padding: 0.75rem 1rem calc(0.75rem + var(--safe-b));
-  background: var(--bg-raised);
-  border-top: 1px solid var(--fin-line);
-}
-@media (min-width: 640px) {
-  .switch-actions { bottom: -1.25rem; margin: 0.25rem -1.25rem -1.25rem; padding: 0.75rem 1.25rem; }
-}
-/* «Сегодня»: дела карточками - число крупно, строки - щелчок в свой список.
-   Состояние - словами и весом, без цвета: долг - не отказ. */
-/* «Первые шаги»: шаги номерами; сделанный - тише, следующий - единственная плита.
-   Отметок «готово» цветом нет: шаг говорит словами, что сделано. */
-.start-screen { display: flex; flex-direction: column; gap: 0.75rem; max-width: 52rem; }
-.start-book { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
-.start-steps { display: grid; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--fin-line); }
-.start-step {
-  display: grid;
-  grid-template-columns: 2rem minmax(0, 1fr);
-  column-gap: 0.75rem;
-  padding: 1rem 0;
-  border-bottom: 1px solid var(--fin-line);
-}
-.start-n { font-family: var(--font-martian), ui-monospace, monospace; font-size: 0.875rem; color: var(--fin-text-soft); padding-top: 0.1rem; }
-.start-step:not([data-done]) .start-n { color: var(--fin-text); font-weight: 600; }
-.start-body { display: flex; flex-direction: column; align-items: flex-start; gap: 0.4rem; min-width: 0; }
-.start-body > * { max-width: 100%; }
-.start-title { margin: 0; font-size: 0.9375rem; font-weight: 600; }
-.start-step[data-done] .start-title { font-weight: 500; }
-.start-text { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); overflow-wrap: anywhere; }
-.start-state { margin: 0; font-size: 0.8125rem; }
-.start-note { font-size: 0.75rem; color: var(--fin-text-soft); }
-.start-owed { margin: 0; font-size: 1rem; font-variant-numeric: tabular-nums; }
-.start-go { margin-top: 0.25rem; }
-.start-aside { font-size: 0.8125rem; }
-.start-groups { display: grid; width: 100%; margin: 0.25rem 0 0; padding: 0; list-style: none; border-top: 1px solid var(--fin-line); }
-.start-group {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: 0.75rem;
-  padding: 0.35rem 0;
-  border-bottom: 1px solid var(--fin-line);
-  font-size: 0.8125rem;
-}
-.start-group > * { min-width: 0; overflow-wrap: break-word; }
-.start-group-what { display: flex; flex-direction: column; }
-.start-group-sum { text-align: right; font-variant-numeric: tabular-nums; }
-.start-connect { display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; }
-/* Приёмник в «Первых шагах»: файлы компании и что KORT в них видит. */
-.intake { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--fin-line); }
-.intake > * { max-width: 100%; }
-.intake-drop { width: min(100%, 36rem); align-self: flex-start; cursor: pointer; }
-.intake-drop-title { font-size: 0.875rem; font-weight: 600; color: var(--fin-text); }
-.intake-input { display: none; }
-.intake-files { display: grid; width: 100%; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--fin-line); }
-.intake-file { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; padding: 0.75rem 0; border-bottom: 1px solid var(--fin-line); min-width: 0; }
-.intake-file > * { max-width: 100%; }
-.intake-file-name { margin: 0; font-size: 0.875rem; font-weight: 600; overflow-wrap: anywhere; }
-.intake-sheet { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
-.onec-rest { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; }
-.onec-rest-day { width: auto; min-width: 0; max-width: 11rem; }
-.intake-onec { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; padding-top: 0.9rem; min-width: 0; }
-.intake-onec > * { max-width: 100%; }
-.intake-line { margin: 0; font-size: 0.8125rem; overflow-wrap: anywhere; }
-.intake-cols { margin: 0; overflow-wrap: anywhere; }
-/* Разметка таблицы отдела: лист, колонки шапки и что каждая значит. */
-.intake-layout { display: flex; flex-direction: column; align-items: flex-start; gap: 0.75rem; width: 100%; padding-top: 0.5rem; min-width: 0; }
-.intake-layout > * { max-width: 100%; }
-.intake-layout-sheet { display: flex; flex-direction: column; gap: 0.4rem; width: 100%; min-width: 0; }
-.intake-layout-cols { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 0.5rem 1rem; width: 100%; }
-.intake-layout-col { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
-.intake-layout-head { font-size: 0.75rem; color: var(--fin-text-soft); overflow-wrap: anywhere; }
-.intake-layout-select {
-  height: 1.875rem; max-width: 100%; padding: 0 0.5rem; border-radius: 0; border: 1px solid var(--fin-line);
-  /* Непрозрачный фон: полупрозрачный система кладёт на белое, и в тёмной теме список пустой. */
-  background-color: var(--bg-raised); color: var(--fin-text); font: inherit; font-size: 0.8125rem;
-}
-.intake-layout-select option { background-color: var(--bg-raised); color: var(--text-primary); }
-.intake-layout-go { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-.intake-layout-plan { width: 100%; padding-top: 0.5rem; border-top: 1px solid var(--fin-line); }
-@media (max-width: 640px) {
-  .intake-layout-select { height: 2.75rem; font-size: 16px; }
-  .intake-layout-cols { grid-template-columns: minmax(0, 1fr); }
-}
-/* Вход из 1С в «Первых шагах»: шаги по базе, как у сводной таблицы. */
-.onec-start { display: flex; flex-direction: column; gap: 0.5rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--fin-line); min-width: 0; }
-.onec-start > * { max-width: 100%; }
-.onec-question { display: flex; flex-direction: column; gap: 0.35rem; padding: 0.5rem 0; border-top: 1px solid var(--fin-line); width: 100%; }
-.start-field { display: flex; flex-direction: column; gap: 0.25rem; width: min(100%, 36rem); }
-
-.today-screen { display: flex; flex-direction: column; gap: 0.75rem; }
-.today-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
-.today-date { margin: 0; font-size: 0.875rem; color: var(--fin-text-soft); }
-.today-date::first-letter { text-transform: uppercase; }
-.today-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
-@media (min-width: 1000px) { .today-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (min-width: 1500px) { .today-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-.today-card { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.875rem 1rem 1rem; border: 1px solid var(--fin-line); border-radius: var(--radius-card); min-width: 0; }
-.today-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: var(--fin-text);
-  text-align: left;
-  cursor: pointer;
-}
-.today-card-head:hover .today-title { text-decoration: underline; text-underline-offset: 3px; }
-.today-title { font-size: 0.9375rem; font-weight: 600; }
-.today-value { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; margin: 0; }
-.today-unit { font-size: 0.8125rem; color: var(--fin-text-soft); }
-.today-lines { display: grid; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--fin-line); }
-.today-line {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.75rem;
-  width: 100%;
-  padding: 0.4rem 0;
-  border: 0;
-  border-bottom: 1px solid var(--fin-line);
-  background: none;
-  font: inherit;
-  font-size: 0.8125rem;
-  color: var(--fin-text);
-  text-align: left;
-  cursor: pointer;
-}
-.today-line:hover .today-line-label { text-decoration: underline; text-underline-offset: 3px; }
-.today-line-label { min-width: 0; overflow-wrap: anywhere; }
-.today-note, .today-loading { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
-.today-calm { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; }
-.today-calm-item {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 0.5rem;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: 0.8125rem;
-  color: var(--fin-text);
-  text-align: left;
-  cursor: pointer;
-}
-.today-calm-title { font-weight: 600; }
-/* «Сегодня» с этапа 3 (`core/home-screen.tsx`): решить, под угрозой, пришло.
-   Вопрос - лист с волосяной рамкой, варианты - прямоугольники: предложенный
-   KORT - плитой, остальные - рамкой. Цвет - только у отказа и у прихода денег. */
-.home-screen { display: flex; flex-direction: column; gap: 1rem; }
-.home-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; align-items: start; }
-@media (min-width: 1000px) { .home-grid { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); } }
-.home-col { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
-.home-head {
-  display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
-  margin: 0;
-  font-size: 1.125rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: var(--fin-text);
-}
-.home-count { font-family: var(--font-martian), ui-monospace, monospace; font-size: 0.8125rem; font-weight: 400; color: var(--fin-text-soft); }
-.home-calm { margin: 0; font-size: 0.875rem; color: var(--fin-text-soft); }
-/* «С чего начать» - шаги строками; пройденный - тише и без действия, не цветом. */
-.home-start { display: flex; flex-direction: column; gap: 0.6rem; padding-bottom: 0.5rem; }
-.home-start-lead { margin: 0; max-width: 46rem; font-size: 0.9375rem; line-height: 1.5; color: var(--fin-text); }
-.home-steps { display: grid; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--fin-line); }
-.home-step {
-  display: grid;
-  grid-template-columns: 2rem minmax(0, 1fr);
-  gap: 0.35rem 0.75rem;
-  align-items: baseline;
-  padding: 0.75rem 0;
-  border-bottom: 1px solid var(--fin-line);
-}
-@media (min-width: 800px) { .home-step { grid-template-columns: 2rem minmax(0, 1fr) auto; } }
-.home-step-num { font-family: var(--font-martian), ui-monospace, monospace; font-size: 0.75rem; color: var(--fin-text-soft); }
-.home-step-body { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; min-width: 0; }
-.home-step-title { font-size: 0.9375rem; font-weight: 600; color: var(--fin-text); }
-.home-step-text { font-size: 0.875rem; color: var(--fin-text); overflow-wrap: anywhere; }
-/* Текущий шаг - полной тушью и с действием, пройденный и будущий - тише. */
-.home-step[data-state="done"] .home-step-title, .home-step[data-state="ahead"] .home-step-title { font-weight: 400; color: var(--fin-text-soft); }
-.home-step[data-state="done"] .home-step-text, .home-step[data-state="ahead"] .home-step-text { color: var(--fin-text-soft); }
-.home-step-now { grid-column: 2 / -1; min-width: 0; padding-top: 0.25rem; }
-.home-step-now .home-step-acts { justify-content: flex-start; grid-column: auto; }
-.home-step-since { display: flex; flex-direction: column; gap: 0.5rem; }
-.home-step-note { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
-.home-step-wide { flex: 1 1 100%; }
-.home-start-files { margin: 0; font-size: 0.8125rem; }
-.home-step-acts { display: flex; flex-wrap: wrap; gap: 0.5rem; grid-column: 2; }
-@media (min-width: 800px) { .home-step-acts { grid-column: 3; justify-content: flex-end; } }
-.home-step-acts:empty { display: none; }
-.home-step-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
-.home-step-form .input-field { width: 13rem; max-width: 100%; padding-top: 0.4rem; padding-bottom: 0.4rem; }
-.home-step-form .input-field.home-step-bin { width: 9rem; }
-.home-step-form select.input-field { width: 16rem; }
-.home-step-acts .input-field.home-step-date { width: 11rem; padding-top: 0.35rem; padding-bottom: 0.35rem; }
-.home-refusal { margin: 0; font-size: 0.8125rem; color: var(--fin-expense); }
-.home-questions { display: flex; flex-direction: column; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
-.home-kind { display: flex; flex-direction: column; gap: 0.6rem; }
-.home-kind + .home-kind { padding-top: 0.75rem; border-top: 1px solid var(--fin-line); }
-.home-kind-head { display: flex; align-items: baseline; gap: 0.5rem; margin: 0; font-size: 0.9375rem; font-weight: 600; color: var(--fin-text); }
-.home-kind-more { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; }
-.home-kind-more:empty { display: none; }
-.home-q {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.875rem 1rem 1rem;
-  border: 1px solid var(--fin-line);
-  border-radius: var(--radius-card);
-  min-width: 0;
-}
-.home-q-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 0.75rem; }
-.home-q-title { font-size: 0.9375rem; font-weight: 600; color: var(--fin-text); }
-.home-q-meta { display: inline-flex; align-items: baseline; gap: 0.6rem; font-size: 0.875rem; }
-.home-q-text { margin: 0; font-size: 0.875rem; color: var(--fin-text); overflow-wrap: anywhere; }
-.home-q-reason { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); }
-.home-q-options { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-.home-q-options .btn-ghost[aria-pressed="true"] { border-width: 2px; font-weight: 600; }
-.home-prop {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  border: 1px solid var(--fin-text);
-  border-radius: var(--radius-card);
-}
-.home-prop-k { font-family: var(--font-martian), ui-monospace, monospace; font-size: 0.6875rem; color: var(--fin-text-soft); }
-.home-prop-list { display: grid; gap: 0.25rem; margin: 0; padding: 0; list-style: none; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
-.home-pick-list { display: grid; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--fin-line); }
-.home-pick {
-  display: grid;
-  grid-template-columns: minmax(5rem, auto) minmax(0, 1fr) minmax(0, 1fr);
-  gap: 0.75rem;
-  width: 100%;
-  padding: 0.45rem 0;
-  border: 0;
-  border-bottom: 1px solid var(--fin-line);
-  background: none;
-  font: inherit;
-  font-size: 0.8125rem;
-  color: var(--fin-text);
-  text-align: left;
-  cursor: pointer;
-}
-.home-pick:hover span:nth-child(2) { text-decoration: underline; text-underline-offset: 3px; }
-.home-arrived { display: flex; flex-direction: column; gap: 0.5rem; padding-top: 1rem; border-top: 1px solid var(--fin-line); }
-.home-arrived-line { margin: 0; font-size: 0.875rem; }
-.home-latest summary { cursor: pointer; font-size: 0.8125rem; color: var(--fin-text-soft); }
-.home-latest ul { display: grid; margin: 0.5rem 0 0; padding: 0; list-style: none; }
-.home-latest li {
-  display: grid;
-  grid-template-columns: 6rem minmax(5rem, auto) minmax(5rem, auto) minmax(0, 1fr) auto;
-  gap: 0.75rem;
-  padding: 0.35rem 0;
-  border-bottom: 1px solid var(--fin-line);
-  font-size: 0.8125rem;
-}
-@media (max-width: 640px) {
-  .home-latest li { grid-template-columns: minmax(0, 1fr) auto; }
-  .home-latest li > span:nth-child(2), .home-latest li > span:nth-child(3) { display: none; }
-  .home-pick { grid-template-columns: minmax(0, 1fr); gap: 0.1rem; }
-}
-/* «Деньги вперёд» (`core/cash-calendar.tsx`): разрывы и день за днём. Выходной -
-   тише, сегодня - весом, минус в остатке - весом и знаком, без цвета. */
-.cal-screen { display: flex; flex-direction: column; gap: 1.25rem; }
-.cal-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-.cal-entity { width: auto; min-width: 12rem; }
-.cal-gaps { display: flex; flex-direction: column; gap: 0.75rem; }
-.cal-hints { display: grid; gap: 0.25rem; margin: 0; padding-left: 1.1rem; font-size: 0.8125rem; color: var(--fin-text); }
-.cal-scroll { overflow-x: auto; }
-.cal-table { width: 100%; min-width: 30rem; border-collapse: collapse; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
-.cal-table th { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--fin-text); font-family: var(--font-martian), ui-monospace, monospace; font-size: 0.6875rem; font-weight: 400; color: var(--fin-text-soft); text-align: left; }
-.cal-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--fin-line); }
-.cal-table .num { text-align: right; white-space: nowrap; }
-.cal-table tr[data-off="true"] td { color: var(--fin-text-soft); }
-.cal-table tr[data-today="true"] td { font-weight: 650; }
-.cal-table td[data-low="true"] { font-weight: 700; }
-.cal-today { font-size: 0.75rem; font-weight: 600; }
-/* Строка после действия: место держится, в покое пусто. */
-.home-live { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; min-height: 2.25rem; font-size: 0.875rem; }
-/* «Прибыль» и «Деньги» по договорам: месяцы года - колонками, название
-   группы держится слева при прокрутке; прогноз - тише, итог - весом. */
-.revenue-screen, .revenue-body { display: flex; flex-direction: column; gap: 0.75rem; }
-.revenue-scroll { max-width: 100%; }
-.revenue-table th, .revenue-table td { padding-left: 0.4rem; padding-right: 0.4rem; white-space: nowrap; font-size: 0.8125rem; }
-@media (max-width: 639.98px) {
-  .revenue-kpis .fin-kpi-value { font-size: 1.125rem; }
-}
-.revenue-table th.fin-num { text-align: right; }
-.revenue-table tbody th, .revenue-table tfoot th, .revenue-table thead th:first-child {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  min-width: 9rem;
-  max-width: 14rem;
-  white-space: normal;
-  text-align: left;
-  font-weight: 400;
-  /* Плита страницы, а не прозрачность: под липкой колонкой едут цифры. */
-  background: var(--fin-plate);
-}
-.revenue-title { display: block; font-weight: 600; }
-.revenue-table [data-plan] { color: var(--fin-text-soft); font-style: italic; }
-.revenue-table tfoot th, .revenue-table tfoot td, .revenue-total { font-weight: 600; }
-.revenue-table tr[data-special] .revenue-title { font-weight: 400; color: var(--fin-text-soft); }
-/* Возраст: свежее - бледнее, старое - гуще; «до учёта» - штриховкой. */
-.debts-aging-block { display: grid; gap: 0.5rem; }
-.debts-aging-bar { display: flex; gap: 2px; height: 8px; }
-.debts-aging-part { flex-basis: 0; min-width: 3px; }
-.debts-aging-part[data-age="d30"], .debts-age[data-age="d30"] { --age-tone: color-mix(in srgb, var(--fin-text) 22%, transparent); }
-.debts-aging-part[data-age="d60"], .debts-age[data-age="d60"] { --age-tone: color-mix(in srgb, var(--fin-text) 42%, transparent); }
-.debts-aging-part[data-age="d90"], .debts-age[data-age="d90"] { --age-tone: color-mix(in srgb, var(--fin-text) 64%, transparent); }
-.debts-aging-part[data-age="d90plus"], .debts-age[data-age="d90plus"] { --age-tone: var(--fin-text); }
-.debts-aging-part[data-age="opening"], .debts-age[data-age="opening"] {
-  --age-tone: repeating-linear-gradient(135deg, var(--fin-text) 0 2px, transparent 2px 5px);
-}
-.debts-aging-part { background: var(--age-tone); }
-.debts-ages { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; margin: 0; }
-.debts-age { position: relative; display: grid; gap: 0.1rem; padding-top: 0.45rem; }
-.debts-age::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--age-tone); }
-.debts-age dt { font-size: 0.75rem; color: var(--fin-text-soft); }
-.debts-age dd { margin: 0; text-align: left; }
-
-/* ─── «Порог НДС» (ядро, фаза 7) ───
-   Полоса оборота одной тушью: факт - полный тон, прогноз до конца года -
-   тише, порог - вертикальная черта. Цвета нет: переход порога - событие
-   учёта, а не отказ. */
-.vat-screen { display: flex; flex-direction: column; gap: 0.75rem; }
-.vat-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
-.vat-bar .fin-mine { margin: 0; }
-.vat-facts { margin: 0; font-size: 0.8125rem; color: var(--fin-text-soft); font-variant-numeric: tabular-nums; }
-.vat-list { display: grid; gap: 0.75rem; }
-/* Два списка: плательщики НДС и к порогу - заголовком с числом, не цветом. */
-.vat-group { display: grid; gap: 0.5rem; }
-.vat-group-title { margin: 0.5rem 0 0; font-size: 0.875rem; font-weight: 600; color: var(--fin-text); }
-.vat-group-title .fin-soft { font-weight: 400; }
-.vat-hint { margin: 0.4rem 0 0; font-size: 0.8125rem; color: var(--fin-text-soft); overflow-wrap: anywhere; }
-.vat-regime-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-top: 0.6rem; }
-.vat-regime-form .fin-mine { margin: 0; }
-.vat-regime-from { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-.vat-regime-from .input-field.party-date { flex: 0 0 8.5rem; width: 8.5rem; height: 2rem; min-height: 0; padding-top: 0; padding-bottom: 0; }
-.vat-entity { padding: 0.875rem 1rem 1rem; border: 1px solid var(--fin-line); border-radius: var(--radius-card); }
-.vat-entity-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; }
-.vat-entity-name { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.6rem; background: none; border: none; padding: 0; font: inherit; color: var(--fin-text); cursor: pointer; text-align: left; }
-.vat-code { font-size: 1rem; font-weight: 500; }
-.vat-regime { margin-right: auto; font-size: 0.8125rem; color: var(--fin-text-soft); }
-.vat-track { position: relative; display: block; height: 6px; margin: 0.75rem 0 0.625rem; background: var(--fin-line); }
-.vat-track-forecast, .vat-track-fact { position: absolute; left: 0; top: 0; bottom: 0; }
-.vat-track-forecast { background: color-mix(in srgb, var(--fin-text) 30%, transparent); }
-.vat-track-fact { background: var(--fin-text); }
-.vat-track-limit { position: absolute; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: var(--fin-text); }
-.vat-numbers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem 1rem; margin: 0; }
-.vat-numbers div { min-width: 0; }
-.vat-numbers dt { font-size: 0.75rem; color: var(--fin-text-soft); }
-.vat-numbers dd { margin: 0.15rem 0 0; font-size: 0.9375rem; font-variant-numeric: tabular-nums; color: var(--fin-text); }
-.vat-months { margin-top: 0.75rem; }
-@media (max-width: 767px) { .vat-numbers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.vat-move-form { margin-top: 1rem; }
-.vat-move-form .choice { flex: 0 1 14rem; }
-.vat-preview { display: grid; gap: 0.25rem; margin-bottom: 0.75rem; font-size: 0.8125rem; }
-/* Низ окна перевода прилипает: отметив договор в длинном списке, видно, что
-   станет с оборотом, и «Перевести» - без прокрутки наверх. */
-.vat-move-foot {
-  position: sticky;
-  bottom: -2rem;
-  margin: 1rem -2rem -2rem;
-  padding: 0.75rem 2rem 1.25rem;
-  background: var(--fin-card-bg);
-  border-top: 1px solid var(--fin-line);
-}
-@media (max-width: 639px) {
-  .vat-move-foot { bottom: -2rem; margin: 1rem -1rem -2rem; padding: 0.75rem 1rem 1.25rem; }
-}
-.vat-preview-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; }
-.vat-preview-row strong { font-weight: 600; }
-.vat-clients { display: grid; margin-top: 1rem; border-top: 1px solid var(--fin-line); }
-.vat-client {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: baseline;
-  column-gap: 0.75rem;
-  padding: 0.45rem 0;
-  border-bottom: 1px solid var(--fin-line);
-  font-size: 0.8125rem;
-  cursor: pointer;
-}
-.vat-client input { margin: 0; accent-color: var(--fin-text); align-self: center; }
-.vat-client-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.6rem; min-width: 0; overflow-wrap: anywhere; }
-@media (max-width: 639px) {
-  .vat-client { grid-template-columns: auto minmax(0, 1fr); row-gap: 0.15rem; }
-  .vat-client .fin-num { grid-column: 2; }
-}
-@container (max-width: 44rem) {
-  /* Узко: договор, под ним текст, под ним ответы - иначе ответы сжимали договор до нулевой ширины. */
-  .shadow-proposal { grid-template-columns: minmax(0, 1fr); row-gap: 0.25rem; }
-  .shadow-text { grid-column: 1; grid-row: 2; }
-  .shadow-proposal > .shadow-acts { grid-row: 3; justify-content: flex-start; }
 }

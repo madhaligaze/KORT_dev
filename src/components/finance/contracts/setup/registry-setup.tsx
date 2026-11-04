@@ -24,8 +24,6 @@ import { boot, holdLive, useRegistry } from "@/components/finance/contracts/stor
 import { gsap, prefersReducedMotion } from "@/components/motion/gsap";
 import { EntitiesTab } from "@/components/finance/contracts/setup/entities-tab";
 import { FieldsTab } from "@/components/finance/contracts/setup/fields-tab";
-import { FormulasTab } from "@/components/finance/contracts/setup/formulas-tab";
-import { SavedViewsTab } from "@/components/finance/contracts/setup/saved-views-tab";
 import { SummaryTab } from "@/components/finance/contracts/setup/summary-tab";
 import { TipLayer, tip } from "@/components/finance/contracts/setup/tip";
 import { clearUndo } from "@/components/finance/contracts/setup/undo";
@@ -34,7 +32,7 @@ import { revertLast } from "@/components/finance/contracts/setup/use-setup-actio
 import { ViewsTab } from "@/components/finance/contracts/setup/views-tab";
 import { useSessionState } from "@/components/session-state";
 
-type Tab = "fields" | "views" | "saved" | "formulas" | "entities" | "summary";
+type Tab = "fields" | "views" | "entities" | "summary";
 
 /**
  * Вкладки - по тому, что человек настраивает: колонки договора (со списками
@@ -50,17 +48,7 @@ const TABS: { key: Tab; title: string; tip: string }[] = [
   {
     key: "views",
     title: "Листы",
-    tip: "Листы реестра и видов договоров: какие договоры попадают в лист, какие колонки в нём, что подставлять в новую строку и какие строки подсвечивать.",
-  },
-  {
-    key: "saved",
-    title: "Виды",
-    tip: "Из чего собрана колонка разделов: реестр, долги и сохранённые виды - чьи они и кому стоят в колонке. Новый вид - из шаблона, на компанию или отдел.",
-  },
-  {
-    key: "formulas",
-    title: "Формулы",
-    tip: "Меры компании - «Оплачено, %», «Остаток, тыс»: считает ядро, лист показывает колонкой, «объяснить» раскрывает до суммы и оплат.",
+    tip: "Листы реестра и «Разовых»: какие договоры попадают в лист, какие колонки в нём, что подставлять в новую строку и какие строки подсвечивать.",
   },
   {
     key: "entities",
@@ -70,7 +58,7 @@ const TABS: { key: Tab; title: string; tip: string }[] = [
   {
     key: "summary",
     title: "Сводка оплат",
-    tip: "Google Таблица, из которой виды берут «Оплачено» - по номеру договора и клиенту. Без неё - оплаты KORT.",
+    tip: "Google Таблица, из которой «Разовые» берут «Оплачено» - по номеру договора и клиенту.",
   },
 ];
 
@@ -175,8 +163,6 @@ export function RegistrySetup({ onBack, backLabel = "Реестр" }: { onBack: 
       <div className="setup-body" role="tabpanel" id={`setup-panel-${tab}`} aria-labelledby={`setup-tab-${tab}`}>
         {tab === "fields" ? <FieldsTab /> : null}
         {tab === "views" ? <ViewsTab /> : null}
-        {tab === "saved" ? <SavedViewsTab /> : null}
-        {tab === "formulas" ? <FormulasTab /> : null}
         {tab === "entities" ? <EntitiesTab /> : null}
         {tab === "summary" ? <SummaryTab /> : null}
       </div>

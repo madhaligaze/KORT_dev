@@ -117,7 +117,7 @@ function emptyText(me: Me): string {
 }
 
 /**
- * `book` - книга листов, ключ вида договоров: `""` - реестр. Вкладки -
+ * `book` - книга листов: `""` - реестр, `oneoff` - «Разовые ЮО». Вкладки -
  * листы своей книги; поиск, отбор и черновик у каждой книги свои.
  */
 export function Registry({
@@ -438,7 +438,6 @@ export function Registry({
           draftContext={draft ?? undefined}
           onClose={() => setDraft(null)}
           onCreated={(id) => openCard(id)}
-          onNew={newContract}
         />
       </>
     );
@@ -577,7 +576,6 @@ export function Registry({
         open={!!openId || !!draft}
         book={book}
         draftContext={draft ?? undefined}
-        onNew={newContract}
         onClose={() => {
           if (openId) {
             const last = openId;
@@ -975,7 +973,7 @@ const Row = memo(function Row({
         <IssuesTag issues={contract.issues.filter((issue) => !issue.acknowledged)} />
       ) : (
         <span className="creg-note" title={contract.readonly ? "Договор другого отдела - открыт на просмотр" : undefined}>
-          {[settled ? "не напоминаем" : "", contract.readonly ? "просмотр" : ""].filter(Boolean).join(" · ")}
+          {[settled ? "учтено" : "", contract.readonly ? "просмотр" : ""].filter(Boolean).join(" · ")}
         </span>
       )}
       <span className="creg-meta">

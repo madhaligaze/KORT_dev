@@ -1,8 +1,8 @@
 /**
- * Клиент API учёта KORT.
+ * Клиент раздела «Финансы».
  *
- * `credentials: "include"` обязателен: маршруты закрыты сеансом KORT, и без
- * куки каждый запрос вернул бы 401.
+ * `credentials: "include"` обязателен: маршруты закрыты правом «finance» за
+ * логином дашборда, и без куки каждый запрос вернул бы 401.
  *
  * Ошибки разворачиваются в текст один раз здесь, а не в каждом экране. FastAPI
  * кладёт человеческое объяснение в `detail`, и оно бывает единственным, что
@@ -23,9 +23,6 @@ export type Account = {
   excluded_from_reports: boolean;
   /** Номер счёта в банке (IBAN). По нему выписка находит свой счёт. */
   number?: string;
-  /** Наше юрлицо счёта - id и имя; пусто - счёт ничей. */
-  group_entity_id?: string | null;
-  owner?: string;
 };
 
 export type AccountBalance = Account & {
@@ -49,10 +46,6 @@ export type Dictionaries = {
   counterparties: Counterparty[];
   projects: Project[];
   tags: DictEntry[];
-  /** Наши юрлица - чей счёт. */
-  entities?: { id: string; name: string }[];
-  /** Ставка НДС текущего года, %. */
-  vat_rate?: string;
 };
 
 export type Company = { id: string; title: string; role: string };
@@ -256,14 +249,14 @@ export type DebtItem = {
   overdue_days: number;
 };
 
-export type DebtSideReport = {
+export type DebtSide = {
   total: Money;
   overdue: Money;
   by_counterparty: { name: string; amount: Money }[];
   items: DebtItem[];
 };
 
-export type Debts = { as_of: string; receivable: DebtSideReport; payable: DebtSideReport };
+export type Debts = { as_of: string; receivable: DebtSide; payable: DebtSide };
 
 export type ProjectsReport = {
   items: { name: string; income: Money; expense: Money; profit: Money; margin: string }[];
@@ -391,17 +384,7 @@ export type ImportQuestion = {
   samples: string[];
   options: { value: string; label: string; example: string }[];
   /** Для вопроса о счёте: какой счёт завести, если нужного ещё нет. */
-  create?: {
-    name: string;
-    number: string;
-    currency: string;
-    /** Наше юрлицо владельца выписки - по БИН из шапки или имени целиком; нет - решает человек. */
-    group_entity_id?: string | null;
-    owner?: string;
-    /** Остаток на первый день периода по выписке - начальный остаток нового счёта. */
-    starting_balance?: Money | null;
-    period_start?: string | null;
-  };
+  create?: { name: string; number: string; currency: string };
 };
 
 /** Свой счёт из переводов выписки, которого нет в справочнике. */
@@ -455,10 +438,6 @@ export type ImportPreview = {
   mapping: { columns: Record<string, { index: number; header: string; how: string }>; width: number };
   unused_columns: string[];
   accounts_missing: string[];
-  /** Счёт, которого нет, → наше юрлицо, названное в нём целиком («Kaspi ТОО "BBC HR"»). */
-  accounts_entities?: Record<string, string>;
-  /** Наши юрлица - на выбор, чьим заводить счёт (только когда счетов не хватает). */
-  entities?: { id: string; name: string; code: string }[];
   accounts_suggested?: SuggestedAccount[];
   rows: ImportRow[];
 };
@@ -493,7 +472,7 @@ export class FinanceApiError extends Error {
  * Сигналы раме раздела: сеанс пропал (401) и право отобрано (403).
  *
  * Без них каждый экран разбирался сам: заблокированный сотрудник оставался в
- * кабинете со своим именем и красной просьбой войти во вкладке, а
+ * кабинете со своим именем и красным «Войдите в «Финансы»» во вкладке, а
  * реестр после отзыва права минуту показывал все договоры с «Нет связи».
  * Рама на 401 уводит ко входу, на 403 - перечитывает права.
  */
@@ -668,9 +647,6 @@ export type Bill = {
   onec_name: string;
   /** «Дата заключения Договора» - как в книге. */
   signed_at: string;
-  /** `kort` - счета юрлица ведёт KORT: состояние по начислениям договора; `line` 0 - строки в таблице нет. */
-  source?: "" | "kort";
-  contract_id?: string | null;
 };
 
 /** Что со строкой загруженного шаблона: записать, уже в книге, не заполнена, отказ. */
@@ -708,14 +684,9 @@ export type BillsTemplateRead = {
 /** Поля карточки, которые KORT пишет в книгу юрлица. */
 export type BillField = "bill_no" | "bill_date" | "bill_period" | "note";
 
-/**
- * Строка книги юрлица, где счёт отмечают (`contracts/bill_book.py`). `kort` -
- * строки в таблице нет, счёт записывается в KORT (`core/billing.py`); `place`
- * тогда - заглушка для прежних версий десктопа.
- */
+/** Строка книги юрлица, где счёт отмечают (`contracts/bill_book.py`). */
 export type BillBook = {
   place: { book: string; tab: string; row: number; url: string };
-  kort?: boolean;
   /** Как поля показывает книга сейчас - их же карточка шлёт назад в `expect`. */
   fields: Record<BillField, string>;
   /** «Счет» в книге: TRUE или слова формулы. */
@@ -742,15 +713,10 @@ export type BillsBoard = {
   source: {
     title: string;
     worksheet: string;
-    /** `kort` - сводной таблицы нет, счета по начислениям договоров KORT. */
-    kind?: string;
     url: string;
     read_at: string | null;
     drift: string;
     error: string;
-    /** Коды юрлиц, чьи счета ведёт KORT (`core/switch.py`), и отказ расчёта, если был. */
-    kort?: string[];
-    kort_error?: string;
   } | null;
   items: Bill[];
   /** Выставленные за прошлый и текущий месяц - свежие первыми. */
@@ -820,7 +786,7 @@ export type BankOption = {
 };
 
 /** Вид документа 1С: счёт на оплату, реализация (АВР), счёт-фактура, ЭСФ, поступление. */
-export type OnecKind = "invoice" | "sale" | "sf" | "esf" | "payment" | "refund";
+export type OnecKind = "invoice" | "sale" | "sf" | "esf" | "payment";
 
 /** База 1С компании - чтение через автоматический REST-сервис (OData). */
 export type OnecBase = {
@@ -1188,11 +1154,6 @@ export const financeApi = {
     request<DictEntry>(`/dictionaries/${kind}`, { method: "POST", body: JSON.stringify(body) }),
   createAccount: (body: unknown) =>
     request<DictEntry>("/accounts", { method: "POST", body: JSON.stringify(body) }),
-  setAccountEntity: (accountId: string, entityId: string | null) =>
-    request<{ id: string; group_entity_id: string | null }>(`/accounts/${accountId}/entity`, {
-      method: "PUT",
-      body: JSON.stringify({ group_entity_id: entityId }),
-    }),
   setAccountNumber: (accountId: string, number: string) =>
     request<{ id: string; name: string; number: string }>(`/accounts/${accountId}/number`, {
       method: "PUT",
@@ -1408,11 +1369,8 @@ export type PaymentItem = {
   counterparty: string;
   account: string;
   comment: string;
-  /** Номер договора, как его написал источник («№ЮО/84» в журнале). */
-  contract_ref?: string;
-  /** `auto` - по стороне, `number` - по номеру договора из источника, `purpose` - по номеру из
-   * назначения платежа, `manual` - человек, `open` - спорный. */
-  how: "auto" | "number" | "purpose" | "manual" | "open";
+  /** `auto` - разнесла система, `manual` - человек, `open` - спорный. */
+  how: "auto" | "manual" | "open";
 };
 
 export type ContractPayments = { summary: PaymentSummary | null; items: PaymentItem[] };
@@ -1459,7 +1417,7 @@ export type RegistryView = {
   key: string;
   title: string;
   main: boolean;
-  /** Книга листа - ключ вида договоров (`core/views.py`): `""` - реестр. */
+  /** Книга листа: `""` - реестр (карточки и «Таблица»), `oneoff` - «Разовые». */
   book?: string;
   position: number;
   blocks: ViewBlock[];
@@ -1476,43 +1434,9 @@ export type OwnEntity = {
   accounts: { id: string; name: string; number: string }[];
 };
 
-/** Владелец вида: компания, отдел (код - в подписи «Разовые ЮО») или сам человек. */
-export type ViewOwner =
-  | { kind: "company" }
-  | { kind: "department"; id: string; code: string; title: string }
-  | { kind: "user"; id: string };
-
-/** Вид договоров в схеме реестра - книга листов (`core/views.book_out`). */
-export type RegistryBook = {
-  key: string;
-  title: string;
-  owner: ViewOwner;
-  filter: ViewFilter;
-  measures: string[];
-  groups: string[];
-  forms: string[];
-  /** Отдел, долей которого вид показывает сумму договора («Разовые ЮО» - доля ЮО). */
-  share_department: string | null;
-};
-
-/** Мера вида колонкой листа: «Оплачено», «Остаток», «Срок, мес». */
-export type MeasureDef = {
-  key: string;
-  title: string;
-  type: string;
-  /** Формула компании (`core/formulas.py`): текст, что считает (сумма, число, проценты) и знаков после запятой. */
-  formula?: string;
-  kind?: "money" | "number" | "percent";
-  digits?: number;
-};
-
 export type RegistrySchema = {
   schema_rev: number;
   fields: RegistryField[];
-  /** Виды договоров - книги листов. У старого сервера - строки ключей. */
-  books?: RegistryBook[] | string[];
-  /** Меры видов - колонки и условия листов, но не поля договора. */
-  measures?: MeasureDef[];
   /** Действующие значения - их предлагают выборы. */
   lists: Record<string, ListValue[]>;
   /** Значения в архиве - только чтобы подписать договоры, где они стоят. */
@@ -1559,8 +1483,6 @@ export type SummaryEntry = {
   rows?: number;
   customer?: string;
   candidates?: string[];
-  /** `kort` - оплаты юрлица ведёт KORT («Сверка → Переход»): оплачено - из разнесённых оплат. */
-  source?: "kort";
 };
 
 export type ContractIssue = {
@@ -1691,7 +1613,7 @@ export type ContractImportBatch = {
     sections: ContractImportSection[];
     blocking: string[];
     totals: { create: number; update: number; main_rows: number };
-    result?: { created: number; updated?: number; failed: { ref: string; error: string }[] };
+    result?: { created: number; failed: { ref: string; error: string }[] };
   };
 };
 
@@ -1906,7 +1828,7 @@ export const contractsApi = {
     decide: (id: string, decisions: Record<string, unknown>) =>
       request<ContractImportBatch>(`${C}/imports/${id}/decide`, { method: "POST", body: JSON.stringify({ decisions }) }),
     apply: (id: string) =>
-      request<{ result: { created: number; updated?: number; failed: { ref: string; error: string }[] } }>(
+      request<{ result: { created: number; failed: { ref: string; error: string }[] } }>(
         `${C}/imports/${id}/apply`,
         { method: "POST" },
       ),
@@ -1940,9 +1862,8 @@ export const contractsApi = {
       request<RegistryView>(`${C}/setup/views`, { method: "POST", body: JSON.stringify(data) }),
     updateView: (id: string, data: Record<string, unknown>) =>
       request<RegistryView>(`${C}/setup/views/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-    /** `problem` - таблица подключена, но нужные колонки названы по-своему: их называют в «Колонках для ядра». */
     connectSummary: (link: string, worksheet: string) =>
-      request<{ title: string; worksheet: string; rows: number; drift: string; problem?: string }>(`${C}/setup/summary`, {
+      request<{ title: string; worksheet: string; rows: number; drift: string }>(`${C}/setup/summary`, {
         method: "POST",
         body: JSON.stringify({ link, worksheet }),
       }),
@@ -2253,1256 +2174,6 @@ export const supportApi = {
   sendUrl: `${API}/support/messages`,
 };
 
-// ── Ядро: участники, наши юрлица, налоговые годы ────────────────────────────
-
-export type ParticipantKind = "org" | "person" | "ip" | "";
-export type AliasSource = "registry" | "bank" | "1c" | "manual";
-
-export type ParticipantHit = {
-  id: string;
-  name: string;
-  full_name: string;
-  bin: string;
-  kind: ParticipantKind;
-  /** Код нашего юрлица, если участник - наше юрлицо. */
-  own: string | null;
-  contracts: number;
-  /** У нашего юрлица - режим на сегодня; `null` - режим не записан. */
-  regime?: TaxPeriod | null;
-};
-
-export type ParticipantsShow = "all" | "own" | "no_bin";
-
-export type ParticipantsOverview = {
-  all: number;
-  own: number;
-  no_bin: number;
-  twins: number;
-  proposals: number;
-  /** Прочитана ли книга-сводка: без неё БИН из строк банка ещё не предложены. */
-  book: boolean;
-  access: { edit: boolean; setup: boolean };
-};
-
-export type ParticipantAlias = { id: string; name: string; source: AliasSource; source_title: string };
-
-export type DossierContract = {
-  id: string;
-  number: string;
-  signed_at: string | null;
-  role: "customer" | "executor";
-  type: { id: string; value: string; meaning: Record<string, unknown> } | null;
-  subject: { id: string; value: string; meaning: Record<string, unknown> } | null;
-  status: { id: string; value: string; meaning: { phase?: string } & Record<string, unknown> } | null;
-  billing: string;
-  amount: string | null;
-  end_date: string | null;
-  departments: string[];
-};
-
-export type DossierGroup = {
-  party_id: string | null;
-  name: string;
-  full_name: string;
-  own: boolean;
-  contracts: DossierContract[];
-};
-
-export type TaxPeriod = {
-  id: string;
-  valid_from: string;
-  regime: "general" | "simplified" | "other";
-  regime_title?: string;
-  vat_payer: boolean;
-  note: string;
-};
-
-export type BinProposal = {
-  party_id: string;
-  name: string;
-  numbers: { bin: string; kind: ParticipantKind; evidence: string[]; taken_by: { id: string; name: string } | null }[];
-  clear: boolean;
-};
-
-export type TwinGroup = {
-  key: string;
-  why: string[];
-  keep: string;
-  members: { id: string; name: string; bin: string; own: boolean; contracts: number; aliases: number }[];
-};
-
-export type Dossier = {
-  id: string;
-  name: string;
-  full_name: string;
-  bin: string;
-  kind: ParticipantKind;
-  role: string;
-  aliases: ParticipantAlias[];
-  groups: DossierGroup[];
-  contracts: number;
-  issues: { code: string; text: string; group?: TwinGroup }[];
-  proposals: BinProposal[];
-  own: {
-    code: string;
-    full_name: string;
-    archived: boolean;
-    tax: TaxPeriod[];
-    accounts: { id: string; name: string; number: string }[];
-    bases: { id: string; title: string; url: string; state: string }[];
-  } | null;
-  /** Участник сведён в другого - досье того. */
-  merged_into?: string;
-};
-
-export type HarvestResult = {
-  rows: number;
-  matched: number;
-  aliases: Partial<Record<AliasSource, number>>;
-  codes: { entity_id: string; name: string; code: string; rows: number; how: "name" | "rows" | "majority" }[];
-  conflicts: { code: string; entities: { id: string; name: string; rows: number }[] }[];
-  applied: boolean;
-};
-
-export type TaxYear = {
-  year: number;
-  mrp: string;
-  threshold_mrp: number;
-  threshold: string;
-  vat_rate: string;
-  forecast: boolean;
-  source: string;
-};
-
-/** Начисление месяца (`core/accruals.py`): считается из условий договора, не хранится. */
-export type AccrualOut = {
-  month: string;
-  period_from: string;
-  period_to: string | null;
-  /** По условиям договора; `null` - доначисление поправкой или сумма не задана. */
-  base: string | null;
-  /** С поправкой; `null` - «не начислять» или суммы нет. */
-  amount: string | null;
-  executor_id: string | null;
-  skipped: boolean;
-  adjustment: { id: string; amount: string | null; skip: boolean; reason: string } | null;
-};
-
-/** Строки книги-сводки договора за месяц. Деньги (`paid`, `act_sum`) - только с правом на них. */
-export type BookMonthOut = {
-  rows: number;
-  line: number;
-  amount: string | null;
-  period_from: string | null;
-  period_to: string | null;
-  code: string;
-  entity_id: string | null;
-  bill_no: string;
-  bill_date: string | null;
-  act_no: string;
-  act_date: string | null;
-  accepted: string;
-  esf_date: string | null;
-  status: string;
-  paid?: string | null;
-  act_sum?: string | null;
-  closing?: string | null;
-};
-
-export type ShadowCode = "amount" | "period" | "executor" | "no_kort" | "no_book";
-
-/** Решение «верно у KORT» (`core/changes.py`): действует, пока KORT и таблица считают месяц так же. */
-export type ShadowDecision = { id: string; at: string | null; batch: string | null };
-
-export type ShadowLine = {
-  contract_id: string;
-  month: string;
-  codes: ShadowCode[];
-  kort: AccrualOut | null;
-  book: BookMonthOut | null;
-  /** Почему расходится, если это видно из данных: ошибка периода таблицы, день периода у KORT. */
-  hint: string;
-  /** Таблица пропустила день периода, посчитала его дважды или идёт со сдвигом после этого. */
-  slip: "gap" | "overlap" | "shift" | "";
-  verified: ShadowDecision | null;
-  /** Решение было, но с тех пор изменились условия договора, таблица или обе стороны. */
-  stale: (ShadowDecision & { side: "kort" | "book" | "both" }) | null;
-};
-
-export type ShadowProposalKind =
-  | "billing"
-  | "period_day"
-  | "billing_from"
-  | "amount_from"
-  | "amount_before"
-  | "amount_fix"
-  | "executor_from"
-  | "executor_before"
-  | "adjust"
-  | "pause"
-  | "stop"
-  | "end"
-  | "status";
-
-export type ShadowProposal = {
-  key: string;
-  contract_id: string;
-  kind: ShadowProposalKind;
-  value: Record<string, unknown>;
-  text: string;
-  months: string[];
-  /** Вопрос: «from»/«month» - с этого месяца или только этот; «end»/«pause» - закончился или стоит. */
-  options: string[];
-  /** Подписи ответов, которых нет в интерфейсе заранее: статусы компании. */
-  labels?: Record<string, string>;
-};
-
-export type ShadowContract = {
-  id: string;
-  number: string;
-  customer: string;
-  executor: string;
-  billing: string;
-  period_day: number | null;
-  start: string | null;
-  why: string;
-  paused: string[];
-  clean: boolean;
-};
-
-export type ShadowUnknown = {
-  key: string;
-  own: string;
-  customer: string;
-  number: string;
-  state: "missing" | "other_client" | "ambiguous";
-  months: string[];
-  amount: string | null;
-  lines: number[];
-  candidates: { id: string; number: string; customer: string }[];
-};
-
-export type ShadowView = {
-  book: { title: string; worksheet: string; read_at: string; url: string; drift: string } | null;
-  error: string;
-  window: string[];
-  counts: Partial<Record<"contracts" | "clean" | "months" | "same" | "verified" | ShadowCode | "unknown" | "proposals", number>>;
-  contracts: Record<string, ShadowContract>;
-  lines: ShadowLine[];
-  proposals: ShadowProposal[];
-  unknown: ShadowUnknown[];
-};
-
-export type BillsShadowCode = "group" | "no_kort" | "no_book" | "kort_issued";
-export type BillGroupKey = "overdue" | "soon" | "early" | "undated";
-
-/** «Не выставлены» KORT против книги (`core/billing.py`), по договору и месяцу. */
-export type BillsShadow = {
-  book: ShadowView["book"];
-  error: string;
-  window: string[];
-  counts: Partial<Record<"same" | "kort_waits" | "book_waits" | BillsShadowCode, number>>;
-  lines: {
-    contract_id: string;
-    month: string;
-    code: BillsShadowCode;
-    kort: { group: BillGroupKey | null; due: string; amount: string | null; bill: { source: string; number: string } | null } | null;
-    book: { group: BillGroupKey | null; text: string; due: string | null; amount: string | null } | null;
-  }[];
-  contracts: Record<string, { id: string; number: string; customer: string; executor: string }>;
-  codes: Record<BillsShadowCode, string>;
-  groups: Record<BillGroupKey, string>;
-};
-
-/** Оборот нашего юрлица к порогу НДС за год (`core/vat.py`). Суммы - без НДС. */
-/** Юрлицо в году: плательщик НДС с начала года, станет с даты, не плательщик (к порогу), режим не записан. */
-export type VatStatus = "payer" | "becomes" | "racing" | "unknown";
-
-/** НДС в назначениях поступлений юрлица за год - довод записать режим, а не режим. */
-export type VatHint = { total: number; with: number; without: number; first: string | null; sample: string };
-
-export type VatEntity = {
-  entity_id: string;
-  code: string;
-  name: string;
-  regime: string;
-  status: VatStatus;
-  /** С какого дня плательщик НДС в этом году. */
-  payer_from: string | null;
-  payer_now: boolean;
-  payer_since: string | null;
-  /** НДС с начала года по текущий месяц. */
-  vat_fact: string;
-  hint: VatHint | null;
-  /** Начислено с начала года по текущий месяц включительно. */
-  fact: string;
-  /** Весь год: начислено и прогноз по условиям договоров до декабря. */
-  forecast: string;
-  vat: string;
-  /** До порога: оборот к нему - до даты постановки на НДС; плательщику с начала года - `null`. */
-  remaining: string | null;
-  /** Месяц, в котором оборот с начала года превысит порог; `null` - не превысит (или плательщик). */
-  crossing: string | null;
-  months: { month: string; net: string; vat: string; acts: string | null; forecast: boolean; contracts: number }[];
-};
-
-export type VatYearView = { year: TaxYear; today: string; entities: VatEntity[] };
-
-export type VatClient = {
-  contract_id: string;
-  number: string;
-  customer_id: string | null;
-  customer: string;
-  monthly: string;
-  rest: string;
-  next: string;
-};
-
-export type VatMove = { contract_id: string; target: string; since: string };
-
-export type VatPreview = {
-  entities: {
-    entity_id: string;
-    code: string;
-    name: string;
-    before: string;
-    after: string;
-    status: VatStatus;
-    /** НДС к концу года до и после перевода - то, что важно плательщику. */
-    vat_before: string;
-    vat_after: string;
-    crossing_before: string | null;
-    crossing_after: string | null;
-  }[];
-  /** Чей это предпросмотр - выбор, для которого считали (клиент). */
-  key?: string;
-};
-
-/** Оплата договора из источника (`core/payments.py`): операция журнала или поступление 1С. */
-export type CorePayment = {
-  key: string;
-  source: "journal" | "1c";
-  paid_at: string;
-  amount: string;
-  /** «За какие месяцы» по источнику: первый и последний. */
-  hint: [string, string] | null;
-  how: string;
-  payer: string;
-  comment: string;
-  contract_ref: string;
-  account: string;
-};
-
-/** Долг, который гасят оплаты: входящее сальдо (`month: "opening"`) или начисление месяца. */
-export type MoneyBucket = {
-  month: string;
-  accrued: string;
-  paid: string;
-  debt: string;
-  /** `hint` - по «за какой месяц», `order` - старейшему долгу, `date` - по месяцу платежа. */
-  parts: { key: string; paid_at: string; amount: string; by: "hint" | "order" | "date" }[];
-};
-
-export type ContractMoney = {
-  /** С какого дня KORT ведёт оплаты; `null` - оплат ещё нет. */
-  since: string | null;
-  /** День компании, на который считан долг. */
-  today: string;
-  opening: MoneyBucket | null;
-  months: MoneyBucket[];
-  over: { key: string; paid_at: string; amount: string; by?: string }[];
-  over_total: string;
-  payments: CorePayment[];
-  paid: string;
-  /** Считает ли KORT начисления договора; нет - долг неизвестен. */
-  accrues: boolean;
-  /** Долг на сегодня: сальдо и начисления к сегодня минус оплаты; минус - аванс; `null` - неизвестен. */
-  debt: string | null;
-};
-
-/** АВР месяца договора в одном источнике (`core/acts.py`). Сумма - только с правом на деньги. */
-export type ActOut = {
-  source: "kort" | "1c" | "book";
-  month: string;
-  number: string;
-  date: string | null;
-  amount: string | null;
-  signed: string | null;
-  accepted: boolean;
-  esf: string | null;
-  esf_sent: boolean;
-  esf_state: string;
-  ref: string;
-};
-
-export type ActCode = "act_no_book" | "act_no_1c" | "act_amount" | "act_signed" | "esf";
-
-/** АВР месяца: выбранный по приоритету (KORT, 1С, книга), где ещё есть и чем 1С и книга расходятся. */
-export type MonthAct = { act: ActOut | null; sources: ActOut["source"][]; codes: ActCode[] };
-
-export type MonthDocKind = "bill" | "act" | "esf";
-
-/** Счёт, АВР или ЭСФ месяца договора, записанные в KORT. */
-export type MonthDoc = {
-  id: string;
-  kind: MonthDocKind;
-  month: string | null;
-  number: string;
-  day: string | null;
-  amount: string | null;
-  signed: string | null;
-  note: string;
-};
-
-export type ContractMonths = {
-  schedule: { kind: "month" | "total" | ""; start: string | null; period_day: number | null; why: string; paused: string[] };
-  months: {
-    month: string;
-    kort: AccrualOut | null;
-    book: BookMonthOut | null;
-    codes: ShadowCode[];
-    paused: boolean;
-    hint?: string;
-    verified?: ShadowDecision | null;
-    /** НДС счёта и АВР месяца - у исполнителя-плательщика на день «Периода с»; иначе пусто. */
-    vat?: { mode: "included" | "on_top" | "none"; rate: string; net: string; vat: string; gross: string } | null;
-  }[];
-  book: boolean;
-  window: string[];
-  proposals: ShadowProposal[];
-  /** Оплаты KORT по месяцам - тем, кому открыты оплаты по выписке. */
-  money?: ContractMoney;
-  /** Счета нашего юрлица договора - для «Пришла оплата»; пусто - команда заведёт счёт сама. */
-  pay_accounts?: { id: string; name: string }[];
-  /** Месяц → вид → документ KORT: цикл месяца в строке месяца. */
-  docs?: Record<string, Partial<Record<MonthDocKind, MonthDoc>>>;
-  /** АВР по месяцам. */
-  acts?: Record<string, MonthAct>;
-  /** День компании, на который построена лента. */
-  today?: string;
-};
-
-export type ActsView = {
-  book: ShadowView["book"];
-  error: string;
-  window: string[];
-  /** Юрлица с подключённой 1С - у них 1С сверяется с книгой. */
-  onec: { id: string; code: string; name: string }[];
-  counts: Partial<Record<"months" | "same" | ActCode, number>>;
-  lines: { contract_id: string; month: string; codes: ActCode[]; onec: ActOut | null; book: ActOut | null }[];
-  unsigned: { contract_id: string; act: ActOut; days: number }[];
-  no_esf: { contract_id: string; act: ActOut; days: number }[];
-  missing: { contract_id: string; month: string }[];
-  contracts: Record<string, { id: string; number: string; customer: string; executor: string }>;
-  codes: Record<ActCode, string>;
-  esf_days: number;
-};
-
-export type PaidShadowCode = "paid" | "paid_no_kort" | "paid_no_book";
-
-/** Поступление журнала без договора - с кандидатами. */
-export type PaymentWithout = {
-  operation_id: string;
-  paid_at: string;
-  amount: string;
-  payer: string;
-  account: string;
-  entity_id: string | null;
-  category: string;
-  comment: string;
-  contract_ref: string;
-  hint: [string, string] | null;
-  disputed: boolean;
-  /** `out` - возврат клиенту, к которому KORT предлагает договор (О6). */
-  direction?: "in" | "out";
-  candidates: {
-    id: string;
-    number: string;
-    customer: string;
-    executor_id: string | null;
-    why: "спор" | "за другого" | "возврат" | "номер" | "клиент" | "сумма";
-  }[];
-  /** Части, как бухгалтер разделил ту же оплату в 1С (О2). */
-  split?: { id: string; number: string; amount: string }[];
-};
-
-/** Основание долга и сальдо: по начислениям (что должен по договору) или по АВР (по выставленным актам). */
-export type DebtBasis = "accruals" | "acts";
-
-export type OpeningPlan = {
-  since: string;
-  items: {
-    contract_id: string;
-    number: string;
-    basis: DebtBasis;
-    amount: string;
-    was: string | null;
-    line: number;
-    state: "new" | "changed" | "remove";
-  }[];
-  counts: Record<"new" | "changed" | "remove" | "same" | "manual", number>;
-  /** По начислениям: долг и аванс на начало учёта. */
-  debt: string;
-  advance: string;
-  /** По АВР. */
-  acts_debt: string;
-  acts_advance: string;
-};
-
-/** Возраст неоплаченного: остаток сальдо «до учёта» и дни от начала периода (даты акта). */
-export type DebtAge = "opening" | "d30" | "d60" | "d90" | "d90plus";
-/** Вторая сторона (клиент, у покупки - поставщик), наше юрлицо, отдел, сотрудник. */
-export type DebtGroup = "client" | "entity" | "department" | "person";
-/** Нам должны; мы должны (покупки); между своими (обе стороны - наши юрлица). */
-export type DebtDirection = "receivable" | "payable" | "intra";
-
-export type DebtContract = {
-  id: string;
-  number: string;
-  /** Вторая сторона: клиент, у покупки - поставщик. */
-  party: string;
-  /** Наше юрлицо договора. */
-  entity: string;
-  /** Доля в процентах, когда в группе не весь договор. */
-  fraction: string | null;
-  /** Долг договора целиком, когда в группе - его доля. */
-  whole: string | null;
-  /** Долг за вычетом аванса; минус - аванс. */
-  debt: string;
-  /** Неоплаченное: долг = неоплаченное минус аванс. */
-  owed: string;
-  aging: Partial<Record<DebtAge, string>>;
-  advance: string | null;
-  paid: string;
-};
-
-export type DebtRow = {
-  key: string;
-  title: string;
-  /** «Не распределено», «доли закрыты», «без отдела» - не отдел и не человек. */
-  special: boolean;
-  debt: string;
-  owed: string;
-  advance: string | null;
-  aging: Partial<Record<DebtAge, string>>;
-  contracts: DebtContract[];
-};
-
-/** Долги по договорам на день (`core/debts.py`). */
-export type DebtsView = {
-  as_of: string;
-  basis: DebtBasis;
-  side: DebtDirection;
-  group: DebtGroup;
-  since: string | null;
-  ages: { key: DebtAge; title: string }[];
-  /** Итог каждой стороны - для переключателя сторон. */
-  sides: Record<DebtDirection, { owed: string; advance: string; contracts: number; unknown: number }>;
-  totals: {
-    /** Долг за вычетом авансов. */
-    debt: string;
-    /** Неоплаченное - сумма корзин возраста. */
-    owed: string;
-    advance: string;
-    aging: Partial<Record<DebtAge, string>>;
-    contracts: number;
-    /** Договоры, долг которых KORT не знает. */
-    unknown: number;
-  };
-  rows: DebtRow[];
-  book: ShadowView["book"];
-  error: string;
-};
-
-/** Колонка ядра в шапке сводной таблицы (`core/book.py`, `layout.inspect_layout`). */
-export type BookColumn = {
-  key: string;
-  title: string;
-  required: boolean;
-  strict: boolean;
-  index: number | null;
-  header: string;
-  /** exact | squashed | loose | missing - как нашлась. */
-  how: string;
-  /** Почему не нашлась: «нет в таблице», несколько похожих, та же колонка у другой. */
-  problem: string;
-  /** Названия ядра. */
-  names: string[];
-  /** Названия компании из словаря. */
-  extra: string[];
-};
-
-export type BookColumnsView = { connected: boolean; header: string[]; columns: BookColumn[]; error: string };
-
-/** Колонка таблицы со словами компании: «Счет» (состояние счёта) или «Вид Услуги» (пост бота). */
-export type TableWordPart = "bill" | "kind";
-
-/** Значение колонки, встреченное в таблице: строк, смысл и откуда он (`core/settings.table_words`). */
-export type TableWordSeen = {
-  text: string;
-  rows: number;
-  /** Смысл: у «Счет» - issued / overdue / soon / early / undated; у «Вида Услуги» - abon / rent / skip; пусто - не знаю. */
-  meaning: string;
-  /** `kort` - KORT понимает сам, `company` - смысл дала компания, `unknown` - KORT не знает этого слова. */
-  how: "kort" | "company" | "unknown";
-};
-
-export type TableWordsView = {
-  titles: Record<string, string>;
-  meanings: Record<TableWordPart, string[]>;
-  seen: Record<TableWordPart, TableWordSeen[]>;
-  error: string;
-};
-
-/** «Первые шаги» (`core/onboarding.py`): что KORT заведёт по сводной таблице - по шагам. */
-export type StartStep = "entities" | "contracts" | "since";
-
-/** Приёмник: форма строки листа (`intake/forms.py`). */
-export type IntakeForm = "participant" | "contract" | "contract_month" | "payment" | "document" | "balance";
-export type IntakeQuestion = {
-  kind: "form" | "hidden" | "column" | "date_order";
-  text: string;
-  options?: { value: string; label: string; example?: string }[];
-  lines?: number[];
-  columns?: number[];
-};
-/** Разметка листа человеком (`intake/layout.py`): форма, колонки, порядок даты, чьи договоры. */
-export type IntakeLayout = {
-  form: string;
-  columns?: Record<string, string>;
-  date_order?: string;
-  executor?: string;
-  department?: string;
-  billing?: string;
-  as_of?: string;
-  month?: string;
-  hidden?: string;
-  skip?: boolean;
-  sheet?: string;
-};
-export type IntakeAnswers = { sheets: Record<string, IntakeLayout>; questions: Record<string, string> };
-export type IntakeFormInfo = { key: IntakeForm; title: string; fields: { key: string; title: string }[] };
-/** Вопрос предложения: разметка листа (`setup`) или данные (`questions`). */
-export type IntakeAsk = {
-  kind: string;
-  key?: string;
-  text: string;
-  sheet?: string;
-  line?: number;
-  layout?: boolean;
-  options?: { value: string; label: string; example?: string }[];
-};
-/** Что лист положит в модель (`core/excel.py`, `Proposal.to_dict`) - и где расходится с KORT. */
-export type IntakeProposal = {
-  sheet: string;
-  form: IntakeForm | "";
-  form_title: string | null;
-  rows: number;
-  setup: IntakeAsk[];
-  questions: IntakeAsk[];
-  refusals: { kind: string; text: string }[];
-  ready: boolean;
-  contracts: {
-    new: number;
-    same: number;
-    fill: number;
-    waiting: number;
-    items: { action: string; line?: number; name?: string; number?: string | null; known?: string; why?: string }[];
-  };
-  parties: Record<string, number>;
-  openings: {
-    as_of: string | null;
-    count: number;
-    debt: string | null;
-    items: { line: number; number: string | null; name: string; amount: string; kort: string | null; state: string; take: boolean }[];
-  };
-  ends: { line: number; number: string | null; name: string; end: string; kort: string | null; state: string }[];
-  compare: { kind: string; line?: number; sheet?: string; name?: string; number?: string | null; month?: string; file?: string | null; kort?: string | null; text?: string }[];
-  missing: string[];
-};
-export type IntakePlan = { file: string; sheets: IntakeProposal[] };
-export type IntakeApplied = IntakePlan & {
-  created: number;
-  filled: number;
-  aliases: number;
-  ended: number;
-  openings: number;
-  blocked: string[];
-  point: { id: string; title: string; kind: string } | null;
-};
-export type IntakeSheet = {
-  sheet: string;
-  form: IntakeForm | null;
-  form_title: string | null;
-  title?: string;
-  header_line?: number | null;
-  rows: number | null;
-  columns: { index: number; header: string; key: string | null; title: string | null; how: string }[];
-  service?: Record<string, number>;
-  hidden?: number[];
-  alternatives?: { form: IntakeForm; title: string; score: number }[];
-  questions: IntakeQuestion[];
-  refusals: { kind: string; text: string }[];
-  note?: string;
-  /** Шапка листа - для разметки; `layout` - разметка, запомненная компанией. */
-  header?: string[];
-  layout?: IntakeLayout;
-  /** Форма, которую кладёт в модель путь таблиц отделов (договор, договор за месяц, остаток на дату). */
-  excel?: boolean;
-};
-export type IntakeFile = { file: string; pdf?: boolean; error?: string; sheets: IntakeSheet[]; forms?: IntakeFormInfo[] };
-
-/** Вход из 1С (`core/onec_start.py`): что заведём из базы - по шагам. */
-export type OnecStartDraft = {
-  key: string;
-  label: string;
-  number: string;
-  customer: string;
-  signed: string | null;
-  /** `documents` - сумма месяца по счетам и актам 1С (аренда с коммунальными по счётчикам). */
-  billing: "month" | "total" | "documents" | "";
-  amount: string | null;
-  billing_from: string | null;
-  changes: { from: string; amount: string | null }[];
-  pauses: { from: string; to: string }[];
-  last_day: string | null;
-  outliers: string[];
-  acts: number;
-  contract_id: string | null;
-  /** Договор другого нашего ТОО, клиента которого перевели на юрлицо базы: с какого числа. */
-  moved_from: string | null;
-  since: string | null;
-};
-export type OnecStartPlan = {
-  /** `files` - база из выгрузок 1С файлами, без поступлений: оплаты - из выписок банка. */
-  base: { id: string; title: string; organization: string; bin: string; files: boolean };
-  entity: { id: string | null; name: string; bin: string };
-  participants: { counts: Partial<Record<"same" | "alias" | "bin" | "create" | "dispute", number>>; items: unknown[] };
-  contracts: {
-    known: number;
-    new: number;
-    /** Заведутся без суммы: в 1С по ним только оплаты. */
-    no_amount?: number;
-    questions: OnecStartDraft[];
-    items: OnecStartDraft[];
-    moves: OnecStartDraft[];
-  };
-  since: { current: string | null; proposed: string | null };
-  openings: { since: string | null; contracts: number; debt: string | null; missing: { party: string; contract: string; opening: string | null; why: string }[]; problems: string[] } | null;
-  payments: { source: "journal" | "1c" | null };
-};
-export type OnecStartStep = "entity" | "participants" | "contracts" | "since" | "payments";
-export type OnecStartAnswer = { end?: string; active?: boolean; pause?: boolean; move?: boolean };
-/** Выгрузка 1С файлами (`onec/files.py`): базы организаций и что в файлах. */
-export type OnecFilesResult = {
-  bases: Record<string, { organization: string; title: string; counts: Partial<Record<"sale" | "invoice", number>> }>;
-  without_bin: string[];
-  upload: {
-    journals: { file: string; sheet: string; kind: "sale" | "invoice"; documents: number; organizations: string[]; problems: string[] }[];
-    parties: number;
-    with_bin: number;
-    osv: { start: string | null; contracts: number; organizations: string[] } | null;
-    organizations: string[];
-    skipped: string[];
-    problems: string[];
-  };
-};
-
-export type StartPlan = {
-  /** Сводная таблица подключена; `book` пуст - ещё читается или отказ (`error`). */
-  connected: boolean;
-  error: string;
-  book: { title: string; worksheet: string; rows: number; matched: number } | null;
-  entities?: { items: { code: string; rows: number; id: string | null }[]; missing: number };
-  contracts?: {
-    total: number;
-    missing: number;
-    missing_rows: number;
-    disputed: number;
-    groups: { key: string; own: string; customer: string; number: string; months: string[]; amount: string | null }[];
-  };
-  since?: { current: string | null; proposed: string };
-  openings?: { since: string; new: number; same: number; debt: string | null };
-  debts?: { owed: string; contracts: number; advance: string } | null;
-};
-
-export type StartDone = {
-  done?: number;
-  codes?: string[];
-  since?: string;
-  point?: { id: string; title: string } | null;
-};
-
-/** Звенья перехода с таблицы на KORT (`core/switch.py`). */
-export type SwitchLinkKey = "accruals" | "bills" | "payments" | "acts" | "saldo";
-/** Откуда звено юрлица: `book` - таблица, `kort` - KORT. */
-export type SwitchSource = "book" | "kort";
-
-export type SwitchSources = {
-  links: { key: SwitchLinkKey; title: string; switchable: boolean }[];
-  /** Звено → наше юрлицо → `kort`; нет в словаре - таблица. */
-  sources: Partial<Record<SwitchLinkKey, Record<string, SwitchSource>>>;
-};
-
-/** Звено у одного нашего юрлица: месяцев договоров сверено и совпало, строк таблицы без договора в KORT. */
-export type SwitchEntity = {
-  id: string;
-  code: string;
-  months: number;
-  same: number;
-  unknown: number;
-  /** Доля совпавших от сверенного вместе со строками без договора, «0.9876»; `null` - сверять нечего. */
-  share: string | null;
-  contracts: number;
-  contracts_same: number;
-  /** Всё совпало и строк без договора нет. */
-  clean: boolean;
-  /** Последние закрытые месяцы окна: сверено (вместе со строками без договора) и совпало. */
-  closed: { month: string; checked: number; same: number }[];
-  /** Готово к переходу: последние закрытые месяцы - без единого расхождения. */
-  ready: boolean;
-  source: SwitchSource;
-};
-
-export type SwitchTally = {
-  link: SwitchLinkKey;
-  title: string;
-  switchable: boolean;
-  window: string[];
-  entities: SwitchEntity[];
-  error: string;
-};
-
-export type SwitchPreview = {
-  entity: { id: string; code: string };
-  source: SwitchSource;
-  counts: {
-    before: number;
-    after: number;
-    appear: number;
-    vanish: number;
-    regroup: number;
-    overdue_before: number;
-    overdue_after: number;
-  };
-  appear: Bill[];
-  vanish: Bill[];
-  regroup: { bill: Bill; before: BillGroup; before_text: string }[];
-};
-
-/** Что станет с «Оплачено» договоров юрлица после перехода оплат (`core/switch.preview_payments`). */
-export type SwitchPaymentsPreview = {
-  entity: { id: string; code: string };
-  source: SwitchSource;
-  counts: { contracts: number; same: number; differ: number; table_only: number; kort_only: number };
-  totals: { table: string; kort: string };
-  items: { id: string; number: string; customer: string; table: string | null; kort: string; code: "differ" | "table_only" | "kort_only" }[];
-};
-
-/** Карта группы (`core/group_map.py`): наши ТОО и что между ними. */
-export type GroupNode = {
-  id: string;
-  code: string;
-  name: string;
-  status: VatStatus;
-  payer_from: string | null;
-  fact: string;
-  forecast: string;
-  vat: string;
-  crossing: string | null;
-};
-
-export type GroupEdge = {
-  kind: "intra" | "transfer";
-  from: string;
-  to: string;
-  contracts: number;
-  /** Договоры между своими - начислено за год к сегодня; перевод - месячная сумма переведённых. */
-  amount: string;
-  numbers?: string[];
-  /** Перевод - с какого месяца. */
-  month?: string;
-};
-
-export type GroupView = {
-  year: number;
-  threshold: string;
-  nodes: GroupNode[];
-  edges: GroupEdge[];
-  people: { id: string; name: string; entities: { code: string; amount: string }[]; total: string }[];
-  people_total: number;
-};
-
-/** Карточка «Сегодня» (`core/today.py`): дело числом и переход в список. */
-export type TodayCardKey = "debts" | "payments" | "acts" | "vat" | "shadow" | "participants";
-
-export type TodayLine = {
-  label: string;
-  amount?: string | null;
-  count?: number;
-  /** «из N» - всего, к чему относится число. */
-  of?: number;
-  /** Месяц события (переход порога НДС). */
-  month?: string;
-  names?: string[];
-  /** Что выбрать в разделе по щелчку на строку - сверх выбора карточки. */
-  go?: Record<string, string>;
-};
-
-export type TodayCard = {
-  key: TodayCardKey;
-  title: string;
-  amount: string | null;
-  count: number | null;
-  unit: string;
-  /** Делать нечего - словами. */
-  empty: string;
-  note: string;
-  lines: TodayLine[];
-  /** Раздел и состояние его экрана (ключи `useSessionState`). */
-  go: { section: string; session: Record<string, string> };
-};
-
-/** Выручка по договорам (`core/revenue.py`): начислено, АВР, оплачено за месяц, поступило. */
-export type RevenueMeasure = "accrued" | "acts" | "paid" | "received";
-export type RevenueGroup = "entity" | "client" | "department" | "person";
-/** Сумма меры за месяц; `null` - KORT этого не знает (оплаты до начала учёта). */
-export type RevenueCell = Record<RevenueMeasure, string | null>;
-
-export type RevenueView = {
-  year: number;
-  months: string[];
-  side: "receivable" | "intra";
-  group: RevenueGroup;
-  since: string | null;
-  /** С какого месяца начисления - прогноз по условиям договоров. */
-  forecast_from: string | null;
-  rows: { key: string; title: string; special: boolean; contracts: number; months: Record<string, RevenueCell>; total: RevenueCell }[];
-  totals: { months: Record<string, RevenueCell>; total: RevenueCell };
-  book: ShadowView["book"];
-  error: string;
-};
-
-/** Сальдо KORT на конец месяца против «Сальдо Конец» сводной таблицы. */
-export type SaldoShadow = {
-  book: ShadowView["book"];
-  error: string;
-  basis: DebtBasis;
-  window: string[];
-  counts: Partial<Record<"contracts" | "same" | "months" | "months_same", number>>;
-  contracts: Record<string, { id: string; number: string; customer: string; executor: string }>;
-  lines: { contract_id: string; diff: string; first: string; months: { month: string; kort: string; book: string; same: boolean }[] }[];
-};
-
-export type PaymentsView = {
-  settings: {
-    since: string | null;
-    since_used: string | null;
-    sources: Record<string, "journal" | "1c">;
-    /** Статьи и плательщики, целиком отмеченные «не оплаты по договорам». */
-    ignore: { categories: string[]; payers: string[] };
-  };
-  entities: { id: string; code: string; name: string; source: "journal" | "1c"; journal: number; onec: number }[];
-  without: PaymentWithout[];
-  /** Сколько поступлений скрыто: переводы своих юрлиц, отмеченное «не оплаты», решённое «не по договору». */
-  without_hidden: { own: number; ignored: number; decided: number; returned?: number; deposit?: number };
-  book: ShadowView["book"];
-  error: string;
-  shadow: {
-    window: string[];
-    since: string | null;
-    counts: Partial<Record<"contracts" | "same" | "months" | "months_same" | PaidShadowCode, number>>;
-    contracts: Record<
-      string,
-      { id: string; number: string; customer: string; executor: string; kort: string; book: string; same: boolean; opening_paid: string | null; over: string | null }
-    >;
-    lines: { contract_id: string; diff: string; months: { month: string; kort: string | null; book: string | null; code: PaidShadowCode | "" }[] }[];
-  } | null;
-  opening: OpeningPlan | null;
-};
-
-/** Адрес сверки с фильтром «по ТОО»; без юрлица - как был. */
-function withEntity(path: string, entity?: string): string {
-  if (!entity) return path;
-  return `${path}${path.includes("?") ? "&" : "?"}entity=${encodeURIComponent(entity)}`;
-}
-
-/** Источник вида: договоры листами, «Долги», «Не выставлены». */
-export type ViewSource = "contracts" | "debts" | "unbilled";
-
-/** Вид - сохранённый вопрос к ядру (`core/views.py`). */
-export type CoreView = {
-  id: string;
-  key: string;
-  title: string;
-  source: ViewSource;
-  owner: ViewOwner;
-  filter: ViewFilter | Record<string, never>;
-  measures: string[];
-  groups: string[];
-  forms: string[];
-  params: Record<string, string>;
-  /** Кому в колонке: всем, владельцу, никому. */
-  pin: "all" | "owner" | "";
-  position: number;
-  template: string;
-  /** Стоит ли в колонке у этого человека. */
-  pinned: boolean;
-  editable: boolean;
-};
-
-export type ViewTemplate = { key: string; title: string; source: ViewSource; note: string; department: boolean };
-
-export type ViewsList = {
-  views: CoreView[];
-  templates: ViewTemplate[];
-  measures: { key: string; title: string; type: string; note: string }[];
-  sources: Record<ViewSource, { title: string; forms: { key: string; title: string }[]; groups: { key: string; title: string }[] }>;
-};
-
-export type ViewChange = {
-  template?: string;
-  title?: string;
-  source?: ViewSource;
-  owner?: "company" | "me" | { department: string };
-  filter?: ViewFilter;
-  measures?: string[];
-  groups?: string[];
-  forms?: string[];
-  params?: Record<string, string>;
-  pin?: "all" | "owner" | "";
-  position?: number;
-};
-
-export const coreApi = {
-  /** Виды компании, которые человек видит, с отметкой «в колонке» (`core/views.py`). */
-  views: () => request<ViewsList>("/core/views"),
-  viewCreate: (change: ViewChange) => request<CoreView>("/core/views", { method: "POST", body: JSON.stringify(change) }),
-  viewUpdate: (id: string, change: ViewChange) =>
-    request<CoreView>(`/core/views/${id}`, { method: "PATCH", body: JSON.stringify(change) }),
-  viewRemove: (id: string) => request<{ ok: boolean }>(`/core/views/${id}`, { method: "DELETE" }),
-  onecStart: (baseId: string) => request<OnecStartPlan>(`/core/onec-start/${baseId}`),
-  onecStartOsv: (baseId: string, file: File) => {
-    const form = new FormData();
-    form.append("file", file);
-    return request<{ start: string | null; contracts: number; opening: string; problems: string[] }>(
-      `/core/onec-start/${baseId}/osv`,
-      { method: "POST", body: form },
-    );
-  },
-  /** Сальдо 1210 на первое число прямо из базы 1С по REST - вместо ОСВ файлом. */
-  onecStartBalances: (baseId: string, day: string) =>
-    request<{ start: string | null; contracts: number; opening: string; problems: string[] }>(
-      `/core/onec-start/${baseId}/balances`,
-      { method: "POST", body: JSON.stringify({ day }) },
-    ),
-  /** 1С без интернета: журналы, контрагенты и ОСВ одной выгрузкой - в базы организаций. */
-  onecFiles: (files: File[]) => {
-    const form = new FormData();
-    for (const file of files) form.append("files", file);
-    return request<OnecFilesResult>("/core/onec-files", { method: "POST", body: form });
-  },
-  onecStartStep: (baseId: string, step: OnecStartStep, answers: Record<string, OnecStartAnswer> = {}) =>
-    request<{ done: number; waiting?: string[]; moved?: string[]; point?: { id: string; title: string; kind: string } | null; missing?: unknown[] }>(
-      `/core/onec-start/${baseId}/${step}`,
-      { method: "POST", body: JSON.stringify({ answers }) },
-    ),
-  /** Приёмник: что KORT видит в каждом листе файла - ничего не пишет. */
-  intake: (file: File) => {
-    const form = new FormData();
-    form.append("file", file);
-    return request<IntakeFile>("/core/intake", { method: "POST", body: form });
-  },
-  /** Что таблица положит в модель по разметке - и где расходится с KORT. Ничего не пишет. */
-  intakePlan: (file: File, answers: IntakeAnswers) => {
-    const form = new FormData();
-    form.append("file", file);
-    form.append("answers", JSON.stringify(answers));
-    return request<IntakePlan>("/core/intake/plan", { method: "POST", body: form });
-  },
-  /** Завести из таблицы пачкой с точкой восстановления; разметка запоминается словарём компании. */
-  intakeApply: (file: File, answers: IntakeAnswers) => {
-    const form = new FormData();
-    form.append("file", file);
-    form.append("answers", JSON.stringify(answers));
-    return request<IntakeApplied>("/core/intake/apply", { method: "POST", body: form });
-  },
-  list: (q: string, show: ParticipantsShow = "all", init?: RequestInit) =>
-    request<{ items: ParticipantHit[]; total: number }>(
-      `/core/participants?q=${encodeURIComponent(q)}&show=${show}`,
-      init,
-    ),
-  overview: () => request<ParticipantsOverview>("/core/participants-overview"),
-  duplicates: () => request<{ groups: TwinGroup[] }>("/core/participants/duplicates"),
-  proposals: () => request<{ items: BinProposal[]; book: boolean }>("/core/participants/proposals"),
-  dossier: (id: string) => request<Dossier>(`/core/participants/${id}`),
-  setBin: (id: string, bin: string, source: AliasSource = "manual") =>
-    request<{ id: string; bin: string; kind: ParticipantKind }>(`/core/participants/${id}/bin`, {
-      method: "PUT",
-      body: JSON.stringify({ bin, source }),
-    }),
-  rejectBin: (id: string, bin: string) =>
-    request<{ ok: boolean }>(`/core/participants/${id}/bin/reject`, { method: "POST", body: JSON.stringify({ bin }) }),
-  update: (id: string, body: { full_name?: string }) =>
-    request<{ id: string; full_name: string }>(`/core/participants/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  addAlias: (id: string, name: string, source: AliasSource = "manual") =>
-    request<{ aliases: ParticipantAlias[] }>(`/core/participants/${id}/aliases`, {
-      method: "POST",
-      body: JSON.stringify({ name, source }),
-    }),
-  removeAlias: (id: string, aliasId: string) =>
-    request<{ aliases: ParticipantAlias[] }>(`/core/participants/${id}/aliases/${aliasId}`, { method: "DELETE" }),
-  merge: (keep: string, drop: string) =>
-    request<{ keep: string; moved: Record<string, number>; point: string; title: string }>("/core/participants/merge", {
-      method: "POST",
-      body: JSON.stringify({ keep, drop }),
-    }),
-  distinct: (ids: string[]) =>
-    request<{ ok: boolean }>("/core/participants/distinct", { method: "POST", body: JSON.stringify({ ids }) }),
-  harvestPreview: () => request<HarvestResult>("/core/participants-harvest"),
-  harvestApply: () => request<HarvestResult>("/core/participants-harvest", { method: "POST" }),
-  addTaxPeriod: (entityId: string, body: { valid_from: string; regime: TaxPeriod["regime"]; vat_payer: boolean; note?: string }) =>
-    request<{ periods: TaxPeriod[] }>(`/core/entities/${entityId}/tax`, { method: "POST", body: JSON.stringify(body) }),
-  removeTaxPeriod: (entityId: string, periodId: string) =>
-    request<{ periods: TaxPeriod[] }>(`/core/entities/${entityId}/tax/${periodId}`, { method: "DELETE" }),
-  taxYears: () => request<{ items: TaxYear[] }>("/core/tax-years"),
-  setTaxYear: (year: number, body: { mrp: string; threshold_mrp: number; vat_rate: string; forecast?: boolean; note?: string }) =>
-    request<TaxYear>(`/core/tax-years/${year}`, { method: "PUT", body: JSON.stringify(body) }),
-  /** Сверки звеньев; `entity` - одно наше юрлицо, как его считает «Переход». */
-  shadow: (entity?: string) => request<ShadowView>(withEntity("/core/shadow", entity)),
-  shadowBills: (entity?: string) => request<BillsShadow>(withEntity("/core/shadow/bills", entity)),
-  vat: (year: number) => request<VatYearView>(`/core/vat?year=${year}`),
-  vatClients: (year: number, entity: string) =>
-    request<{ items: VatClient[] }>(`/core/vat/clients?year=${year}&entity=${encodeURIComponent(entity)}`),
-  vatPreview: (year: number, moves: VatMove[]) =>
-    request<VatPreview>("/core/vat/preview", { method: "POST", body: JSON.stringify({ year, moves }) }),
-  vatTransfer: (year: number, moves: VatMove[]) =>
-    request<{ done: number; skipped: string[]; point: { id: string; title: string; kind: string } | null }>(
-      "/core/vat/transfer",
-      { method: "POST", body: JSON.stringify({ year, moves }) },
-    ),
-  apply: (body: { contract_id: string; kind: ShadowProposalKind; value: Record<string, unknown>; option?: string }) =>
-    request<{ ok: boolean; text: string }>("/core/shadow/apply", { method: "POST", body: JSON.stringify(body) }),
-  applyAll: (kind: "billing" | "period_day" | "billing_from") =>
-    request<{ done: number; skipped: string[]; point: { id: string; title: string; kind: string } | null }>(
-      "/core/shadow/apply-all",
-      { method: "POST", body: JSON.stringify({ kind }) },
-    ),
-  createFromBook: (key: string) =>
-    request<{ id: string; number: string }>("/core/shadow/create", { method: "POST", body: JSON.stringify({ key }) }),
-  verify: (contractId: string, month: string) =>
-    request<{ ok: boolean; id: string; text: string }>("/core/shadow/verify", {
-      method: "POST",
-      body: JSON.stringify({ contract_id: contractId, month }),
-    }),
-  /** «Верно у KORT» вместо предложения: его расходящиеся месяцы без решения. */
-  verifyProposal: (contractId: string, months: string[]) =>
-    request<{ ok: boolean; text: string; batch: string; done: number }>("/core/shadow/verify-proposal", {
-      method: "POST",
-      body: JSON.stringify({ contract_id: contractId, months }),
-    }),
-  unverify: (documentId: string) =>
-    request<{ ok: boolean; text: string }>(`/core/shadow/verify/${documentId}`, { method: "DELETE" }),
-  /** «Верно у KORT» разом - месяцы, где таблица ошиблась в периоде; `entity` - как у сверки. */
-  verifySlips: (entity?: string) =>
-    request<{ done: number; contracts: number; batch: string | null; skipped: string[] }>("/core/shadow/verify-slips", {
-      method: "POST",
-      body: JSON.stringify({ entity: entity || null }),
-    }),
-  unverifyBatch: (batch: string) =>
-    request<{ done: number; skipped: string[] }>(`/core/shadow/verify-batch/${batch}`, { method: "DELETE" }),
-  months: (contractId: string) => request<ContractMonths>(`/core/contracts/${contractId}/months`),
-  setAdjustment: (contractId: string, body: { month: string; amount?: string | null; skip?: boolean; reason: string }) =>
-    request<{ id: string }>(`/core/contracts/${contractId}/adjustments`, { method: "POST", body: JSON.stringify(body) }),
-  removeAdjustment: (contractId: string, documentId: string) =>
-    request<{ ok: boolean }>(`/core/contracts/${contractId}/adjustments/${documentId}`, { method: "DELETE" }),
-  statusFrom: (contractId: string, body: { status_id: string; effective_from: string; summary?: string }) =>
-    request<{ id: string }>(`/core/contracts/${contractId}/status-from`, { method: "POST", body: JSON.stringify(body) }),
-  payments: (entity?: string) => request<PaymentsView>(withEntity("/core/payments", entity)),
-  acts: (entity?: string) => request<ActsView>(withEntity("/core/acts", entity)),
-  paymentSettings: (body: { since?: string | null; entity_id?: string; source?: "journal" | "1c" }) =>
-    request<PaymentsView["settings"]>("/core/payments/settings", { method: "PUT", body: JSON.stringify(body) }),
-  paymentsOpening: () =>
-    request<{ done: number; documents: number; point: { id: string; title: string; kind: string } | null }>(
-      "/core/payments/opening",
-      { method: "POST" },
-    ),
-  paymentIgnore: (kind: "categories" | "payers", name: string, on: boolean) =>
-    request<PaymentsView["settings"]>("/core/payments/ignore", { method: "PUT", body: JSON.stringify({ kind, name, on }) }),
-  paymentDecide: (operationId: string, body: { action: "link" | "none" | "auto"; contract_id?: string }) =>
-    request<{ operation_id: string; action: string; contract_id: string | null }>(`/core/payments/${operationId}/decide`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-  paymentSplit: (operationId: string, parts: { contract_id: string; amount: string }[]) =>
-    request<{ operation_id: string; parts: { contract_id: string; amount: string }[] }>(`/core/payments/${operationId}/split`, {
-      method: "POST",
-      body: JSON.stringify({ parts }),
-    }),
-  setOpening: (contractId: string, amount: string | null, basis: DebtBasis = "accruals") =>
-    request<{ ok: boolean }>(`/core/contracts/${contractId}/opening`, { method: "PUT", body: JSON.stringify({ amount, basis }) }),
-  /** `view` - вид «Долги» (`core/views.py`): долги только договоров под его отбором. */
-  debts: (params: { as_of?: string; group: DebtGroup; basis: DebtBasis; side: DebtDirection; view?: string }, init?: RequestInit) => {
-    const query = new URLSearchParams({ group: params.group, basis: params.basis, side: params.side });
-    if (params.as_of) query.set("as_of", params.as_of);
-    if (params.view) query.set("view", params.view);
-    return request<DebtsView>(`/core/debts?${query.toString()}`, init);
-  },
-  debtsShadow: (basis: DebtBasis, entity?: string) => request<SaldoShadow>(withEntity(`/core/debts/shadow?basis=${basis}`, entity)),
-  revenue: (params: { year: number; group: RevenueGroup; side: RevenueView["side"] }, init?: RequestInit) =>
-    request<RevenueView>(`/core/revenue?year=${params.year}&group=${params.group}&side=${params.side}`, init),
-  today: (key: TodayCardKey, init?: RequestInit) => request<TodayCard>(`/core/today/${key}`, init),
-  /** Разделы колонки, где у компании нет ни одной строки (`core/usage.py`). */
-  usage: () => request<{ empty: string[] }>("/core/usage"),
-  group: (year: number) => request<GroupView>(`/core/group?year=${year}`),
-  /** Слова компании в колонках «Счет» и «Вид Услуги» (фаза 9, R12-R13). */
-  tableWords: () => request<TableWordsView>("/core/table-words"),
-  setTableWord: (part: TableWordPart, word: string, meaning: string) =>
-    request<TableWordsView>("/core/table-words", { method: "PUT", body: JSON.stringify({ part, word, meaning }) }),
-  /** «Первые шаги» (фаза 9): план по сводной таблице и шаги записи. */
-  start: () => request<StartPlan>("/core/start"),
-  startStep: (step: StartStep, since?: string) =>
-    request<StartDone>(`/core/start/${step}`, { method: "POST", body: JSON.stringify(since ? { since } : {}) }),
-  /** «Переход» (фаза 10): звенья и какое звено какого юрлица уже ведётся в KORT. */
-  switchSources: () => request<SwitchSources>("/core/switch"),
-  /** Одно звено по нашим юрлицам - своим запросом: сверка читает всю таблицу. */
-  switchLink: (link: SwitchLinkKey, init?: RequestInit) => request<SwitchTally>(`/core/switch/${link}`, init),
-  /** Что станет после перехода: «Счета → Не выставлены» юрлица или «Оплачено» его договоров. */
-  switchPreview: (entityId: string, source: SwitchSource) =>
-    request<SwitchPreview>(`/core/switch/bills/${entityId}/preview?source=${source}`),
-  switchPaymentsPreview: (entityId: string, source: SwitchSource) =>
-    request<SwitchPaymentsPreview>(`/core/switch/payments/${entityId}/preview?source=${source}`),
-  setSwitch: (link: SwitchLinkKey, entityId: string, source: SwitchSource) =>
-    request<{ sources: SwitchSources["sources"] }>(`/core/switch/${link}/${entityId}`, {
-      method: "PUT",
-      body: JSON.stringify({ source }),
-    }),
-  /** Словарь колонок сводной таблицы (фаза 9): шапка и как нашлась каждая колонка ядра. */
-  bookColumns: () => request<BookColumnsView>("/core/book/columns"),
-  setBookColumn: (key: string, name: string, on: boolean) =>
-    request<BookColumnsView>("/core/book/columns", { method: "PUT", body: JSON.stringify({ key, name, on }) }),
-  /** Досье нашего ТОО «в цифрах»: НДС и оборот за год, кто ему должен (`core/group_map.py`). */
-  entityNumbers: (entityId: string) =>
-    request<{
-      year: number;
-      vat: {
-        status: VatStatus;
-        payer_from: string | null;
-        fact: string;
-        forecast: string;
-        vat: string;
-        vat_fact: string;
-        remaining: string | null;
-        crossing: string | null;
-      } | null;
-      debts: { owed: string; d90plus: string; advance: string; contracts: number };
-    }>(`/core/entities/${entityId}/numbers`),
-  searchContracts: (q: string, init?: RequestInit) =>
-    request<{
-      items: { id: string; number: string; customer: string; executor: string; status: string; by: "number" | "client" }[];
-    }>(`/core/search/contracts?q=${encodeURIComponent(q)}`, init),
-};
-
 /**
  * Привычки учётки (`app/finance/habits.py`): какой вид раздела у человека по
  * умолчанию. `keepalive` - отчёт при закрытии вкладки долетает и после неё.
@@ -3514,159 +2185,5 @@ export const habitsApi = {
       method: "POST",
       body: JSON.stringify(body),
       keepalive,
-    }),
-};
-// ── API модели (`/finance/model`): вызовы ядра вместо маршрутов под экраны ──
-
-/** Команда «применить»: имя и параметры (`GET /finance/model` → commands). */
-export type ModelCommand = { command: string; params: Record<string, unknown> };
-
-/** Вариант ответа на вопрос: пачка команд и то, чего не хватает от человека (`needs`). */
-export type QuestionOption = {
-  key: string;
-  title: string;
-  hint: string;
-  commands: ModelCommand[];
-  needs: { param: string; type: "contract"; title: string }[];
-  /** Открыт ли вариант спрашивающему - закрытый виден, но не нажимается. */
-  open: boolean;
-  /** Не команда, а место, где решают (сверка с таблицей). */
-  place?: string;
-};
-
-/** Вопрос очереди «решить» (`model/questions.py`). */
-export type ModelQuestion = {
-  key: string;
-  kind: "payment" | "participant_bin" | "participant_twins" | "reconcile";
-  title: string;
-  text: string;
-  reason: string;
-  day: string | null;
-  amount: Money | null;
-  direction: "in" | "out" | null;
-  party: string;
-  count?: number;
-  objects: { type: "operation" | "contract" | "participant"; id: string; title?: string; day?: string; amount?: Money; comment?: string }[];
-  options: QuestionOption[];
-  /** Вариант, который KORT предлагает сам: так разделил бухгалтер в 1С, номер один и свободен. */
-  suggested: string | null;
-};
-
-export type QuestionsAnswer = {
-  rows: ModelQuestion[];
-  /** Сколько вопросов вида всего (`count`) и сколько пришло списком (`shown`): остальные - в своём разделе. */
-  kinds: Record<string, { count: number; shown: number; hidden?: Record<string, number>; empty?: string }>;
-};
-
-/** Куда ведёт пункт: вопрос «спросить» или место, у которого источника пока нет. */
-export type ModelOpen = { source: string; params?: Record<string, string> } | { place: string };
-
-/** Пункт «под угрозой» - числа ядра, те же, что в разделах. */
-export type AttentionItem = {
-  key: "cash" | "vat" | "debts" | "unbilled" | "acts";
-  title: string;
-  amount: Money | null;
-  count: number | null;
-  unit: string;
-  lines: { label: string; amount?: Money | null; count?: number; of?: number; open?: ModelOpen }[];
-  empty: string;
-  note: string;
-  open: ModelOpen | null;
-};
-
-export type ArrivedAnswer = {
-  since: string;
-  rows: { kind: string; source: string; title: string; count: number; amount: Money | null }[];
-  payments: { count: number; amount: Money | null; placed: number; without: number };
-  latest: {
-    kind: string;
-    source: string;
-    title: string;
-    day: string | null;
-    amount: Money | null;
-    contract: { id: string; number: string } | null;
-    party: string;
-  }[];
-  totals: { facts: number };
-};
-
-/** Первые шаги компании: шаг пройден по данным - юрлицо с БИН, договор, деньги из любого источника. */
-export type HomeStartStep = {
-  key: "entity" | "contracts" | "since" | "money";
-  title: string;
-  done: boolean;
-  text: string;
-  /** Наше юрлицо, которому чего-то не хватает, и чего (у шага «Наше юрлицо»). */
-  entity?: string | null;
-  needs?: { bin: boolean; regime: boolean } | null;
-  /** Предложенные ответы шага «Начало учёта»: первое начисление и этот месяц. */
-  first?: string;
-  current?: string;
-};
-
-export type HomeStartAnswer = { rows: HomeStartStep[]; done: boolean };
-
-export type ModelDescribe = {
-  version: string;
-  today: string;
-  home: {
-    questions: string[];
-    attention: string[];
-    arrived: boolean;
-    start?: boolean;
-    documents: { open: boolean; views: string[] };
-  };
-  commands: { name: string; title: string; open: boolean }[];
-  cursor: string;
-};
-
-/** Предложение: что сделает пачка, прогоном с откатом - до записи. */
-export type ModelProposal = {
-  ready: boolean;
-  /** Отпечаток договоров пачки: поменялись до «применить» - придёт новое предложение. */
-  base: string;
-  commands: { command: number; name: string; title: string; contracts: string[] }[];
-  problems: { command: number; name: string; detail: string; code: string }[];
-  changes: {
-    id: string;
-    number?: string;
-    created?: boolean;
-    deleted?: boolean;
-    fields?: Record<string, { before: unknown; after: unknown }>;
-    debt?: { before: Money | null; after: Money | null };
-  }[];
-};
-
-export type ModelApplied = {
-  commands: { command: number; name: string; title: string; contracts: string[]; result?: Record<string, unknown> }[];
-  point: { id: string; title: string } | null;
-  cursor: string;
-};
-
-const MODEL_HEADERS = { "Content-Type": "application/json", "X-Kort-Model": "1.7" };
-
-export const modelApi = {
-  describe: () => request<ModelDescribe>("/model/describe", { headers: MODEL_HEADERS }),
-  ask: <T>(question: Record<string, unknown>, init?: RequestInit) =>
-    request<T>("/model/ask", { method: "POST", headers: MODEL_HEADERS, body: JSON.stringify(question), ...init }),
-  questions: (kind: string, init?: RequestInit) =>
-    modelApi.ask<QuestionsAnswer>({ source: "questions", params: { kind } }, init),
-  attention: (item: string, init?: RequestInit) =>
-    modelApi.ask<{ rows: AttentionItem[] }>({ source: "attention", params: { item } }, init),
-  arrived: (since: string, init?: RequestInit) => modelApi.ask<ArrivedAnswer>({ source: "arrived", params: { since } }, init),
-  start: (init?: RequestInit) => modelApi.ask<HomeStartAnswer>({ source: "start" }, init),
-  propose: (commands: ModelCommand[]) =>
-    request<ModelProposal>("/model/propose", { method: "POST", headers: MODEL_HEADERS, body: JSON.stringify({ commands }) }),
-  apply: (commands: ModelCommand[], expect?: string) =>
-    request<ModelApplied>("/model/apply", {
-      method: "POST",
-      headers: MODEL_HEADERS,
-      body: JSON.stringify(expect ? { commands, expect } : { commands }),
-    }),
-  undo: (point: string) =>
-    request<{ title: string; done: string[]; skipped: string[] }>("/model/undo", {
-      method: "POST",
-      headers: MODEL_HEADERS,
-      body: JSON.stringify({ point }),
     }),
 };

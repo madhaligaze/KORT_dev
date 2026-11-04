@@ -95,16 +95,10 @@ export function BillCardDialog({
   id,
   onClose,
   onSaved,
-  noTable = false,
-  onNext,
 }: {
   id: string;
   onClose: () => void;
   onSaved: () => void;
-  /** У компании нет сводной таблицы - о «строке в таблице» молчать. */
-  noTable?: boolean;
-  /** Следующий счёт списка: выставляют их подряд, а не закрывая и открывая окно. */
-  onNext?: () => void;
 }) {
   const [card, setCard] = useState<BillCard | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -150,8 +144,6 @@ export function BillCardDialog({
   const issued = Boolean(book?.fields.bill_no);
   const pending = form && start && book ? changes(form, start, book) : {};
   const dirty = Object.keys(pending).length > 0;
-  // Юрлицо ведёт счета в KORT, а строки в таблице нет - счёт пишется в KORT.
-  const where = book?.kort ? "в KORT" : "в таблице";
 
   const write = async (values: Partial<Form>, what: "save" | "clear") => {
     if (!book || !bill) return;
@@ -167,18 +159,17 @@ export function BillCardDialog({
       setStart(initial);
       setConfirmClear(false);
       const after = saved.book.fields;
-      const into = saved.book.kort ? "в KORT" : "в таблицу";
       const line = !saved.changed.length
-        ? `${saved.book.kort ? "В KORT" : "В таблице"} уже так - записывать нечего.`
+        ? "В таблице уже так - записывать нечего."
         : what === "clear"
-          ? `Отметка снята: «№ Счета» и дата ${saved.book.kort ? "в KORT" : "в таблице"} стёрты.`
+          ? "Отметка снята: «№ Счета» и дата в таблице стёрты."
           : after.bill_no && !book.fields.bill_no
-            ? `Записано ${into}: счёт № ${after.bill_no}${after.bill_date ? ` от ${after.bill_date}` : ""}.`
-            : `Записано ${into}.`;
+            ? `Записано в таблицу: счёт № ${after.bill_no}${after.bill_date ? ` от ${after.bill_date}` : ""}.`
+            : "Записано в таблицу.";
       setDone(saved.warning ? `${line} ${saved.warning}` : line);
       if (saved.changed.length) onSaved();
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Не записалось");
+      setError(exc instanceof Error ? exc.message : "В таблицу не записалось");
     } finally {
       setBusy(false);
     }
@@ -187,7 +178,7 @@ export function BillCardDialog({
   const submit = () => {
     if (!form) return;
     if (!issued && !form.bill_no.trim()) {
-      setError(book?.kort ? "Впишите № счёта" : "Впишите № счёта - по нему таблица ставит «Счет»");
+      setError("Впишите № счёта - по нему таблица ставит «Счет»");
       return;
     }
     if (form.bill_no.trim() && !form.bill_date) {
@@ -214,9 +205,7 @@ export function BillCardDialog({
         ...(bill.signed_at ? ([["Договор от", bill.signed_at]] as Array<[string, string]>) : []),
         ["Оплата", PAID[bill.paid]],
         ...(bill.status ? ([["Статус договора", bill.status]] as Array<[string, string]>) : []),
-        bill.source === "kort"
-          ? ["Счёт по KORT", book?.kort ? (book.fields.bill_no ? "выставлен" : bill.text || "-") : bill.text || "-"]
-          : ["«Счет» в таблице", book ? book.state || "-" : bill.text || "-"],
+        ["«Счет» в таблице", book ? book.state || "-" : bill.text || "-"],
       ]
     : [];
 
@@ -240,7 +229,7 @@ export function BillCardDialog({
         {loadError ? (
           <p className="text-sm fin-bill-fail">{loadError}</p>
         ) : !card || !bill ? (
-          <p className="text-sm fin-muted">{noTable ? "Читаем счёт…" : "Ищем строку в таблице юрлица…"}</p>
+          <p className="text-sm fin-muted">Ищем строку в таблице юрлица…</p>
         ) : (
           <div className="flex flex-col gap-3">
             <p className="text-xs fin-bill-sub">
@@ -256,13 +245,7 @@ export function BillCardDialog({
               ))}
             </dl>
 
-            {book?.kort ? (
-              <p className="text-xs fin-bill-sub">
-                {noTable
-                  ? "Счёт месяца - по условиям договора: № и дата записываются в KORT."
-                  : "Строки в таблице нет: счёт месяца начисляет KORT, и записывается он в KORT."}
-              </p>
-            ) : book ? (
+            {book ? (
               <p className="text-xs fin-bill-sub">
                 {book.place.book} · вкладка «{book.place.tab}» ·{" "}
                 <a href={book.place.url} target="_blank" rel="noreferrer" className="fin-link-btn">
@@ -303,11 +286,6 @@ export function BillCardDialog({
                   );
                 })}
 
-                {done && onNext ? (
-                  <button type="button" className="btn-ghost self-start" onClick={onNext}>
-                    Следующий счёт
-                  </button>
-                ) : null}
                 {editable ? (
                   <div className="flex flex-wrap items-center gap-2 mt-1">
                     <button
@@ -316,7 +294,7 @@ export function BillCardDialog({
                       disabled={busy || !dirty}
                       onClick={submit}
                     >
-                      {busy ? "Записываем…" : book.kort ? "Записать в KORT" : "Записать в таблицу"}
+                      {busy ? "Записываем…" : "Записать в таблицу"}
                     </button>
                     {issued ? (
                       <button
@@ -330,7 +308,7 @@ export function BillCardDialog({
                         }
                         onBlur={() => setConfirmClear(false)}
                       >
-                        {confirmClear ? `Стереть № и дату ${where}?` : "Снять отметку"}
+                        {confirmClear ? "Стереть № и дату в таблице?" : "Снять отметку"}
                       </button>
                     ) : null}
                   </div>

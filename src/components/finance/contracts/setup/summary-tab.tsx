@@ -15,8 +15,6 @@
 import { useState } from "react";
 
 import { contractsApi } from "@/components/finance/api";
-import { BookColumns } from "@/components/finance/core/book-columns";
-import { TableWords } from "@/components/finance/core/table-words";
 import { ensureSummary, useRegistry } from "@/components/finance/contracts/store";
 import { useSetupAction } from "@/components/finance/contracts/setup/use-setup-action";
 import { formatTime } from "@/components/finance/format";
@@ -35,11 +33,7 @@ export function SummaryTab() {
     setResult("");
     const ok = await action.run("connect", async () => {
       const done = await contractsApi.setup.connectSummary(link.trim(), sheet.trim());
-      setResult(
-        done.problem
-          ? `Таблица подключена, но не читается: ${done.problem}. Назовите колонки в «Колонках для ядра» ниже.`
-          : `Прочитано строк: ${done.rows}${done.drift ? ` · таблицу поправили: ${done.drift}` : ""}`,
-      );
+      setResult(`Прочитано строк: ${done.rows}${done.drift ? ` · таблицу поправили: ${done.drift}` : ""}`);
     });
     if (ok) {
       setLink("");
@@ -74,10 +68,6 @@ export function SummaryTab() {
               {action.error("disconnect")}
             </p>
           ) : null}
-          {/* Словарь колонок компании для ядра (фаза 9): своё название колонки - к названию ядра. */}
-          <BookColumns />
-          {/* Слова компании в «Счет» и «Вид Услуги» (фаза 9): незнакомому слову - смысл. */}
-          <TableWords />
         </div>
       ) : null}
 

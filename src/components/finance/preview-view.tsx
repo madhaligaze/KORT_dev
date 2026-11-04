@@ -6,7 +6,6 @@ import {
   type Account,
   type ImportAnswer,
   type ImportPreview,
-  type ImportQuestion,
   type ImportRow,
   type SuggestedAccount,
   financeApi,
@@ -69,13 +68,6 @@ export function PreviewView({
   const [fixed, setFixed] = useState<Set<number>>(new Set());
   /** Счёт для разом всех отложенных строк, которым его не хватает. */
   const [bulkAccount, setBulkAccount] = useState("");
-  /**
-   * Чьими из наших юрлиц заводить недостающие счета. Предложение - юрлицо,
-   * названное в счёте целиком («Kaspi Юр. ТОО "BBC HR"»); выбирает человек.
-   * По юрлицу счёта оплата на него находит договоры этого юрлица.
-   */
-  const [owners, setOwners] = useState<Record<string, string>>({});
-  const ownerOf = (name: string) => owners[name] ?? preview.accounts_entities?.[name] ?? "";
 
   const answer = async (patch: ImportAnswer) => {
     setBusy(true);
@@ -96,37 +88,20 @@ export function PreviewView({
    * счёт»). Без него это второй свой счёт из переводов: депозит, на который
    * уходили деньги, - перечитывание превращает отложенные строки в переводы.
    */
-  const createAccount = async (
-    entry: {
-      name: string;
-      number: string;
-      currency?: string;
-      group_entity_id?: string | null;
-      starting_balance?: string | null;
-    },
-    pick: boolean,
-  ) => {
+  const createAccount = async (entry: { name: string; number: string; currency?: string }, pick: boolean) => {
     const name = entry.name.trim();
     if (!name) return;
     setBusy(true);
     setError("");
     try {
-      // Счёт выписки рождается с её юрлицом и остатком на первый день: без юрлица
-      // оплаты на него не находили договоры нашего ТОО, а остаток, предложенный
-      // мелкой строкой, не записывали - календарь считал деньги с нуля.
       await financeApi.createAccount({
         name,
         kind: "bank",
         number: entry.number,
         ...(entry.currency ? { currency: entry.currency } : {}),
-        ...(entry.group_entity_id ? { group_entity_id: entry.group_entity_id } : {}),
-        ...(entry.starting_balance ? { starting_balance: entry.starting_balance } : {}),
       });
       onApplied();
-      const next = await reload(pick ? { default_account: name } : {});
-      setPreview(next);
-      // Счёт выписки завели - значит, её и заводим: второй кнопки человек не ждёт.
-      if (pick && !next.question && next.rows.some((row) => row.state === "imported")) await apply(undefined, next);
+      setPreview(await reload(pick ? { default_account: name } : {}));
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Счёт не завёлся");
     } finally {
@@ -134,11 +109,11 @@ export function PreviewView({
     }
   };
 
-  const apply = async (lines?: number[], target: ImportPreview = preview) => {
+  const apply = async (lines?: number[]) => {
     setBusy(true);
     setError("");
     try {
-      const done = await financeApi.applyBatch(target.batch_id, lines ? { lines } : {});
+      const done = await financeApi.applyBatch(preview.batch_id, lines ? { lines } : {});
       setResult(
         `Завели ${done.imported} ${plural(done.imported, "операцию", "операции", "операций")}` +
           (done.failed ? `, отложено ${done.failed}` : "") +
@@ -148,8 +123,8 @@ export function PreviewView({
           // видно: иначе следующая выписка «сама» ляжет на счёт без объяснений.
           (done.remembered ? ` · счёту «${done.remembered.account}» записан номер ${done.remembered.number}` : ""),
       );
-      const fresh = await financeApi.importBatch(target.batch_id);
-      setPreview({ ...target, rows: fresh.rows as ImportRow[] });
+      const fresh = await financeApi.importBatch(preview.batch_id);
+      setPreview({ ...preview, rows: fresh.rows as ImportRow[] });
       onApplied();
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Не удалось завести операции");
@@ -170,8 +145,7 @@ export function PreviewView({
     setError("");
     try {
       for (const name of preview.accounts_missing) {
-        const owner = ownerOf(name);
-        await financeApi.createAccount({ name, kind: "bank", ...(owner ? { group_entity_id: owner } : {}) });
+        await financeApi.createAccount({ name, kind: "bank" });
       }
       setPreview(await reload({}));
       onApplied();
@@ -246,10 +220,6 @@ export function PreviewView({
    * «загружу ещё раз» и «всё на месте».
    */
   const duplicate = preview.rows.filter((row) => row.state === "duplicate");
-  /** Сколько строк ляжет на счёт из вопроса: готовые и ждущие только счёта. */
-  const amounts = ready.length + needAccount.length;
-  /** Статьи - только если они есть: пустая колонка «Категория» ничего не говорит. */
-  const withCategory = ready.some((row) => (row.values as Record<string, unknown>).category);
 
   return (
     <>
@@ -287,7 +257,7 @@ export function PreviewView({
               key={preview.question.create.number || "new"}
               suggestion={preview.question.create}
               busy={busy}
-              label={`Завести счёт и ${amounts} ${plural(amounts, "операцию", "операции", "операций")}`}
+              label="Завести и загрузить"
               onCreate={(entry) => void createAccount(entry, true)}
             />
           ) : null}
@@ -322,10 +292,9 @@ export function PreviewView({
           </span>
         )}
         <span style={{ flex: 1 }} />
-        {/* Выписка записана - дальше вопросы по ней на «Сегодня». Прежняя «Разметить статьи» вела туда же. */}
         {result && onNext ? (
-          <button type="button" className="btn-primary btn-sm" onClick={onNext}>
-            На «Сегодня»
+          <button type="button" className="btn-ghost text-xs" onClick={onNext}>
+            Разметить статьи
           </button>
         ) : null}
         <button type="button" className="btn-ghost text-xs" onClick={onReset}>
@@ -411,34 +380,7 @@ export function PreviewView({
 
       {preview.accounts_missing.length ? (
         <div className="fin-card p-3 flex flex-col gap-2">
-          <p className="fin-issue-text">
-            Счетов нет в справочнике
-            {preview.entities?.length ? "" : `: ${preview.accounts_missing.join(", ")}`}
-          </p>
-          {preview.entities?.length ? (
-            <div className="flex flex-col gap-1">
-              {preview.accounts_missing.map((name) => (
-                <div key={name} className="fin-acc-row import-owner-row">
-                  <span className="fin-acc-name">{name}</span>
-                  <select
-                    className="input-field"
-                    style={{ width: "auto" }}
-                    aria-label={`Чей счёт «${name}»`}
-                    value={ownerOf(name)}
-                    disabled={busy}
-                    onChange={(event) => setOwners((was) => ({ ...was, [name]: event.target.value }))}
-                  >
-                    <option value="">ничей</option>
-                    {preview.entities?.map((entity) => (
-                      <option key={entity.id} value={entity.id}>
-                        {entity.code || entity.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ))}
-            </div>
-          ) : null}
+          <p className="fin-issue-text">Счетов нет в справочнике: {preview.accounts_missing.join(", ")}</p>
           {/* Счёт из файла сам не заводится - место, где лежат деньги, не должно
               появляться из опечатки. Но и вбивать двадцать два счёта книги
               руками незачем: список перед глазами, решение за человеком. */}
@@ -535,7 +477,7 @@ export function PreviewView({
                 <th style={{ textAlign: "right" }}>Сумма</th>
                 <th>Вид</th>
                 <th>Счёт</th>
-                {withCategory ? <th>Категория</th> : null}
+                <th>Категория</th>
                 <th>Контрагент</th>
                 <th>Комментарий</th>
               </tr>
@@ -566,7 +508,7 @@ export function PreviewView({
                         ? `${values.account_from || "-"} → ${values.account_to || "-"}`
                         : values.account_to || values.account_from || "-"}
                     </td>
-                    {withCategory ? <td>{values.category || "-"}</td> : null}
+                    <td>{values.category || "-"}</td>
                     <td>{values.counterparty || "-"}</td>
                     <td style={{ whiteSpace: "normal", maxWidth: "16rem" }}>{values.comment || ""}</td>
                   </tr>
@@ -705,19 +647,12 @@ function NewAccount({
   label,
   onCreate,
 }: {
-  suggestion: NonNullable<ImportQuestion["create"]>;
+  suggestion: { name: string; number: string; currency: string };
   busy: boolean;
   label: string;
-  onCreate: (entry: NonNullable<ImportQuestion["create"]>) => void;
+  onCreate: (entry: { name: string; number: string; currency: string }) => void;
 }) {
   const [name, setName] = useState(suggestion.name);
-  // Что получит новый счёт, кроме номера, - словами до нажатия, а не сюрпризом в отчёте.
-  const extra = [
-    suggestion.owner ? `счёт ${suggestion.owner}` : "",
-    suggestion.starting_balance && suggestion.period_start
-      ? `остаток на ${formatDate(suggestion.period_start)} по выписке - ${formatMoney(suggestion.starting_balance)}`
-      : "",
-  ].filter(Boolean);
   return (
     <div className="flex flex-wrap items-center gap-2 pt-1">
       <input
@@ -741,11 +676,6 @@ function NewAccount({
       >
         {label}
       </button>
-      {extra.length ? (
-        <span className="text-xs basis-full" style={{ color: "var(--text-secondary)" }}>
-          {extra.join(" · ")}
-        </span>
-      ) : null}
     </div>
   );
 }
@@ -866,10 +796,8 @@ function BankCard({
         </div>
       ) : null}
       {check.can_set_start && check.opening_balance !== null ? (
-        // Глаголом: подпись «Начальный остаток «счёт» - 500 000» читалась как
-        // уже записанный факт, и её не нажимали (проход новичка 31.10).
         <button type="button" className="btn-ghost text-xs self-start mt-2" disabled={busy} onClick={onSetStart}>
-          Записать {formatMoney(check.opening_balance)} начальным остатком «{check.account}»
+          Начальный остаток «{check.account}» - {formatMoney(check.opening_balance)}
         </button>
       ) : null}
     </div>

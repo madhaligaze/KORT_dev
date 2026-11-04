@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { modelApi, supportApi, type Me } from "@/components/finance/api";
+import { supportApi, type Me } from "@/components/finance/api";
 import { CloseIcon } from "@/components/icons";
 import { gsap, prefersReducedMotion, useGSAP } from "@/components/motion/gsap";
 import { SupportChat } from "@/components/support/chat";
@@ -102,12 +102,7 @@ export function SupportLayer({ me, onRefresh }: { me: Me; onRefresh: () => void 
           void supportApi.notice({ seen_on: today }).catch(() => undefined);
           return;
         }
-        // Первые шаги не перебиваем: новому человеку окно о поддержке раньше первого
-        // договора только мешало. День не засчитан - покажется, когда шаги пройдены.
-        void modelApi
-          .start()
-          .then((answer) => setNotice(answer.done))
-          .catch(() => setNotice(true));
+        setNotice(true);
       }, NOTICE_DELAY_MS);
     };
     check();
