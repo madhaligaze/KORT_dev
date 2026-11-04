@@ -433,7 +433,52 @@ export function TableView({
     return () => window.clearTimeout(id);
   }, [beat]);
 
+  /**
+   * Лист журнала открывается с конца, как реестр (`sheet-adapter.goBottom`):
+   * курсор - в первой пустой строке под последней записью, она у нижнего края,
+   * над ней - последние записи месяца. Вписывают новое и сверяют свежее, а не
+   * листают тысячу строк от начала месяца. Своё место человека
+   * (`univer/place.ts`) важнее: вернулся - лист там, где он его оставил.
+   */
+  const apiRef = useRef<UniverApi | null>(null);
+  const goBottom = useCallback((restored: boolean) => {
+    const api = apiRef.current;
+    const mine = current.current;
+    if (restored || !api || !mine) return;
+    const ws = api.getActiveWorkbook?.()?.getActiveSheet?.();
+    if (!ws) return;
+    const row = mine.payload.rows.length + 1;
+    const column = Math.max(0, mine.payload.columns.findIndex((item) => item.key === "paid_at"));
+    const scroll = (top: number) =>
+      api.syncExecuteCommand?.("sheet.command.scroll-view", {
+        sheetViewStartRow: Math.max(1, top),
+        sheetViewStartColumn: 0,
+        offsetX: 0,
+        offsetY: 0,
+      });
+    try {
+      ws.getRange(row, column, 1, 1).activate?.();
+      scroll(row);
+    } catch {
+      return; // лист ещё не измерил себя - останется в начале
+    }
+    // Сколько строк помещается, видно только после прокрутки: одна поправка
+    // по факту, пустая строка - вторая снизу.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        try {
+          const visible = ws.getVisibleRange?.() as { startRow: number; endRow: number } | null;
+          const top = Number((ws.getScrollState?.() as { sheetViewStartRow?: number } | undefined)?.sheetViewStartRow ?? 0);
+          if (visible) scroll(row + 1 - (visible.endRow - visible.startRow) - (visible.startRow - top));
+        } catch {
+          /* останется, где встала */
+        }
+      }),
+    );
+  }, []);
+
   const onReady = useCallback((api: UniverApi) => {
+    apiRef.current = api;
     const disposers: Array<() => void> = [];
     // Карта этого листа. Не `current.current` в момент правки: если лист
     // пересоберут, старый обработчик обязан работать со своими строками, а не
@@ -908,9 +953,10 @@ export function TableView({
             key={`journal|${sheet?.generation ?? 0}|${remount}`}
             data={workbook}
             onReady={onReady}
+            onStart={goBottom}
             listEdit={false}
             formatting="look"
-            session="journal"
+            session={`journal.${month || "all"}`}
           />
         ) : null}
       </div>

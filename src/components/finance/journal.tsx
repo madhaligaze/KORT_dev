@@ -309,7 +309,9 @@ export function Journal({ revision, onChanged, canEdit, canTable, canTableEdit }
         </div>
       </div>
 
-      {months.length || view === "table" ? (
+      {/* Полоса месяцев - у листа, как вкладки месяцев в таблицах BBC; в «Записях»
+          месяц - поле в ряду отборов, рядом с юрлицом и счётом (владелец, 05.11.2026). */}
+      {view === "table" && canTable ? (
         <nav className="jr-months" aria-label="Месяц движения денег">
           {months.map((item) => (
             <button
@@ -346,6 +348,14 @@ export function Journal({ revision, onChanged, canEdit, canTable, canTableEdit }
       ) : (
         <>
           <div className="jr-filters">
+            <select className="input-field" value={month || ALL} onChange={(event) => setMonth(event.target.value)} aria-label="Месяц">
+              {months.map((item) => (
+                <option key={item.month} value={item.month}>
+                  {item.title} · {item.count}
+                </option>
+              ))}
+              <option value={ALL}>Весь журнал</option>
+            </select>
             <select className="input-field" value={firm} onChange={(event) => { setFirm(event.target.value); setAccount(""); }} aria-label="Юрлицо">
               <option value="">Все юрлица</option>
               {(dicts?.firms ?? []).map((item) => (

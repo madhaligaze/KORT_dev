@@ -4987,7 +4987,7 @@ button.cab-row:focus-visible { outline: 2px solid var(--fin-text); outline-offse
 .jr-month:focus-visible { outline: 2px solid var(--fin-text); outline-offset: 2px; }
 .jr-month-n { font-size: 0.6875rem; color: var(--fin-text-soft); font-weight: 400; }
 
-.jr-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 13rem)) minmax(12rem, 1fr); gap: 0.5rem; }
+.jr-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 13rem)) minmax(12rem, 1fr); gap: 0.5rem; }
 @media (max-width: 899.98px) { .jr-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .jr-sums { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.5rem 2rem; }
