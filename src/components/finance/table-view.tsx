@@ -62,8 +62,8 @@ const JOURNAL_REFUSALS: Partial<Record<StructureKind, SheetWarningSpec>> = {
   removeRows: {
     title: "Строку журнала не удалить отсюда",
     lines: [
-      "Строка - это операция с деньгами: её удаляют в «Журнале» списком - кнопкой «Удалить» у строки операции.",
-      "Удалённая операция остаётся в корзине кабинета - её можно вернуть.",
+      "Строка - это запись журнала с деньгами: её удаляют в «Записях» - кнопкой «Удалить» в карточке записи.",
+      "Удалённая запись остаётся в корзине кабинета - её можно вернуть.",
     ],
   },
   insertCols: {
@@ -353,11 +353,14 @@ export function TableView({
   onChanged,
   refresh = 0,
   canEdit = true,
+  month = "",
 }: {
   onChanged: () => void;
   refresh?: number;
   /** Право правки раздела «Таблица». Нет - лист только для чтения. */
   canEdit?: boolean;
+  /** Месяц журнала («2026-06»): лист показывает тот же месяц, что и записи. Пусто - весь журнал. */
+  month?: string;
 }) {
   const [sheet, setSheet] = useState<Mounted | null>(null);
   const [error, setError] = useState("");
@@ -399,7 +402,7 @@ export function TableView({
   useEffect(() => {
     let alive = true;
     financeApi
-      .grid({})
+      .grid({ month: month || undefined })
       .then((next) => {
         if (!alive) return;
         generation.current += 1;
@@ -412,7 +415,9 @@ export function TableView({
     return () => {
       alive = false;
     };
-  }, [refresh]);
+  }, [refresh, month]);
+  const monthRef = useRef(month);
+  monthRef.current = month;
 
   /**
    * Сообщение гаснет само.
@@ -532,7 +537,7 @@ export function TableView({
     /** Строку успели поправить в другом окне: показать свежую и не гадать. */
     const refetch = async (sheetRow: number, id: string) => {
       try {
-        const fresh = (await financeApi.grid({})).rows.find((row) => row.id === id) ?? null;
+        const fresh = (await financeApi.grid({ month: monthRef.current || undefined })).rows.find((row) => row.id === id) ?? null;
         if (fresh) mine.rows.set(sheetRow, fresh);
         writeRow(sheetRow, fresh);
       } catch {
@@ -572,6 +577,16 @@ export function TableView({
         // становится датой, «1 500,5» - суммой с разрядами, и на экране ровно
         // то, что в учёте.
         writeRow(sheetRow, out.row);
+        // Перевод - две строки листа: правка суммы на одной стороне видна и
+        // на второй сразу, а не со следующим опросом.
+        for (const sibling of out.rows ?? []) {
+          if (sibling.id === out.row.id) continue;
+          const at = mine.ids.get(sibling.id);
+          if (at !== undefined) {
+            mine.rows.set(at, sibling);
+            writeRow(at, sibling);
+          }
+        }
         tally.saved += 1;
         tally.lastRow = sheetRow;
       } catch (exc) {
@@ -599,10 +614,9 @@ export function TableView({
       // напечатанной ячейки читается как каприз, хотя человек просто ещё не
       // дописал. Говорим, чего не хватает, - ровным тоном, это не ошибка.
       const missing: string[] = [];
-      if (!filled("paid_at")) missing.push("дата платежа");
-      if (!filled("amount")) missing.push("сумма");
-      if (!filled("account_from") && !filled("account_to"))
-        missing.push("счёт: «Со счёта» - расход, «На счёт» - поступление");
+      if (!filled("paid_at")) missing.push("дата");
+      if (!filled("account")) missing.push("счёт");
+      if (!filled("income") && !filled("expense")) missing.push("сумма в «Приходе» или «Расходе»");
       if (missing.length) {
         tally.missing = `строка ${shown(sheetRow)}: не хватает - ${missing.join(", ")}`;
         return;
@@ -929,9 +943,6 @@ export function TableView({
             Сбросить мой вид
           </button>
         ) : null}
-        <a className="btn-ghost text-xs" href={financeApi.exportJournalUrl({})} download>
-          Скачать в Excel
-        </a>
       </div>
     </div>
   );

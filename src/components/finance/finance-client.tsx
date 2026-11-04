@@ -296,8 +296,9 @@ const GROUPS: { title: string; items: SectionItem[] }[] = [
   {
     title: "Учёт",
     items: [
+      // «Таблица» - второй вид журнала (у заголовка журнала «Записи · Таблица»),
+      // а не свой пункт: один журнал, два вида (04.11.2026).
       { key: "journal", title: "Журнал", icon: ListIcon, resource: "journal" },
-      { key: "table", title: "Таблица", icon: TableIcon, resource: "table" },
       { key: "calendar", title: "Календарь", icon: CalendarIcon, resource: "calendar" },
       { key: "invoices", title: "Счета", icon: ReceiptIcon, resource: "invoices" },
       { key: "recurrences", title: "Повторения", icon: RepeatIcon, resource: "recurrences" },
@@ -336,6 +337,7 @@ const GROUPS: { title: string; items: SectionItem[] }[] = [
  * своё видит каждый, а вкладки людей решают права `people` и `audit`.
  */
 const HIDDEN_SECTIONS: SectionItem[] = [
+  { key: "table", title: "Таблица", icon: TableIcon, resource: "table" },
   { key: "contracts-sheet", title: "Реестр", icon: ContractGridIcon, resource: "contracts" },
   { key: "contracts-oneoff", title: "Разовые", icon: ContractGridIcon, resource: "contracts" },
   { key: "contracts-import", title: "Загрузка реестра", icon: UploadIcon, resource: "contracts" },
@@ -1025,7 +1027,15 @@ export function FinanceClient() {
     if (!dictionaries) return null;
     switch (section) {
       case "journal":
-        return <Journal dictionaries={dictionaries} revision={revision} onChanged={reload} />;
+        return (
+          <Journal
+            revision={revision}
+            onChanged={reload}
+            canEdit={can(me, "journal", "edit")}
+            canTable={can(me, "table")}
+            canTableEdit={can(me, "table", "edit")}
+          />
+        );
       case "table":
         return <TableView onChanged={reload} refresh={sheetRefresh} canEdit={can(me, "table", "edit")} />;
       case "calendar":
@@ -1119,28 +1129,6 @@ export function FinanceClient() {
     );
   }
 
-  /**
-   * Новая операция - у заголовка «Журнала», а не в шапке: сервисом пользуются
-   * отделы, которым записывать деньги незачем. Только при праве правки
-   * журнала; без права кнопок нет вовсе, а не пустое место (фронт-план, 3.3).
-   * «Перевод» на телефоне не прячется: перевод из кассы на счёт - обычная
-   * работа кассира.
-   */
-  const operationActions =
-    section === "journal" && can(me, "journal", "edit") ? (
-      <div className="fin-ops" role="group" aria-label="Новая операция">
-        {/* Имена кнопок прежние - «+ Доход» и т. д.: по ним их находят проверки. */}
-        <button type="button" className="fin-op" data-kind="income" onClick={() => setDialog({ kind: "income", plan: false })}>
-          <span className="fin-op-sign">+</span> Доход
-        </button>
-        <button type="button" className="fin-op" data-kind="expense" onClick={() => setDialog({ kind: "expense", plan: false })}>
-          <span className="fin-op-sign">−</span> Расход
-        </button>
-        <button type="button" className="fin-op" onClick={() => setDialog({ kind: "transfer", plan: false })}>
-          <span className="fin-op-sign">⇄</span> Перевод
-        </button>
-      </div>
-    ) : null;
 
   return (
     <SessionScope scope={sessionScope}>
@@ -1200,9 +1188,9 @@ export function FinanceClient() {
           </button>
         ) : null}
 
-        {/* «+ Доход / − Расход / ⇄ Перевод» здесь больше нет (28.09.2026): шапку
-            видят все отделы, а записывать деньги - дело финансов. Кнопки - у
-            заголовка «Журнала», см. `operationActions` выше. */}
+        {/* «+ Приход / − Расход / ⇄ Перевод» здесь больше нет (28.09.2026): шапку
+            видят все отделы, а записывать деньги - дело финансов. Кнопки - в
+            самом журнале, у «Записи · Таблица» (`journal.tsx`). */}
         {/* Поддержка - у всех, кто вошёл, и без единого открытого раздела. */}
         <SupportButton unread={supportUnread} onOpen={openSupport} />
         {money ? (
@@ -1454,14 +1442,6 @@ export function FinanceClient() {
               </nav>
               <RegistryActions book={registry.book} onGo={goFromRegistry} />
             </div>
-          ) : operationActions ? (
-            // Журнал: справа от заголовка - новая операция.
-            <div className="fin-title-bar">
-              <SplitReveal key={`title-${section}`} as="h1" className="fin-section-title" duration={0.9}>
-                {sectionItem?.title ?? ""}
-              </SplitReveal>
-              {operationActions}
-            </div>
           ) : (
             <SplitReveal key={`title-${section}`} as="h1" className="fin-section-title" duration={0.9}>
               {sectionItem?.title ?? ""}
@@ -1481,8 +1461,6 @@ export function FinanceClient() {
               </button>
             ))}
           </nav>
-          {/* На узком окне заголовка нет - кнопки встают своим рядом под лентой. */}
-          {operationActions ? <div className="fin-ops-row">{operationActions}</div> : null}
           {registry ? (
             <nav className="fin-modes" aria-label="Вид реестра">
               {registry.modes.map((mode) => (
